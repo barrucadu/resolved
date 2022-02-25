@@ -19,11 +19,11 @@ use std::slice;
 /// See section 4.1 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Message {
-    header: Header,
-    questions: Vec<Question>,
-    answers: Vec<ResourceRecord>,
-    authority: Vec<ResourceRecord>,
-    additional: Vec<ResourceRecord>,
+    pub header: Header,
+    pub questions: Vec<Question>,
+    pub answers: Vec<ResourceRecord>,
+    pub authority: Vec<ResourceRecord>,
+    pub additional: Vec<ResourceRecord>,
 }
 
 impl Message {
@@ -124,11 +124,11 @@ pub struct Header {
     /// kind of query.  This identifier is copied the corresponding
     /// reply and can be used by the requester to match up replies to
     /// outstanding queries.
-    id: u16,
+    pub id: u16,
 
     /// A one bit field that specifies whether this message is a query
     /// (0), or a response (1).
-    is_response: bool,
+    pub is_response: bool,
 
     /// A four bit field that specifies kind of query in this message.
     /// This value is set by the originator of a query and copied into
@@ -141,7 +141,7 @@ pub struct Header {
     /// - `2` a server status request (`STATUS`)
     ///
     /// - `3-15` reserved for future use
-    opcode: Opcode,
+    pub opcode: Opcode,
 
     /// Authoritative Answer - this bit is valid in responses, and
     /// specifies that the responding name server is an authority for
@@ -151,23 +151,23 @@ pub struct Header {
     /// owner names because of aliases.  The AA bit corresponds to the
     /// name which matches the query name, or the first owner name in
     /// the answer section.
-    is_authoritative: bool,
+    pub is_authoritative: bool,
 
     /// TrunCation - specifies that this message was truncated due to
     /// length greater than that permitted on the transmission
     /// channel.
-    is_truncated: bool,
+    pub is_truncated: bool,
 
     /// Recursion Desired - this bit may be set in a query and is
     /// copied into the response.  If RD is set, it directs the name
     /// server to pursue the query recursively.  Recursive query
     /// support is optional.
-    recursion_desired: bool,
+    pub recursion_desired: bool,
 
     /// Recursion Available - this be is set or cleared in a response,
     /// and denotes whether recursive query support is available in
     /// the name server.
-    recursion_available: bool,
+    pub recursion_available: bool,
 
     /// Response code - this 4 bit field is set as part of responses.
     /// The values have the following interpretation:
@@ -195,23 +195,23 @@ pub struct Header {
     ///       for particular data.
     ///
     /// - `6-15` Reserved for future use.
-    rcode: Rcode,
+    pub rcode: Rcode,
 
     /// an unsigned 16 bit integer specifying the number of entries in
     /// the question section.
-    qdcount: u16,
+    pub qdcount: u16,
 
     /// an unsigned 16 bit integer specifying the number of resource
     /// records in the answer section.
-    ancount: u16,
+    pub ancount: u16,
 
     /// an unsigned 16 bit integer specifying the number of name
     /// server resource records in the authority records section.
-    nscount: u16,
+    pub nscount: u16,
 
     /// an unsigned 16 bit integer specifying the number of
     /// resource records in the additional records section.
-    arcount: u16,
+    pub arcount: u16,
 }
 
 impl Header {
@@ -292,17 +292,17 @@ pub struct Question {
     /// octets.  The domain name terminates with the zero length octet
     /// for the null label of the root.  Note that this field may be
     /// an odd number of octets; no padding is used.
-    name: DomainName,
+    pub name: DomainName,
 
     /// a two octet code which specifies the type of the query.  The
     /// values for this field include all codes valid for a TYPE
     /// field, together with some more general codes which can match
     /// more than one type of RR.
-    qtype: QueryType,
+    pub qtype: QueryType,
 
     /// a two octet code that specifies the class of the query.  For
     /// example, the QCLASS field is IN for the Internet.
-    qclass: QueryClass,
+    pub qclass: QueryClass,
 }
 
 impl Question {
@@ -356,21 +356,21 @@ impl Question {
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
-    name: DomainName,
+    pub name: DomainName,
 
     /// A combination of the RTYPE and RDATA fields
-    rtype_with_data: RecordTypeWithData,
+    pub rtype_with_data: RecordTypeWithData,
 
     /// two octets which specify the class of the data in the RDATA
     /// field.
-    rclass: RecordClass,
+    pub rclass: RecordClass,
 
     /// a 32 bit unsigned integer that specifies the time interval (in
     /// seconds) that the resource record may be cached before it
     /// should be discarded.  Zero values are interpreted to mean that
     /// the RR can only be used for the transaction in progress, and
     /// should not be cached.
-    ttl: u32,
+    pub ttl: u32,
 }
 
 impl ResourceRecord {
@@ -633,7 +633,7 @@ impl Rcode {
 /// or shorter in total, including both length and label octets.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct DomainName {
-    octets: Vec<u8>,
+    pub octets: Vec<u8>,
 }
 
 impl DomainName {
