@@ -63,6 +63,38 @@ impl Message {
             additional,
         })
     }
+
+    pub fn serialise_for_udp(self) -> Vec<u8> {
+        let mut serialised = self.serialise_for_tcp();
+
+        if serialised.len() > 512 {
+            // set TC flag and shrink to fit
+            serialised[3] |= 0b00000010;
+            serialised.resize(512, 0);
+        }
+
+        serialised
+    }
+
+    pub fn serialise_for_tcp(self) -> Vec<u8> {
+        let mut buffer = WritableBuffer::default();
+
+        self.header.serialise(&mut buffer);
+        for question in self.questions {
+            question.serialise(&mut buffer);
+        }
+        for rr in self.answers {
+            rr.serialise(&mut buffer);
+        }
+        for rr in self.authority {
+            rr.serialise(&mut buffer);
+        }
+        for rr in self.additional {
+            rr.serialise(&mut buffer);
+        }
+
+        buffer.octets
+    }
 }
 
 /// Common header type for all messages.
@@ -207,6 +239,31 @@ impl Header {
             arcount,
         })
     }
+
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        let flags1 = (if self.is_response { 0b10000000 } else { 0 })
+            | (0b01111000 & (self.opcode.to_u8() << 3))
+            | (if self.is_authoritative { 0b00000100 } else { 0 })
+            | (if self.is_truncated { 0b00000010 } else { 0 })
+            | (if self.recursion_desired {
+                0b00000001
+            } else {
+                0
+            });
+        let flags2 = (if self.recursion_available {
+            0b1000000
+        } else {
+            0
+        }) | (0b00001111 & self.rcode.to_u8());
+
+        buffer.write_u16(self.id);
+        buffer.write_u8(flags1);
+        buffer.write_u8(flags2);
+        buffer.write_u16(self.qdcount);
+        buffer.write_u16(self.ancount);
+        buffer.write_u16(self.nscount);
+        buffer.write_u16(self.arcount);
+    }
 }
 
 /// The question section has a list of questions (usually 1 but
@@ -259,6 +316,12 @@ impl Question {
             qtype,
             qclass,
         })
+    }
+
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        self.name.serialise(buffer);
+        self.qtype.serialise(buffer);
+        self.qclass.serialise(buffer);
     }
 }
 
@@ -388,6 +451,78 @@ impl ResourceRecord {
             ttl,
         })
     }
+
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        let (rtype, rdata) = match self.rtype_with_data {
+            RecordTypeWithData::Uninterpreted { rtype, octets } => (rtype, octets),
+            RecordTypeWithData::Named { rtype, name } => (rtype, name.octets),
+            RecordTypeWithData::MINFO { rmailbx, emailbx } => {
+                let mut octets = Vec::with_capacity(rmailbx.octets.len() + emailbx.octets.len());
+                for octet in rmailbx.octets {
+                    octets.push(octet)
+                }
+                for octet in emailbx.octets {
+                    octets.push(octet)
+                }
+                (RecordType::MINFO, octets)
+            }
+            RecordTypeWithData::MX {
+                preference,
+                exchange,
+            } => {
+                let mut octets = Vec::with_capacity(2 + exchange.octets.len());
+                for octet in preference.to_be_bytes() {
+                    octets.push(octet)
+                }
+                for octet in exchange.octets {
+                    octets.push(octet)
+                }
+                (RecordType::MX, octets)
+            }
+            RecordTypeWithData::SOA {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => {
+                let mut octets =
+                    Vec::with_capacity(mname.octets.len() + rname.octets.len() + 4 + 4 + 4 + 4 + 4);
+                for octet in mname.octets {
+                    octets.push(octet)
+                }
+                for octet in rname.octets {
+                    octets.push(octet)
+                }
+                for octet in serial.to_be_bytes() {
+                    octets.push(octet)
+                }
+                for octet in refresh.to_be_bytes() {
+                    octets.push(octet)
+                }
+                for octet in retry.to_be_bytes() {
+                    octets.push(octet)
+                }
+                for octet in expire.to_be_bytes() {
+                    octets.push(octet)
+                }
+                for octet in minimum.to_be_bytes() {
+                    octets.push(octet)
+                }
+                (RecordType::SOA, octets)
+            }
+        };
+
+        self.name.serialise(buffer);
+        rtype.serialise(buffer);
+        self.rclass.serialise(buffer);
+        buffer.write_u32(self.ttl);
+        // TODO: remove use of unwrap
+        buffer.write_u16(rdata.len().try_into().unwrap());
+        buffer.write_octets(rdata);
+    }
 }
 
 /// A record type with its associated data.  This is so any pointers
@@ -439,6 +574,15 @@ impl Opcode {
             _ => Opcode::Reserved(octet),
         }
     }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Opcode::Standard => 0,
+            Opcode::Inverse => 1,
+            Opcode::Status => 2,
+            Opcode::Reserved(octet) => octet,
+        }
+    }
 }
 
 /// What sort of response this is.
@@ -463,6 +607,18 @@ impl Rcode {
             4 => Rcode::NotImplemented,
             5 => Rcode::Refused,
             _ => Rcode::Reserved(octet),
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Rcode::NoError => 0,
+            Rcode::FormatError => 1,
+            Rcode::ServerFailure => 2,
+            Rcode::NameError => 3,
+            Rcode::NotImplemented => 4,
+            Rcode::Refused => 5,
+            Rcode::Reserved(octet) => octet,
         }
     }
 }
@@ -522,6 +678,13 @@ impl DomainName {
             Err(ProtocolError::DomainTooLong(id))
         }
     }
+
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        // TODO: implement compression - this'll need some extra state
+        // in the WritableBuffer to keep track of previously-written
+        // domains and labels.
+        buffer.write_octets(self.octets);
+    }
 }
 
 /// Query types are a superset of record types.
@@ -542,6 +705,10 @@ impl QueryType {
         Self::from_u16(value).ok_or(ProtocolError::UnknownQueryType(id))
     }
 
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        buffer.write_u16(self.to_u16());
+    }
+
     pub fn from_u16(value: u16) -> Option<Self> {
         match value {
             252 => Some(QueryType::AXFR),
@@ -549,6 +716,16 @@ impl QueryType {
             254 => Some(QueryType::MAILA),
             255 => Some(QueryType::Wildcard),
             _ => RecordType::from_u16(value).map(QueryType::Record),
+        }
+    }
+
+    pub fn to_u16(self) -> u16 {
+        match self {
+            QueryType::AXFR => 252,
+            QueryType::MAILB => 253,
+            QueryType::MAILA => 254,
+            QueryType::Wildcard => 255,
+            QueryType::Record(rtype) => rtype.to_u16(),
         }
     }
 }
@@ -568,10 +745,21 @@ impl QueryClass {
         Self::from_u16(value).ok_or(ProtocolError::UnknownQueryClass(id))
     }
 
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        buffer.write_u16(self.to_u16());
+    }
+
     pub fn from_u16(value: u16) -> Option<Self> {
         match value {
             255 => Some(QueryClass::Wildcard),
             _ => RecordClass::from_u16(value).map(QueryClass::Record),
+        }
+    }
+
+    pub fn to_u16(self) -> u16 {
+        match self {
+            QueryClass::Wildcard => 255,
+            QueryClass::Record(rclass) => rclass.to_u16(),
         }
     }
 }
@@ -605,6 +793,10 @@ impl RecordType {
         Self::from_u16(value).ok_or(ProtocolError::UnknownRecordType(id))
     }
 
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        buffer.write_u16(self.to_u16());
+    }
+
     pub fn from_u16(value: u16) -> Option<Self> {
         match value {
             1 => Some(RecordType::A),
@@ -626,6 +818,27 @@ impl RecordType {
             _ => None,
         }
     }
+
+    pub fn to_u16(self) -> u16 {
+        match self {
+            RecordType::A => 1,
+            RecordType::NS => 2,
+            RecordType::MD => 3,
+            RecordType::MF => 4,
+            RecordType::CNAME => 5,
+            RecordType::SOA => 6,
+            RecordType::MB => 7,
+            RecordType::MG => 8,
+            RecordType::MR => 9,
+            RecordType::NULL => 10,
+            RecordType::WKS => 11,
+            RecordType::PTR => 12,
+            RecordType::HINFO => 13,
+            RecordType::MINFO => 14,
+            RecordType::MX => 15,
+            RecordType::TXT => 16,
+        }
+    }
 }
 
 /// Record classes are used by resource records and by queries.
@@ -645,6 +858,10 @@ impl RecordClass {
         Self::from_u16(value).ok_or(ProtocolError::UnknownRecordClass(id))
     }
 
+    pub fn serialise(self, buffer: &mut WritableBuffer) {
+        buffer.write_u16(self.to_u16());
+    }
+
     pub fn from_u16(value: u16) -> Option<Self> {
         match value {
             1 => Some(RecordClass::IN),
@@ -652,6 +869,15 @@ impl RecordClass {
             3 => Some(RecordClass::CH),
             4 => Some(RecordClass::HS),
             _ => None,
+        }
+    }
+
+    pub fn to_u16(self) -> u16 {
+        match self {
+            RecordClass::IN => 1,
+            RecordClass::CS => 2,
+            RecordClass::CH => 3,
+            RecordClass::HS => 4,
         }
     }
 }
@@ -740,5 +966,42 @@ impl<'a> ConsumableBuffer<'a> {
 
     pub fn at_offset(&self, offset: usize) -> ConsumableBuffer<'a> {
         Self::new(&self.octets[offset..])
+    }
+}
+
+/// A buffer which can be written to, for serialisation purposes.
+pub struct WritableBuffer {
+    octets: Vec<u8>,
+}
+
+impl Default for WritableBuffer {
+    fn default() -> Self {
+        Self {
+            octets: Vec::with_capacity(512),
+        }
+    }
+}
+
+impl WritableBuffer {
+    pub fn write_u8(&mut self, octet: u8) {
+        self.octets.push(octet);
+    }
+
+    pub fn write_u16(&mut self, value: u16) {
+        for octet in value.to_be_bytes() {
+            self.octets.push(octet);
+        }
+    }
+
+    pub fn write_u32(&mut self, value: u32) {
+        for octet in value.to_be_bytes() {
+            self.octets.push(octet);
+        }
+    }
+
+    pub fn write_octets(&mut self, octets: Vec<u8>) {
+        for octet in octets {
+            self.octets.push(octet);
+        }
     }
 }
