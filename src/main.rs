@@ -1,11 +1,11 @@
 pub mod protocol;
 
-use async_std::net::UdpSocket;
-use async_std::task;
+use tokio::net::UdpSocket;
 
 use crate::protocol::{ConsumableBuffer, Message, ProtocolError};
 
-async fn async_main() {
+#[tokio::main]
+async fn main() {
     let socket = UdpSocket::bind("127.0.0.1:53")
         .await
         .expect("could not bind socket");
@@ -54,8 +54,4 @@ async fn async_main() {
             }
         }
     }
-}
-
-fn main() {
-    task::block_on(async_main());
 }
