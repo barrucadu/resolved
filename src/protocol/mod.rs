@@ -95,6 +95,52 @@ impl Message {
 
         buffer.octets
     }
+
+    pub fn make_response(query: Self) -> Self {
+        Self {
+            header: Header {
+                id: query.header.id,
+                is_response: true,
+                opcode: query.header.opcode,
+                is_authoritative: false,
+                is_truncated: false,
+                recursion_desired: query.header.recursion_desired,
+                recursion_available: false,
+                rcode: Rcode::NoError,
+                qdcount: 0,
+                ancount: 0,
+                nscount: 0,
+                arcount: 0,
+            },
+            questions: Vec::new(),
+            answers: Vec::new(),
+            authority: Vec::new(),
+            additional: Vec::new(),
+        }
+    }
+
+    pub fn make_format_error_response(id: u16) -> Self {
+        Self {
+            header: Header {
+                id,
+                is_response: true,
+                opcode: Opcode::Standard,
+                is_authoritative: false,
+                is_truncated: false,
+                recursion_desired: false,
+                recursion_available: false,
+                rcode: Rcode::FormatError,
+                qdcount: 0,
+                ancount: 0,
+                nscount: 0,
+                arcount: 0,
+            },
+            questions: Vec::new(),
+            answers: Vec::new(),
+            authority: Vec::new(),
+            additional: Vec::new(),
+        }
+    }
 }
 
 /// Common header type for all messages.
