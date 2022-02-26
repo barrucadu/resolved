@@ -1,0 +1,22 @@
+blocked_domains:
+  - name: "block.test.barrucadu.co.uk"
+  - name: "block-subdomains.test.barrucadu.co.uk"
+    include_subdomains: true
+
+static_records:
+  - domain:
+      name: "a.static.test.barrucadu.co.uk"
+    a: "116.203.34.201"
+  - domain:
+      name: "a.static-subdomains.test.barrucadu.co.uk"
+      include_subdomains: true
+    a: "116.203.34.201"
+  - domain:
+      name: "cname-1.static.test.barrucadu.co.uk"
+    cname: "cname-2.static.test.barrucadu.co.uk"
+  - domain:
+      name: "cname-2.static.test.barrucadu.co.uk"
+    cname: "cname-3.static.test.barrucadu.co.uk"
+  - domain:
+      name: "cname-3.static.test.barrucadu.co.uk"
+    cname: "target.a.static-subdomains.test.barrucadu.co.uk"

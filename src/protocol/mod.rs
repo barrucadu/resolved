@@ -696,6 +696,40 @@ pub struct DomainName {
 }
 
 impl DomainName {
+    pub fn from_dotted_string(s: &str) -> Option<Self> {
+        let mut octets = Vec::with_capacity(s.len());
+        let mut blank_label = false;
+
+        for label in s.split('.') {
+            if blank_label {
+                return None;
+            }
+
+            let label = label.as_bytes();
+
+            blank_label = label.is_empty();
+
+            match label.len().try_into() {
+                Ok(n) if n <= 63 => octets.push(n),
+                _ => return None,
+            }
+
+            for byte in label {
+                octets.push(*byte);
+            }
+        }
+
+        if !blank_label {
+            octets.push(0);
+        }
+
+        if octets.len() <= 255 {
+            Some(Self { octets })
+        } else {
+            None
+        }
+    }
+
     pub fn parse(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
         let mut octets = Vec::with_capacity(255);
 

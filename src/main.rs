@@ -1,9 +1,12 @@
 pub mod protocol;
 pub mod resolver;
+pub mod settings;
 
 use bytes::BytesMut;
 use std::collections::HashSet;
+use std::env;
 use std::io;
+use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
@@ -12,6 +15,7 @@ use crate::protocol::{
     ConsumableBuffer, Message, ProtocolError, QueryType, Question, RecordType, RecordTypeWithData,
 };
 use crate::resolver::{resolve_nonrecursive, ResolvedRecord};
+use crate::settings::Settings;
 
 /// Resolve a question.  This may give more than one `ResolvedRecord`
 /// if the question is for a record and the result is a CNAME but the
@@ -24,11 +28,11 @@ use crate::resolver::{resolve_nonrecursive, ResolvedRecord};
 /// whole is authoritative.
 fn resolve(
     _is_recursive: bool,
-    local_zone: &(),
+    local_zone: &Settings,
     cache: &(),
     initial_question: &Question,
 ) -> Vec<ResolvedRecord> {
-    // TODO implement recursion, cache, local records
+    // TODO implement recursion & cache
 
     let mut questions = vec![initial_question.clone()];
     let mut out = Vec::with_capacity(1);
@@ -66,12 +70,12 @@ fn resolve(
     out
 }
 
-fn resolve_and_build_response(query: Message) -> Message {
+fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
     let mut response = query.make_response();
     response.header.is_authoritative = true;
 
     for question in &query.questions {
-        for rr in resolve(query.header.recursion_desired, &(), &(), question) {
+        for rr in resolve(query.header.recursion_desired, settings, &(), question) {
             match rr {
                 ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
                 ResolvedRecord::Cached {
@@ -109,7 +113,7 @@ fn resolve_and_build_response(query: Message) -> Message {
     response
 }
 
-fn handle_raw_message(mut buf: ConsumableBuffer) -> Option<Message> {
+fn handle_raw_message(settings: &Settings, mut buf: ConsumableBuffer) -> Option<Message> {
     let res = Message::parse(&mut buf);
     println!("{:?}", res);
 
@@ -118,7 +122,7 @@ fn handle_raw_message(mut buf: ConsumableBuffer) -> Option<Message> {
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == protocol::Opcode::Standard {
-                Some(resolve_and_build_response(msg))
+                Some(resolve_and_build_response(settings, msg))
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = protocol::Rcode::NotImplemented;
@@ -192,14 +196,17 @@ async fn read_tcp_bytes(stream: &mut TcpStream) -> Result<BytesMut, TcpError> {
     }
 }
 
-async fn listen_tcp(socket: TcpListener) {
+async fn listen_tcp(settings: Settings, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
+                let settings = settings.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
-                        Ok(bytes) => handle_raw_message(ConsumableBuffer::new(bytes.as_ref())),
+                        Ok(bytes) => {
+                            handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref()))
+                        }
                         Err(TcpError::TooShort {
                             id,
                             expected,
@@ -231,7 +238,7 @@ async fn listen_tcp(socket: TcpListener) {
     }
 }
 
-async fn listen_udp(socket: UdpSocket) {
+async fn listen_udp(settings: Settings, socket: UdpSocket) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut buf = vec![0u8; 512];
 
@@ -241,8 +248,9 @@ async fn listen_udp(socket: UdpSocket) {
                 println!("[{:?}] udp request ok", peer);
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
+                let settings = settings.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(ConsumableBuffer::new(bytes.as_ref())) {
+                    if let Some(response_message) = handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref())) {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
@@ -263,6 +271,22 @@ async fn listen_udp(socket: UdpSocket) {
 
 #[tokio::main]
 async fn main() {
+    let settings = if let Some(fname) = env::args().nth(1) {
+        match Settings::new(&fname) {
+            Ok(s) => {
+                println!("read config file");
+                s
+            }
+            Err(err) => {
+                eprintln!("error reading config file: {:?}", err);
+                process::exit(1);
+            }
+        }
+    } else {
+        println!("starting with default config");
+        Settings::default()
+    };
+
     let udp = UdpSocket::bind("127.0.0.1:53")
         .await
         .expect("could not bind UDP socket");
@@ -270,7 +294,9 @@ async fn main() {
         .await
         .expect("could not bind TCP socket");
 
-    tokio::spawn(async move { listen_tcp(tcp).await });
 
-    listen_udp(udp).await;
+    let tcp_settings = settings.clone();
+    let udp_settings = settings;
+    tokio::spawn(async move { listen_tcp(tcp_settings, tcp).await });
+    listen_udp(udp_settings, udp).await;
 }

@@ -1,4 +1,7 @@
-use crate::protocol::{Question, ResourceRecord};
+use crate::protocol::{
+    QueryClass, QueryType, Question, RecordClass, RecordType, RecordTypeWithData, ResourceRecord,
+};
+use crate::settings::Settings;
 
 /// Non-recursive DNS resolution.
 ///
@@ -16,14 +19,13 @@ use crate::protocol::{Question, ResourceRecord};
 ///
 /// See section 4.3.2 of RFC 1034.
 pub fn resolve_nonrecursive(
-    local_zone: &(),
+    local_zone: &Settings,
     cache: &(),
     question: &Question,
 ) -> Option<ResolvedRecord> {
-    let authoritative_rrs = authoritative_from_zone(local_zone, question);
-    if !authoritative_rrs.is_empty() {
+    if let Some(authoritative) = authoritative_from_zone(local_zone, question) {
         return Some(ResolvedRecord::Authoritative {
-            rrs: authoritative_rrs,
+            rrs: vec![authoritative],
         });
     }
 
@@ -71,10 +73,52 @@ impl ResolvedRecord {
 /// algorithm.  Since this program is intended for just simple local
 /// resolution, and in particular it does not support delegating to
 /// another zone: all local records are in the same zone.
-///
-/// TODO: implement
-pub fn authoritative_from_zone(_local_zone: &(), _question: &Question) -> Vec<ResourceRecord> {
-    Vec::new()
+pub fn authoritative_from_zone(
+    local_zone: &Settings,
+    question: &Question,
+) -> Option<ResourceRecord> {
+    let make_rr = |rtype_with_data| ResourceRecord {
+        name: question.name.clone(),
+        rtype_with_data,
+        rclass: match question.qclass {
+            QueryClass::Record(rc) => rc,
+            QueryClass::Wildcard => RecordClass::IN,
+        },
+        ttl: 300,
+    };
+
+    // TODO: use a more efficient data structure (like a trie)
+    for static_record in &local_zone.static_records {
+        if static_record.domain.matches(&question.name) {
+            if let Some(name) = &static_record.record_cname {
+                return Some(make_rr(RecordTypeWithData::Named {
+                    rtype: RecordType::CNAME,
+                    name: name.domain.clone(),
+                }));
+            } else if question.qtype == QueryType::Record(RecordType::A) {
+                if let Some(address) = static_record.record_a {
+                    return Some(make_rr(RecordTypeWithData::Uninterpreted {
+                        rtype: RecordType::A,
+                        octets: Vec::from(address.octets()),
+                    }));
+                }
+            }
+        }
+    }
+
+    // TODO: use a more efficient data structure (like a trie)
+    for blocked_domain in &local_zone.blocked_domains {
+        if blocked_domain.matches(&question.name) {
+            // Return an A record pointing to 0.0.0.0 - copied from
+            // what pi hole does.
+            return Some(make_rr(RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![0, 0, 0, 0],
+            }));
+        }
+    }
+
+    None
 }
 
 /// Cached records
