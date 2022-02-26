@@ -690,7 +690,7 @@ impl Rcode {
 ///
 /// A label must be 63 octets or shorter.  A name must be 255 octets
 /// or shorter in total, including both length and label octets.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct DomainName {
     pub octets: Vec<u8>,
 }

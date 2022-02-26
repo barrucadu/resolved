@@ -2,34 +2,92 @@ pub mod protocol;
 pub mod resolver;
 
 use bytes::BytesMut;
+use std::collections::HashSet;
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 
-use crate::protocol::{ConsumableBuffer, Message, ProtocolError};
+use crate::protocol::{
+    ConsumableBuffer, Message, ProtocolError, QueryType, Question, RecordType, RecordTypeWithData,
+};
 use crate::resolver::{resolve_nonrecursive, ResolvedRecord};
+
+/// Resolve a question.  This may give more than one `ResolvedRecord`
+/// if the question is for a record and the result is a CNAME but the
+/// query was for some other record type: the CNAME will be resolved
+/// using the same recursion approach, and all records returned.
+///
+/// This function gives up if the CNAMEs form a cycle.
+///
+/// If every returned record is authoritative, then the response as a
+/// whole is authoritative.
+fn resolve(
+    _is_recursive: bool,
+    local_zone: &(),
+    cache: &(),
+    initial_question: &Question,
+) -> Vec<ResolvedRecord> {
+    // TODO implement recursion, cache, local records
+
+    let mut questions = vec![initial_question.clone()];
+    let mut out = Vec::with_capacity(1);
+    let mut cnames_followed = HashSet::new();
+
+    while !questions.is_empty() {
+        let mut new_questions = Vec::new();
+
+        for question in questions {
+            if let Some(resolved_record) = resolve_nonrecursive(local_zone, cache, &question) {
+                out.push(resolved_record.clone());
+
+                if question.qtype != QueryType::Record(RecordType::CNAME) {
+                    for rr in resolved_record.rrs() {
+                        if let RecordTypeWithData::Named {
+                            rtype: RecordType::CNAME,
+                            name,
+                        } = rr.rtype_with_data
+                        {
+                            if !cnames_followed.contains(&name) {
+                                let mut new_question = question.clone();
+                                new_question.name = name.clone();
+                                new_questions.push(new_question);
+                                cnames_followed.insert(name.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        questions = new_questions;
+    }
+
+    out
+}
 
 fn resolve_and_build_response(query: Message) -> Message {
     let mut response = query.make_response();
-
-    response.questions = query.questions;
     response.header.is_authoritative = true;
 
-    for question in &response.questions {
-        match resolve_nonrecursive(&(), &(), question) {
-            Some(ResolvedRecord::Authoritative { mut rrs }) => response.answers.append(&mut rrs),
-            Some(ResolvedRecord::Cached {
-                mut rrs,
-                mut authority,
-            }) => {
-                response.answers.append(&mut rrs);
-                response.authority.append(&mut authority);
-                response.header.is_authoritative = false;
+    for question in &query.questions {
+        for rr in resolve(query.header.recursion_desired, &(), &(), question) {
+            match rr {
+                ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
+                ResolvedRecord::Cached {
+                    mut rrs,
+                    mut authority,
+                } => {
+                    response.answers.append(&mut rrs);
+                    response.authority.append(&mut authority);
+                    response.header.is_authoritative = false;
+                }
             }
-            None => (),
         }
     }
+
+    response.questions = query.questions;
+    response.header.qdcount = query.header.qdcount;
 
     // TODO: remove use of unwrap
     response.header.qdcount = response.questions.len().try_into().unwrap();

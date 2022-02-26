@@ -45,6 +45,7 @@ pub fn resolve_nonrecursive(
 /// may build up a chain of `CNAME`s for some names.
 ///
 ///
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ResolvedRecord {
     Authoritative {
         rrs: Vec<ResourceRecord>,
@@ -53,6 +54,15 @@ pub enum ResolvedRecord {
         rrs: Vec<ResourceRecord>,
         authority: Vec<ResourceRecord>,
     },
+}
+
+impl ResolvedRecord {
+    pub fn rrs(self) -> Vec<ResourceRecord> {
+        match self {
+            ResolvedRecord::Authoritative { rrs } => rrs,
+            ResolvedRecord::Cached { rrs, authority: _ } => rrs,
+        }
+    }
 }
 
 /// Locally-defined records for DNS blocklisting and LAN DNS.
