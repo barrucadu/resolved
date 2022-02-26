@@ -65,7 +65,7 @@ impl Message {
     }
 
     pub fn serialise_for_udp(self) -> Vec<u8> {
-        let mut serialised = self.serialise_for_tcp();
+        let mut serialised = self.serialise();
 
         if serialised.len() > 512 {
             // set TC flag and shrink to fit
@@ -77,6 +77,19 @@ impl Message {
     }
 
     pub fn serialise_for_tcp(self) -> Vec<u8> {
+        let mut serialised = self.serialise();
+        let mut serialised_with_length = Vec::with_capacity(2 + serialised.len());
+
+        let len: u16 = serialised.len().try_into().unwrap();
+        let [hi, lo] = len.to_be_bytes();
+        serialised_with_length.push(hi);
+        serialised_with_length.push(lo);
+        serialised_with_length.append(&mut serialised);
+
+        serialised_with_length
+    }
+
+    pub fn serialise(self) -> Vec<u8> {
         let mut buffer = WritableBuffer::default();
 
         self.header.serialise(&mut buffer);
