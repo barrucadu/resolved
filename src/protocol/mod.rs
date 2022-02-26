@@ -109,15 +109,15 @@ impl Message {
         buffer.octets
     }
 
-    pub fn make_response(query: Self) -> Self {
+    pub fn make_response(&self) -> Self {
         Self {
             header: Header {
-                id: query.header.id,
+                id: self.header.id,
                 is_response: true,
-                opcode: query.header.opcode,
+                opcode: self.header.opcode,
                 is_authoritative: false,
                 is_truncated: false,
-                recursion_desired: query.header.recursion_desired,
+                recursion_desired: self.header.recursion_desired,
                 recursion_available: false,
                 rcode: Rcode::NoError,
                 qdcount: 0,

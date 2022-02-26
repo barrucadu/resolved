@@ -1,4 +1,5 @@
 pub mod protocol;
+pub mod resolver;
 
 use bytes::BytesMut;
 use std::io;
@@ -7,6 +8,48 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 
 use crate::protocol::{ConsumableBuffer, Message, ProtocolError};
+use crate::resolver::{resolve_nonrecursive, ResolvedRecord};
+
+fn resolve_and_build_response(query: Message) -> Message {
+    let mut response = query.make_response();
+
+    response.questions = query.questions;
+    response.header.is_authoritative = true;
+
+    for question in &response.questions {
+        match resolve_nonrecursive(&(), &(), question) {
+            Some(ResolvedRecord::Authoritative { mut rrs }) => response.answers.append(&mut rrs),
+            Some(ResolvedRecord::Cached {
+                mut rrs,
+                mut authority,
+            }) => {
+                response.answers.append(&mut rrs);
+                response.authority.append(&mut authority);
+                response.header.is_authoritative = false;
+            }
+            None => (),
+        }
+    }
+
+    // TODO: remove use of unwrap
+    response.header.qdcount = response.questions.len().try_into().unwrap();
+    response.header.ancount = response.answers.len().try_into().unwrap();
+    response.header.nscount = response.authority.len().try_into().unwrap();
+    response.header.arcount = response.additional.len().try_into().unwrap();
+
+    // I'm not sure if this is right, but it's what pi-hole does for
+    // non-recursive queries which it can't answer.
+    //
+    // I think, by the text of RFC 1034, the AUTHORITY section of the
+    // response should include an NS record for something which can
+    // help.
+    if response.answers.is_empty() {
+        response.header.rcode = protocol::Rcode::ServerFailure;
+        response.header.is_authoritative = false;
+    }
+
+    response
+}
 
 fn handle_raw_message(mut buf: ConsumableBuffer) -> Option<Message> {
     let res = Message::parse(&mut buf);
@@ -14,9 +57,15 @@ fn handle_raw_message(mut buf: ConsumableBuffer) -> Option<Message> {
 
     match res {
         Ok(msg) => {
-            let mut response = Message::make_response(msg);
-            response.header.rcode = protocol::Rcode::NotImplemented;
-            Some(response)
+            if msg.header.is_response {
+                Some(Message::make_format_error_response(msg.header.id))
+            } else if msg.header.opcode == protocol::Opcode::Standard {
+                Some(resolve_and_build_response(msg))
+            } else {
+                let mut response = msg.make_response();
+                response.header.rcode = protocol::Rcode::NotImplemented;
+                Some(response)
+            }
         }
         Err(ProtocolError::HeaderTooShort(id))
         | Err(ProtocolError::QuestionTooShort(id))
