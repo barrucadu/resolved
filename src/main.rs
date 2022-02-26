@@ -287,13 +287,21 @@ async fn main() {
         Settings::default()
     };
 
-    let udp = UdpSocket::bind("127.0.0.1:53")
-        .await
-        .expect("could not bind UDP socket");
-    let tcp = TcpListener::bind("127.0.0.1:53")
-        .await
-        .expect("could not bind TCP socket");
+    let udp = match UdpSocket::bind("127.0.0.1:53").await {
+        Ok(s) => s,
+        Err(err) => {
+            eprintln!("error binding bind UDP socket: {:?}", err);
+            process::exit(1);
+        }
+    };
 
+    let tcp = match TcpListener::bind("127.0.0.1:53").await {
+        Ok(s) => s,
+        Err(err) => {
+            eprintln!("error binding bind TCP socket: {:?}", err);
+            process::exit(1);
+        }
+    };
 
     let tcp_settings = settings.clone();
     let udp_settings = settings;
