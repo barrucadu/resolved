@@ -1017,6 +1017,24 @@ pub enum ProtocolError {
     UnknownRecordClass(u16),
 }
 
+impl ProtocolError {
+    pub fn id(self) -> Option<u16> {
+        match self {
+            ProtocolError::CompletelyBusted => None,
+            ProtocolError::HeaderTooShort(id) => Some(id),
+            ProtocolError::QuestionTooShort(id) => Some(id),
+            ProtocolError::ResourceRecordTooShort(id) => Some(id),
+            ProtocolError::DomainTooShort(id) => Some(id),
+            ProtocolError::DomainTooLong(id) => Some(id),
+            ProtocolError::DomainLabelInvalid(id) => Some(id),
+            ProtocolError::UnknownQueryType(id) => Some(id),
+            ProtocolError::UnknownQueryClass(id) => Some(id),
+            ProtocolError::UnknownRecordType(id) => Some(id),
+            ProtocolError::UnknownRecordClass(id) => Some(id),
+        }
+    }
+}
+
 /// A buffer which will be consumed by the parsing process.
 pub struct ConsumableBuffer<'a> {
     iter: slice::Iter<'a, u8>,

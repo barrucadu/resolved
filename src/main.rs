@@ -12,7 +12,7 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 
 use crate::protocol::{
-    ConsumableBuffer, Message, ProtocolError, QueryType, Question, RecordType, RecordTypeWithData,
+    ConsumableBuffer, Message, QueryType, Question, RecordType, RecordTypeWithData,
 };
 use crate::resolver::{resolve_nonrecursive, ResolvedRecord};
 use crate::settings::Settings;
@@ -129,19 +129,7 @@ fn handle_raw_message(settings: &Settings, mut buf: ConsumableBuffer) -> Option<
                 Some(response)
             }
         }
-        Err(ProtocolError::HeaderTooShort(id))
-        | Err(ProtocolError::QuestionTooShort(id))
-        | Err(ProtocolError::ResourceRecordTooShort(id))
-        | Err(ProtocolError::DomainTooShort(id))
-        | Err(ProtocolError::DomainTooLong(id))
-        | Err(ProtocolError::DomainLabelInvalid(id))
-        | Err(ProtocolError::UnknownQueryType(id))
-        | Err(ProtocolError::UnknownQueryClass(id))
-        | Err(ProtocolError::UnknownRecordType(id))
-        | Err(ProtocolError::UnknownRecordClass(id)) => {
-            Some(Message::make_format_error_response(id))
-        }
-        Err(ProtocolError::CompletelyBusted) => None,
+        Err(err) => err.id().map(Message::make_format_error_response),
     }
 }
 
