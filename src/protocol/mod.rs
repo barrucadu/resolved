@@ -273,7 +273,7 @@ impl Header {
         Ok(Self {
             id,
             is_response: flags1 & 0b10000000 != 0,
-            opcode: Opcode::from_u8(flags1 & 0b01111000),
+            opcode: Opcode::from_u8((flags1 & 0b01111000) >> 3),
             is_authoritative: flags1 & 0b00000100 != 0,
             is_truncated: flags1 & 0b00000010 != 0,
             recursion_desired: flags1 & 0b00000001 != 0,
