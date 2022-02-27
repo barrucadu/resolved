@@ -732,6 +732,7 @@ impl DomainName {
 
     pub fn parse(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
         let mut octets = Vec::with_capacity(255);
+        let start = buffer.position;
 
         'outer: loop {
             let size = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
@@ -756,9 +757,16 @@ impl DomainName {
                 // not great but works for now.
                 let hi = size & 0b00111111;
                 let lo = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
-                let ptr = u16::from_be_bytes([hi, lo]);
-                octets
-                    .append(&mut DomainName::parse(id, &mut buffer.at_offset(ptr.into()))?.octets);
+                let ptr = u16::from_be_bytes([hi, lo]).into();
+
+                // pointer must be to an earlier record (not merely a
+                // different one: an earlier one: RFC 1035 section
+                // 4.1.4)
+                if ptr >= start {
+                    return Err(ProtocolError::DomainPointerInvalid(id));
+                }
+
+                octets.append(&mut DomainName::parse(id, &mut buffer.at_offset(ptr))?.octets);
                 break 'outer;
             } else {
                 return Err(ProtocolError::DomainLabelInvalid(id));
@@ -1001,6 +1009,9 @@ pub enum ProtocolError {
     /// A domain is over 255 octets in size.
     DomainTooLong(u16),
 
+    /// A domain pointer points to or after the current record.
+    DomainPointerInvalid(u16),
+
     /// A domain label is longer than 63 octets, but not a pointer.
     DomainLabelInvalid(u16),
 
@@ -1026,6 +1037,7 @@ impl ProtocolError {
             ProtocolError::ResourceRecordTooShort(id) => Some(id),
             ProtocolError::DomainTooShort(id) => Some(id),
             ProtocolError::DomainTooLong(id) => Some(id),
+            ProtocolError::DomainPointerInvalid(id) => Some(id),
             ProtocolError::DomainLabelInvalid(id) => Some(id),
             ProtocolError::UnknownQueryType(id) => Some(id),
             ProtocolError::UnknownQueryClass(id) => Some(id),
@@ -1039,6 +1051,7 @@ impl ProtocolError {
 pub struct ConsumableBuffer<'a> {
     iter: slice::Iter<'a, u8>,
     octets: &'a [u8],
+    position: usize,
 }
 
 impl<'a> ConsumableBuffer<'a> {
@@ -1046,11 +1059,18 @@ impl<'a> ConsumableBuffer<'a> {
         Self {
             iter: octets.iter(),
             octets,
+            position: 0,
         }
     }
 
     pub fn next_u8(&mut self) -> Option<u8> {
-        self.iter.next().copied()
+        let octet = self.iter.next().copied();
+
+        if octet.is_some() {
+            self.position += 1;
+        }
+
+        octet
     }
 
     pub fn next_u16(&mut self) -> Option<u16> {
