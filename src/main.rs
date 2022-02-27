@@ -3,78 +3,16 @@ pub mod resolver;
 pub mod settings;
 
 use bytes::BytesMut;
-use std::collections::HashSet;
 use std::env;
 use std::io;
-use std::net::Ipv4Addr;
 use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 
-use crate::protocol::{
-    ConsumableBuffer, Message, QueryType, Question, RecordType, RecordTypeWithData,
-};
-use crate::resolver::{resolve_nonrecursive, resolve_recursive, ResolvedRecord};
+use crate::protocol::{ConsumableBuffer, Message};
+use crate::resolver::{resolve, ResolvedRecord};
 use crate::settings::Settings;
-
-/// Resolve a question.  This may give more than one `ResolvedRecord`
-/// if the question is for a record and the result is a CNAME but the
-/// query was for some other record type: the CNAME will be resolved
-/// using the same recursion approach, and all records returned.
-///
-/// This function gives up if the CNAMEs form a cycle.
-///
-/// If every returned record is authoritative, then the response as a
-/// whole is authoritative.
-async fn resolve(
-    is_recursive: bool,
-    upstream_nameservers: &[Ipv4Addr],
-    local_zone: &Settings,
-    cache: &(),
-    initial_question: &Question,
-) -> Vec<ResolvedRecord> {
-    // TODO implement cache
-
-    let mut questions = vec![initial_question.clone()];
-    let mut out = Vec::with_capacity(1);
-    let mut cnames_followed = HashSet::new();
-
-    while !questions.is_empty() {
-        let mut new_questions = Vec::new();
-
-        for question in questions {
-            if let Some(resolved_record) = if is_recursive {
-                resolve_recursive(upstream_nameservers, local_zone, cache, &question).await
-            } else {
-                resolve_nonrecursive(local_zone, cache, &question)
-            } {
-                out.push(resolved_record.clone());
-
-                if question.qtype != QueryType::Record(RecordType::CNAME) {
-                    for rr in resolved_record.rrs() {
-                        if let RecordTypeWithData::Named {
-                            rtype: RecordType::CNAME,
-                            name,
-                        } = rr.rtype_with_data
-                        {
-                            if !cnames_followed.contains(&name) {
-                                let mut new_question = question.clone();
-                                new_question.name = name.clone();
-                                new_questions.push(new_question);
-                                cnames_followed.insert(name.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        questions = new_questions;
-    }
-
-    out
-}
 
 async fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
     let mut response = query.make_response();
