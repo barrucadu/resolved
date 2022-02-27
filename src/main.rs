@@ -6,6 +6,7 @@ use bytes::BytesMut;
 use std::collections::HashSet;
 use std::env;
 use std::io;
+use std::net::Ipv4Addr;
 use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
@@ -14,7 +15,7 @@ use tokio::sync::mpsc;
 use crate::protocol::{
     ConsumableBuffer, Message, QueryType, Question, RecordType, RecordTypeWithData,
 };
-use crate::resolver::{resolve_nonrecursive, ResolvedRecord};
+use crate::resolver::{resolve_nonrecursive, resolve_recursive, ResolvedRecord};
 use crate::settings::Settings;
 
 /// Resolve a question.  This may give more than one `ResolvedRecord`
@@ -26,13 +27,14 @@ use crate::settings::Settings;
 ///
 /// If every returned record is authoritative, then the response as a
 /// whole is authoritative.
-fn resolve(
-    _is_recursive: bool,
+async fn resolve(
+    is_recursive: bool,
+    upstream_nameservers: &[Ipv4Addr],
     local_zone: &Settings,
     cache: &(),
     initial_question: &Question,
 ) -> Vec<ResolvedRecord> {
-    // TODO implement recursion & cache
+    // TODO implement cache
 
     let mut questions = vec![initial_question.clone()];
     let mut out = Vec::with_capacity(1);
@@ -42,7 +44,11 @@ fn resolve(
         let mut new_questions = Vec::new();
 
         for question in questions {
-            if let Some(resolved_record) = resolve_nonrecursive(local_zone, cache, &question) {
+            if let Some(resolved_record) = if is_recursive {
+                resolve_recursive(upstream_nameservers, local_zone, cache, &question).await
+            } else {
+                resolve_nonrecursive(local_zone, cache, &question)
+            } {
                 out.push(resolved_record.clone());
 
                 if question.qtype != QueryType::Record(RecordType::CNAME) {
@@ -70,20 +76,28 @@ fn resolve(
     out
 }
 
-fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
+async fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
     let mut response = query.make_response();
+    response.header.recursion_available = true;
     response.header.is_authoritative = true;
 
     for question in &query.questions {
-        for rr in resolve(query.header.recursion_desired, settings, &(), question) {
+        for rr in resolve(
+            query.header.recursion_desired,
+            &settings.upstream_nameservers,
+            settings,
+            &(),
+            question,
+        )
+        .await
+        {
             match rr {
                 ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
-                ResolvedRecord::Cached {
-                    mut rrs,
-                    mut authority,
-                } => {
+                ResolvedRecord::NonAuthoritative { mut rrs, authority } => {
                     response.answers.append(&mut rrs);
-                    response.authority.append(&mut authority);
+                    if let Some(rr) = authority {
+                        response.authority.push(rr);
+                    }
                     response.header.is_authoritative = false;
                 }
             }
@@ -100,7 +114,7 @@ fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
     response.header.arcount = response.additional.len().try_into().unwrap();
 
     // I'm not sure if this is right, but it's what pi-hole does for
-    // non-recursive queries which it can't answer.
+    // queries which it can't answer.
     //
     // I think, by the text of RFC 1034, the AUTHORITY section of the
     // response should include an NS record for something which can
@@ -113,7 +127,10 @@ fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
     response
 }
 
-fn handle_raw_message(settings: &Settings, mut buf: ConsumableBuffer) -> Option<Message> {
+async fn handle_raw_message<'a>(
+    settings: &Settings,
+    mut buf: ConsumableBuffer<'a>,
+) -> Option<Message> {
     let res = Message::parse(&mut buf);
     println!("{:?}", res);
 
@@ -122,7 +139,7 @@ fn handle_raw_message(settings: &Settings, mut buf: ConsumableBuffer) -> Option<
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == protocol::Opcode::Standard {
-                Some(resolve_and_build_response(settings, msg))
+                Some(resolve_and_build_response(settings, msg).await)
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = protocol::Rcode::NotImplemented;
@@ -194,6 +211,7 @@ async fn listen_tcp(settings: Settings, socket: TcpListener) {
                     let response = match read_tcp_bytes(&mut stream).await {
                         Ok(bytes) => {
                             handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref()))
+                                .await
                         }
                         Err(TcpError::TooShort {
                             id,
@@ -238,7 +256,7 @@ async fn listen_udp(settings: Settings, socket: UdpSocket) {
                 let reply = tx.clone();
                 let settings = settings.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref())) {
+                    if let Some(response_message) = handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref())).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),

@@ -1,11 +1,15 @@
+use std::cmp::Ordering;
+use std::net::Ipv4Addr;
+
 use crate::protocol::{
-    QueryClass, QueryType, Question, RecordClass, RecordType, RecordTypeWithData, ResourceRecord,
+    DomainName, QueryClass, QueryType, Question, RecordClass, RecordType, RecordTypeWithData,
+    ResourceRecord,
 };
 use crate::settings::Settings;
 
 /// Non-recursive DNS resolution.
 ///
-/// This corresponds to steps 2, 3, and 4 of the standard resolution
+/// This corresponds to steps 2, 3, and 4 of the standard nameserver
 /// algorithm:
 ///
 /// - step 1 is "check if this is a recursive query and go to step 5
@@ -23,18 +27,86 @@ pub fn resolve_nonrecursive(
     cache: &(),
     question: &Question,
 ) -> Option<ResolvedRecord> {
+    // TODO: implement reading from cache
+
     if let Some(authoritative) = authoritative_from_zone(local_zone, question) {
         return Some(ResolvedRecord::Authoritative {
             rrs: vec![authoritative],
         });
     }
 
-    let (cached_rrs, cached_authority_rrs) = nonauthoritative_from_cache(cache, question);
+    let (cached_rrs, cached_authority_rr) = nonauthoritative_from_cache(cache, question);
     if !cached_rrs.is_empty() {
-        return Some(ResolvedRecord::Cached {
+        return Some(ResolvedRecord::NonAuthoritative {
             rrs: cached_rrs,
-            authority: cached_authority_rrs,
+            authority: cached_authority_rr,
         });
+    }
+
+    None
+}
+
+/// Recursive DNS resolution.
+///
+/// This corresponds to the standard resolver algorithm.  If
+/// information is not held locally, it will call out to remove
+/// nameservers, starting with the given upstream nameservers.  Since
+/// it may make network requests, this function is async.
+///
+/// See section 5.3.3 of RFC 1034.
+pub async fn resolve_recursive(
+    upstream_nameservers: &[Ipv4Addr],
+    local_zone: &Settings,
+    cache: &(),
+    question: &Question,
+) -> Option<ResolvedRecord> {
+    // TODO: implement inserting into cache
+
+    if let Some(resolved) = resolve_nonrecursive(local_zone, cache, question) {
+        let rrs = resolved.clone().rrs();
+        let authority = resolved.authority();
+        return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
+    } else {
+        // TODO: query nameservers concurrently
+        let (mut nameservers, mut match_count) =
+            ordered_nameservers(upstream_nameservers, local_zone, cache, &question.name);
+        while !nameservers.is_empty() {
+            let mut new_match_count = match_count + 1;
+            let mut new_nameservers = Vec::new();
+            'query: for ns in nameservers {
+                match query_nameserver(&ns.ip, question).await {
+                    None => (),
+                    Some(NameserverResponse::Answer { rrs }) => {
+                        return Some(ResolvedRecord::NonAuthoritative {
+                            rrs,
+                            authority: ns.rr,
+                        })
+                    }
+                    Some(NameserverResponse::Delegation { authorities }) => {
+                        let mut found_better = false;
+                        for (authority, authority_match_count) in authorities {
+                            match authority_match_count.cmp(&new_match_count) {
+                                Ordering::Greater => {
+                                    new_match_count = match_count;
+                                    new_nameservers = vec![authority];
+                                    found_better = true;
+                                }
+                                Ordering::Equal => {
+                                    new_nameservers.push(authority);
+                                    found_better = true;
+                                }
+                                Ordering::Less => (),
+                            }
+                        }
+                        if found_better {
+                            break 'query;
+                        }
+                    }
+                }
+            }
+            nameservers = new_nameservers;
+            match_count = new_match_count;
+        }
     }
 
     None
@@ -46,15 +118,14 @@ pub fn resolve_nonrecursive(
 /// the response message, and resolution repeated for the CNAME.  This
 /// may build up a chain of `CNAME`s for some names.
 ///
-///
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum ResolvedRecord {
     Authoritative {
         rrs: Vec<ResourceRecord>,
     },
-    Cached {
+    NonAuthoritative {
         rrs: Vec<ResourceRecord>,
-        authority: Vec<ResourceRecord>,
+        authority: Option<ResourceRecord>,
     },
 }
 
@@ -62,14 +133,21 @@ impl ResolvedRecord {
     pub fn rrs(self) -> Vec<ResourceRecord> {
         match self {
             ResolvedRecord::Authoritative { rrs } => rrs,
-            ResolvedRecord::Cached { rrs, authority: _ } => rrs,
+            ResolvedRecord::NonAuthoritative { rrs, authority: _ } => rrs,
+        }
+    }
+
+    pub fn authority(self) -> Option<ResourceRecord> {
+        match self {
+            ResolvedRecord::Authoritative { rrs: _ } => None,
+            ResolvedRecord::NonAuthoritative { rrs: _, authority } => authority,
         }
     }
 }
 
 /// Locally-defined records for DNS blocklisting and LAN DNS.
 ///
-/// This corresponds to steps 3.a and 3.c of the standard resolution
+/// This corresponds to steps 3.a and 3.c of the standard nameserver
 /// algorithm.  Since this program is intended for just simple local
 /// resolution, and in particular it does not support delegating to
 /// another zone: all local records are in the same zone.
@@ -123,12 +201,56 @@ pub fn authoritative_from_zone(
 
 /// Cached records
 ///
-/// This corresponds to step 4 of the standard resolution algorithm.
+/// This corresponds to step 4 of the standard nameserver algorithm.
 ///
 /// TODO: implement
 pub fn nonauthoritative_from_cache(
     _cache: &(),
     _question: &Question,
-) -> (Vec<ResourceRecord>, Vec<ResourceRecord>) {
-    (Vec::new(), Vec::new())
+) -> (Vec<ResourceRecord>, Option<ResourceRecord>) {
+    (Vec::new(), None)
+}
+
+/// Get the best nameservers.
+///
+/// This corresponds to step 2 of the standard resolver algorithm.
+///
+/// TODO: implement
+pub fn ordered_nameservers(
+    _upstream_nameservers: &[Ipv4Addr],
+    _local_zone: &Settings,
+    _cache: &(),
+    _question: &DomainName,
+) -> (Vec<Authority>, usize) {
+    (Vec::new(), 0)
+}
+
+/// Query a remove nameserver, recursively, to answer a question.
+///
+/// This corresponds to step 3 of the standard resolver algorithm.
+///
+/// TODO: implement
+pub async fn query_nameserver(
+    _address: &Ipv4Addr,
+    _question: &Question,
+) -> Option<NameserverResponse> {
+    None
+}
+
+/// A response from a remote nameserver
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum NameserverResponse {
+    Answer {
+        rrs: Vec<ResourceRecord>,
+    },
+    Delegation {
+        authorities: Vec<(Authority, usize)>,
+    },
+}
+
+/// An authority to answer a query
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct Authority {
+    ip: Ipv4Addr,
+    rr: Option<ResourceRecord>,
 }
