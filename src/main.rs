@@ -1,15 +1,16 @@
+pub mod net_util;
 pub mod protocol;
 pub mod resolver;
 pub mod settings;
 
 use bytes::BytesMut;
 use std::env;
-use std::io;
 use std::process;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream, UdpSocket};
+use tokio::io::AsyncWriteExt;
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
+use crate::net_util::{read_tcp_bytes, TcpError};
 use crate::protocol::{ConsumableBuffer, Message};
 use crate::resolver::{resolve, ResolvedRecord};
 use crate::settings::Settings;
@@ -85,57 +86,6 @@ async fn handle_raw_message<'a>(
             }
         }
         Err(err) => err.id().map(Message::make_format_error_response),
-    }
-}
-
-enum TcpError {
-    TooShort {
-        id: Option<u16>,
-        expected: usize,
-        actual: usize,
-    },
-    IO {
-        id: Option<u16>,
-        error: io::Error,
-    },
-}
-
-async fn read_tcp_bytes(stream: &mut TcpStream) -> Result<BytesMut, TcpError> {
-    match stream.read_u16().await {
-        Ok(size) => {
-            let expected = size as usize;
-            let mut bytes = BytesMut::with_capacity(expected);
-            while bytes.len() < expected {
-                match stream.read_buf(&mut bytes).await {
-                    Ok(0) if bytes.len() < expected => {
-                        let id = if bytes.len() >= 2 {
-                            Some(u16::from_be_bytes([bytes[0], bytes[1]]))
-                        } else {
-                            None
-                        };
-                        return Err(TcpError::TooShort {
-                            id,
-                            expected,
-                            actual: bytes.len(),
-                        });
-                    }
-                    Err(err) => {
-                        let id = if bytes.len() >= 2 {
-                            Some(u16::from_be_bytes([bytes[0], bytes[1]]))
-                        } else {
-                            None
-                        };
-                        return Err(TcpError::IO { id, error: err });
-                    }
-                    _ => (),
-                }
-            }
-            Ok(bytes)
-        }
-        Err(err) => Err(TcpError::IO {
-            id: None,
-            error: err,
-        }),
     }
 }
 
