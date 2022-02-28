@@ -43,16 +43,8 @@ impl Message {
         for _ in 0..header.nscount {
             authority.push(ResourceRecord::parse(header.id, buffer)?);
         }
-
-        // Ignore additional information which we don't understand, so
-        // long as the message is still syntactically valid - it's not
-        // essential.
         for _ in 0..header.arcount {
-            match ResourceRecord::parse(header.id, buffer) {
-                Err(ProtocolError::UnknownRecordType(_)) => (),
-                Err(ProtocolError::UnknownRecordClass(_)) => (),
-                ar => additional.push(ar?),
-            }
+            additional.push(ResourceRecord::parse(header.id, buffer)?);
         }
 
         Ok(Self {
@@ -867,20 +859,20 @@ impl QueryType {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::QuestionTooShort(id))?;
-        Self::from_u16(value).ok_or(ProtocolError::UnknownQueryType(id))
+        Ok(Self::from_u16(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.to_u16());
     }
 
-    pub fn from_u16(value: u16) -> Option<Self> {
+    pub fn from_u16(value: u16) -> Self {
         match value {
-            252 => Some(QueryType::AXFR),
-            253 => Some(QueryType::MAILB),
-            254 => Some(QueryType::MAILA),
-            255 => Some(QueryType::Wildcard),
-            _ => RecordType::from_u16(value).map(QueryType::Record),
+            252 => QueryType::AXFR,
+            253 => QueryType::MAILB,
+            254 => QueryType::MAILA,
+            255 => QueryType::Wildcard,
+            _ => QueryType::Record(RecordType::from_u16(value)),
         }
     }
 
@@ -907,17 +899,17 @@ impl QueryClass {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::QuestionTooShort(id))?;
-        Self::from_u16(value).ok_or(ProtocolError::UnknownQueryClass(id))
+        Ok(Self::from_u16(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.to_u16());
     }
 
-    pub fn from_u16(value: u16) -> Option<Self> {
+    pub fn from_u16(value: u16) -> Self {
         match value {
-            255 => Some(QueryClass::Wildcard),
-            _ => RecordClass::from_u16(value).map(QueryClass::Record),
+            255 => QueryClass::Wildcard,
+            _ => QueryClass::Record(RecordClass::from_u16(value)),
         }
     }
 
@@ -948,6 +940,7 @@ pub enum RecordType {
     MINFO,
     MX,
     TXT,
+    Unknown(u16),
 }
 
 impl RecordType {
@@ -955,32 +948,32 @@ impl RecordType {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
-        Self::from_u16(value).ok_or(ProtocolError::UnknownRecordType(id))
+        Ok(Self::from_u16(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.to_u16());
     }
 
-    pub fn from_u16(value: u16) -> Option<Self> {
+    pub fn from_u16(value: u16) -> Self {
         match value {
-            1 => Some(RecordType::A),
-            2 => Some(RecordType::NS),
-            3 => Some(RecordType::MD),
-            4 => Some(RecordType::MF),
-            5 => Some(RecordType::CNAME),
-            6 => Some(RecordType::SOA),
-            7 => Some(RecordType::MB),
-            8 => Some(RecordType::MG),
-            9 => Some(RecordType::MR),
-            10 => Some(RecordType::NULL),
-            11 => Some(RecordType::WKS),
-            12 => Some(RecordType::PTR),
-            13 => Some(RecordType::HINFO),
-            14 => Some(RecordType::MINFO),
-            15 => Some(RecordType::MX),
-            16 => Some(RecordType::TXT),
-            _ => None,
+            1 => RecordType::A,
+            2 => RecordType::NS,
+            3 => RecordType::MD,
+            4 => RecordType::MF,
+            5 => RecordType::CNAME,
+            6 => RecordType::SOA,
+            7 => RecordType::MB,
+            8 => RecordType::MG,
+            9 => RecordType::MR,
+            10 => RecordType::NULL,
+            11 => RecordType::WKS,
+            12 => RecordType::PTR,
+            13 => RecordType::HINFO,
+            14 => RecordType::MINFO,
+            15 => RecordType::MX,
+            16 => RecordType::TXT,
+            _ => RecordType::Unknown(value),
         }
     }
 
@@ -1002,6 +995,7 @@ impl RecordType {
             RecordType::MINFO => 14,
             RecordType::MX => 15,
             RecordType::TXT => 16,
+            RecordType::Unknown(value) => value,
         }
     }
 
@@ -1021,6 +1015,7 @@ pub enum RecordClass {
     CS,
     CH,
     HS,
+    Unknown(u16),
 }
 
 impl RecordClass {
@@ -1028,20 +1023,20 @@ impl RecordClass {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
-        Self::from_u16(value).ok_or(ProtocolError::UnknownRecordClass(id))
+        Ok(Self::from_u16(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.to_u16());
     }
 
-    pub fn from_u16(value: u16) -> Option<Self> {
+    pub fn from_u16(value: u16) -> Self {
         match value {
-            1 => Some(RecordClass::IN),
-            2 => Some(RecordClass::CS),
-            3 => Some(RecordClass::CH),
-            4 => Some(RecordClass::HS),
-            _ => None,
+            1 => RecordClass::IN,
+            2 => RecordClass::CS,
+            3 => RecordClass::CH,
+            4 => RecordClass::HS,
+            _ => RecordClass::Unknown(value),
         }
     }
 
@@ -1051,6 +1046,7 @@ impl RecordClass {
             RecordClass::CS => 2,
             RecordClass::CH => 3,
             RecordClass::HS => 4,
+            RecordClass::Unknown(value) => value,
         }
     }
 
@@ -1093,18 +1089,6 @@ pub enum ProtocolError {
 
     /// A domain label is longer than 63 octets, but not a pointer.
     DomainLabelInvalid(u16),
-
-    /// A question has an unknown query type.
-    UnknownQueryType(u16),
-
-    /// A question has an unknown query class.
-    UnknownQueryClass(u16),
-
-    /// A resource record has an unknown record type.
-    UnknownRecordType(u16),
-
-    /// A resource record has an unknown record class.
-    UnknownRecordClass(u16),
 }
 
 impl ProtocolError {
@@ -1118,10 +1102,6 @@ impl ProtocolError {
             ProtocolError::DomainTooLong(id) => Some(id),
             ProtocolError::DomainPointerInvalid(id) => Some(id),
             ProtocolError::DomainLabelInvalid(id) => Some(id),
-            ProtocolError::UnknownQueryType(id) => Some(id),
-            ProtocolError::UnknownQueryClass(id) => Some(id),
-            ProtocolError::UnknownRecordType(id) => Some(id),
-            ProtocolError::UnknownRecordClass(id) => Some(id),
         }
     }
 }
