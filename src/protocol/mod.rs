@@ -747,21 +747,28 @@ impl DomainName {
         Self::from_labels(labels)
     }
 
-    pub fn from_labels(labels: Vec<Vec<u8>>) -> Option<Self> {
+    pub fn from_labels(mixed_case_labels: Vec<Vec<u8>>) -> Option<Self> {
+        let mut labels = Vec::<Vec<u8>>::with_capacity(mixed_case_labels.len());
         let mut octets = Vec::<u8>::with_capacity(255);
         let mut blank_label = false;
 
-        for label in &labels {
+        for mc_label in &mixed_case_labels {
             if blank_label {
                 return None;
             }
 
-            blank_label = label.is_empty();
+            blank_label = mc_label.is_empty();
 
-            match label.len().try_into() {
+            match mc_label.len().try_into() {
                 Ok(n) if n <= 63 => {
                     octets.push(n);
-                    octets.append(&mut label.clone());
+                    let mut label = Vec::<u8>::with_capacity(mc_label.len());
+                    for octet in mc_label {
+                        let octet = octet.to_ascii_lowercase();
+                        label.push(octet);
+                        octets.push(octet);
+                    }
+                    labels.push(label);
                 }
                 _ => return None,
             }
@@ -792,7 +799,10 @@ impl DomainName {
                 }
 
                 for _ in 0..size {
-                    let octet = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
+                    let octet = buffer
+                        .next_u8()
+                        .ok_or(ProtocolError::DomainTooShort(id))?
+                        .to_ascii_lowercase();
                     octets.push(octet);
                     label.push(octet);
 
