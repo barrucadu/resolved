@@ -723,11 +723,19 @@ impl Rcode {
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct DomainName {
     pub octets: Vec<u8>,
+    pub labels: Vec<Vec<u8>>,
 }
 
 impl DomainName {
+    pub fn root_domain() -> Self {
+        DomainName {
+            octets: vec![0],
+            labels: vec![vec![]],
+        }
+    }
+
     pub fn from_dotted_string(s: &str) -> Option<Self> {
-        let mut octets = Vec::with_capacity(s.len());
+        let mut labels = Vec::<Vec<u8>>::with_capacity(5);
         let mut blank_label = false;
 
         for label in s.split('.') {
@@ -736,52 +744,72 @@ impl DomainName {
             }
 
             let label = label.as_bytes();
+            blank_label = label.is_empty();
+            labels.push(label.into());
+        }
+
+        if !blank_label {
+            labels.push(Vec::new());
+        }
+
+        Self::from_labels(labels)
+    }
+
+    pub fn from_labels(labels: Vec<Vec<u8>>) -> Option<Self> {
+        let mut octets = Vec::<u8>::with_capacity(255);
+        let mut blank_label = false;
+
+        for label in &labels {
+            if blank_label {
+                return None;
+            }
 
             blank_label = label.is_empty();
 
             match label.len().try_into() {
-                Ok(n) if n <= 63 => octets.push(n),
+                Ok(n) if n <= 63 => {
+                    octets.push(n);
+                    octets.append(&mut label.clone());
+                }
                 _ => return None,
             }
-
-            for byte in label {
-                octets.push(*byte);
-            }
         }
 
-        if !blank_label {
-            octets.push(0);
-        }
-
-        if octets.len() <= 255 {
-            Some(Self { octets })
+        if blank_label && octets.len() <= 255 {
+            Some(Self { octets, labels })
         } else {
             None
         }
     }
 
     pub fn parse(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let mut octets = Vec::with_capacity(255);
+        let mut octets = Vec::<u8>::with_capacity(255);
+        let mut labels = Vec::<Vec<u8>>::with_capacity(5);
         let start = buffer.position;
 
         'outer: loop {
             let size = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
 
             if size <= 63 {
+                let mut label = Vec::with_capacity(size.into());
                 octets.push(size);
 
                 if size == 0 {
+                    labels.push(label);
                     break 'outer;
                 }
 
                 for _ in 0..size {
                     let octet = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
                     octets.push(octet);
+                    label.push(octet);
 
                     if octets.len() > 255 {
+                        labels.push(label);
                         break 'outer;
                     }
                 }
+                labels.push(label);
             } else if size >= 192 {
                 // this requires re-parsing the pointed-to domain -
                 // not great but works for now.
@@ -796,7 +824,9 @@ impl DomainName {
                     return Err(ProtocolError::DomainPointerInvalid(id));
                 }
 
-                octets.append(&mut DomainName::parse(id, &mut buffer.at_offset(ptr))?.octets);
+                let mut other = DomainName::parse(id, &mut buffer.at_offset(ptr))?;
+                octets.append(&mut other.octets);
+                labels.append(&mut other.labels);
                 break 'outer;
             } else {
                 return Err(ProtocolError::DomainLabelInvalid(id));
@@ -804,7 +834,7 @@ impl DomainName {
         }
 
         if octets.len() <= 255 {
-            Ok(DomainName { octets })
+            Ok(DomainName { octets, labels })
         } else {
             Err(ProtocolError::DomainTooLong(id))
         }
@@ -815,6 +845,10 @@ impl DomainName {
         // in the WritableBuffer to keep track of previously-written
         // domains and labels.
         buffer.write_octets(self.octets);
+    }
+
+    pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
+        self.labels.ends_with(&other.labels)
     }
 }
 

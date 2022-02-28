@@ -35,7 +35,7 @@ pub struct DomainWithOptionalSubdomains {
 impl DomainWithOptionalSubdomains {
     pub fn matches(&self, other: &DomainName) -> bool {
         if self.include_subdomains {
-            other.octets.ends_with(&self.name.domain.octets)
+            other.is_subdomain_of(&self.name.domain)
         } else {
             other.octets == self.name.domain.octets
         }
