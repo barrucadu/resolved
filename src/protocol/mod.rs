@@ -749,6 +749,19 @@ impl DomainName {
         }
     }
 
+    pub fn to_dotted_string(&self) -> String {
+        let mut out = String::with_capacity(self.octets.len());
+        for label in &self.labels {
+            for octet in label {
+                out.push(*octet as char);
+            }
+            if !label.is_empty() {
+                out.push('.');
+            }
+        }
+        out
+    }
+
     pub fn from_dotted_string(s: &str) -> Option<Self> {
         let mut labels = Vec::<Vec<u8>>::with_capacity(5);
         let mut blank_label = false;
