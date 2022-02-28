@@ -68,6 +68,17 @@ impl Message {
         serialised
     }
 
+    /// Like `serialise_for_udp` but returns `None` instead of
+    /// truncating.
+    pub fn serialise_for_udp_if_not_too_big(self) -> Option<Vec<u8>> {
+        let serialised = self.serialise();
+        if serialised.len() > 512 {
+            None
+        } else {
+            Some(serialised)
+        }
+    }
+
     pub fn serialise_for_tcp(self) -> Vec<u8> {
         let mut serialised = self.serialise();
         let mut serialised_with_length = Vec::with_capacity(2 + serialised.len());

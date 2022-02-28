@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
 use crate::net_util::read_tcp_bytes;
@@ -434,10 +434,30 @@ pub async fn query_nameserver_udp(
 ///
 /// TODO: implement
 async fn query_nameserver_udp_notimeout(
-    _address: &Ipv4Addr,
-    _request: &Message,
+    address: &Ipv4Addr,
+    request: &Message,
 ) -> Option<NameserverResponse> {
-    None
+    if let Some(serialised) = request.clone().serialise_for_udp_if_not_too_big() {
+        let mut buf = vec![0u8; 512];
+        match UdpSocket::bind("0.0.0.0:0").await {
+            Ok(sock) => match sock.connect((*address, 53)).await {
+                Ok(_) => match sock.send(&serialised).await {
+                    Ok(_) => match sock.recv(&mut buf).await {
+                        Ok(_) => match Message::parse(&mut ConsumableBuffer::new(&buf)) {
+                            Ok(response) => validate_nameserver_response(request, response),
+                            _ => None,
+                        },
+                        _ => None,
+                    },
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        }
+    } else {
+        None
+    }
 }
 
 /// Send a message to a remote nameserver over TCP, returning the
