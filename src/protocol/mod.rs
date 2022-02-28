@@ -1164,8 +1164,17 @@ impl<'a> ConsumableBuffer<'a> {
         None
     }
 
-    pub fn at_offset(&self, offset: usize) -> ConsumableBuffer<'a> {
-        Self::new(&self.octets[offset..])
+    pub fn at_offset(&self, position: usize) -> ConsumableBuffer<'a> {
+        let mut iter = self.octets.iter();
+        if position > 0 {
+            iter.nth(position - 1);
+        }
+
+        Self {
+            iter,
+            octets: self.octets,
+            position,
+        }
     }
 }
 
