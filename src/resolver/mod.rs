@@ -1,3 +1,5 @@
+pub mod cache;
+
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;

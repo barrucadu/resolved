@@ -17,7 +17,7 @@ use std::slice;
 /// ```
 ///
 /// See section 4.1 of RFC 1035.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -192,7 +192,7 @@ impl Message {
 /// ```
 ///
 /// See section 4.1.1 of RFC 1035.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct Header {
     /// A 16 bit identifier assigned by the program that generates any
     /// kind of query.  This identifier is copied the corresponding
@@ -359,7 +359,7 @@ impl Header {
 /// ```
 ///
 /// See section 4.1.2 of RFC 1035.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Question {
     /// a domain name represented as a sequence of labels, where each
     /// label consists of a length octet followed by that number of
@@ -427,7 +427,7 @@ impl Question {
 /// ```
 ///
 /// See section 4.1.3 of RFC 1035.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
     pub name: DomainName,
@@ -601,7 +601,7 @@ impl ResourceRecord {
 
 /// A record type with its associated data.  This is so any pointers
 /// in domain names will be expanded before further processing.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub enum RecordTypeWithData {
     Uninterpreted {
         rtype: RecordType,
@@ -661,7 +661,7 @@ impl RecordTypeWithData {
 }
 
 /// What sort of query this is.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Opcode {
     Standard,
     Inverse,
@@ -690,7 +690,7 @@ impl Opcode {
 }
 
 /// What sort of response this is.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Rcode {
     NoError,
     FormatError,
@@ -878,7 +878,7 @@ impl DomainName {
 }
 
 /// Query types are a superset of record types.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum QueryType {
     Record(RecordType),
     AXFR,
@@ -921,7 +921,7 @@ impl QueryType {
 }
 
 /// Query classes are a superset of record classes.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum QueryClass {
     Record(RecordClass),
     Wildcard,
@@ -955,7 +955,7 @@ impl QueryClass {
 }
 
 /// Record types are used by resource records and by queries.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RecordType {
     A,
     NS,
@@ -1042,7 +1042,7 @@ impl RecordType {
 }
 
 /// Record classes are used by resource records and by queries.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RecordClass {
     IN,
     CS,
@@ -1094,7 +1094,7 @@ impl RecordClass {
 /// Errors encountered when parsing a datagram.  In all the errors
 /// which have a `u16` parameter, that is the ID from the header - so
 /// that an error response can be sent.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum ProtocolError {
     /// The datagram is not even 2 octets long, so it doesn't even
     /// contain a valid ID.  An error cannot even be sent back to the
