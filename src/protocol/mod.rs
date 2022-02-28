@@ -146,6 +146,29 @@ impl Message {
             additional: Vec::new(),
         }
     }
+
+    pub fn from_question(id: u16, question: Question) -> Self {
+        Self {
+            header: Header {
+                id,
+                is_response: false,
+                opcode: Opcode::Standard,
+                is_authoritative: false,
+                is_truncated: false,
+                recursion_desired: false,
+                recursion_available: false,
+                rcode: Rcode::NoError,
+                qdcount: 1,
+                ancount: 0,
+                nscount: 0,
+                arcount: 0,
+            },
+            questions: vec![question],
+            answers: Vec::new(),
+            authority: Vec::new(),
+            additional: Vec::new(),
+        }
+    }
 }
 
 /// Common header type for all messages.

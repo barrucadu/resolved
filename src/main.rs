@@ -23,7 +23,7 @@ async fn resolve_and_build_response(settings: &Settings, query: Message) -> Mess
     for question in &query.questions {
         for rr in resolve(
             query.header.recursion_desired,
-            &settings.upstream_nameservers,
+            &settings.root_hints,
             settings,
             &(),
             question,

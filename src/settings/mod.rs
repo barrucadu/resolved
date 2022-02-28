@@ -9,7 +9,7 @@ use crate::protocol::DomainName;
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
-    pub upstream_nameservers: Vec<Ipv4Addr>,
+    pub root_hints: Vec<Ipv4Addr>,
     #[serde(default)]
     pub blocked_domains: Vec<DomainWithOptionalSubdomains>,
     #[serde(default)]
