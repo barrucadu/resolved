@@ -615,6 +615,36 @@ pub enum RecordTypeWithData {
     },
 }
 
+impl RecordTypeWithData {
+    pub fn rtype(&self) -> RecordType {
+        match self {
+            RecordTypeWithData::Uninterpreted { rtype, octets: _ } => *rtype,
+            RecordTypeWithData::Named { rtype, name: _ } => *rtype,
+            RecordTypeWithData::MINFO {
+                rmailbx: _,
+                emailbx: _,
+            } => RecordType::MINFO,
+            RecordTypeWithData::MX {
+                preference: _,
+                exchange: _,
+            } => RecordType::MX,
+            RecordTypeWithData::SOA {
+                mname: _,
+                rname: _,
+                serial: _,
+                refresh: _,
+                retry: _,
+                expire: _,
+                minimum: _,
+            } => RecordType::SOA,
+        }
+    }
+
+    pub fn matches(&self, qtype: &QueryType) -> bool {
+        self.rtype().matches(qtype)
+    }
+}
+
 /// What sort of query this is.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum Opcode {
@@ -940,6 +970,14 @@ impl RecordType {
             RecordType::TXT => 16,
         }
     }
+
+    pub fn matches(&self, qtype: &QueryType) -> bool {
+        match qtype {
+            QueryType::Wildcard => true,
+            QueryType::Record(rtype) => rtype == self,
+            _ => false,
+        }
+    }
 }
 
 /// Record classes are used by resource records and by queries.
@@ -979,6 +1017,13 @@ impl RecordClass {
             RecordClass::CS => 2,
             RecordClass::CH => 3,
             RecordClass::HS => 4,
+        }
+    }
+
+    pub fn matches(&self, qclass: &QueryClass) -> bool {
+        match qclass {
+            QueryClass::Wildcard => true,
+            QueryClass::Record(rclass) => rclass == self,
         }
     }
 }
