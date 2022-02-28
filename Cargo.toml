@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+async-recursion = "1.0.0"
 bytes = "1"
 config = { version = "0.12", features = ["yaml"] }
 rand = "0.8.5"

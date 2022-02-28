@@ -12,20 +12,25 @@ use tokio::sync::mpsc;
 
 use crate::net_util::{read_tcp_bytes, TcpError};
 use crate::protocol::{ConsumableBuffer, Message};
+use crate::resolver::cache::SharedCache;
 use crate::resolver::{resolve, ResolvedRecord};
 use crate::settings::Settings;
 
-async fn resolve_and_build_response(settings: &Settings, query: Message) -> Message {
+async fn resolve_and_build_response(
+    settings: &Settings,
+    cache: &SharedCache,
+    query: Message,
+) -> Message {
     let mut response = query.make_response();
     response.header.recursion_available = true;
     response.header.is_authoritative = true;
 
     for question in &query.questions {
-        for rr in resolve(
+        if let Some(rr) = resolve(
             query.header.recursion_desired,
             &settings.root_hints,
             settings,
-            &(),
+            cache,
             question,
         )
         .await
@@ -68,6 +73,7 @@ async fn resolve_and_build_response(settings: &Settings, query: Message) -> Mess
 
 async fn handle_raw_message<'a>(
     settings: &Settings,
+    cache: &SharedCache,
     mut buf: ConsumableBuffer<'a>,
 ) -> Option<Message> {
     let res = Message::parse(&mut buf);
@@ -78,7 +84,7 @@ async fn handle_raw_message<'a>(
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == protocol::Opcode::Standard {
-                Some(resolve_and_build_response(settings, msg).await)
+                Some(resolve_and_build_response(settings, cache, msg).await)
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = protocol::Rcode::NotImplemented;
@@ -89,17 +95,22 @@ async fn handle_raw_message<'a>(
     }
 }
 
-async fn listen_tcp(settings: Settings, socket: TcpListener) {
+async fn listen_tcp(settings: Settings, cache: SharedCache, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
                 let settings = settings.clone();
+                let cache = cache.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
                         Ok(bytes) => {
-                            handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref()))
-                                .await
+                            handle_raw_message(
+                                &settings,
+                                &cache,
+                                ConsumableBuffer::new(bytes.as_ref()),
+                            )
+                            .await
                         }
                         Err(TcpError::TooShort {
                             id,
@@ -132,7 +143,7 @@ async fn listen_tcp(settings: Settings, socket: TcpListener) {
     }
 }
 
-async fn listen_udp(settings: Settings, socket: UdpSocket) {
+async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut buf = vec![0u8; 512];
 
@@ -143,8 +154,9 @@ async fn listen_udp(settings: Settings, socket: UdpSocket) {
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
                 let settings = settings.clone();
+                let cache = cache.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(&settings, ConsumableBuffer::new(bytes.as_ref())).await {
+                    if let Some(response_message) = handle_raw_message(&settings, &cache, ConsumableBuffer::new(bytes.as_ref())).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
@@ -197,8 +209,14 @@ async fn main() {
         }
     };
 
+    let cache = SharedCache::new();
+
     let tcp_settings = settings.clone();
     let udp_settings = settings;
-    tokio::spawn(async move { listen_tcp(tcp_settings, tcp).await });
-    listen_udp(udp_settings, udp).await;
+    // TODO: fix misleading names, the cache is shared, it's just
+    // separate `Arc`s to pass into each method.
+    let tcp_cache = cache.clone();
+    let udp_cache = cache;
+    tokio::spawn(async move { listen_tcp(tcp_settings, tcp_cache, tcp).await });
+    listen_udp(udp_settings, udp_cache, udp).await;
 }
