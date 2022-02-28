@@ -68,6 +68,8 @@ async fn resolve_and_build_response(
         response.header.is_authoritative = false;
     }
 
+    println!(".");
+
     response
 }
 

@@ -75,6 +75,20 @@ pub fn resolve_nonrecursive(
                     new_rrs.append(&mut cached_rrs.clone());
                     authority = cached_authority_rr;
                     authoritative = false;
+
+                    println!(
+                        "[DEBUG] cache HIT for {:?} {:?} {:?}",
+                        question.name.to_dotted_string(),
+                        question.qclass,
+                        question.qtype
+                    );
+                } else {
+                    println!(
+                        "[DEBUG] cache MISS for {:?} {:?} {:?}",
+                        question.name.to_dotted_string(),
+                        question.qclass,
+                        question.qtype
+                    );
                 }
             }
 
@@ -176,6 +190,7 @@ async fn resolve_recursive_notimeout(
                     for rr in &rrs {
                         cache.insert(rr);
                     }
+                    println!("[DEBUG] got response to current query");
                     return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
                 }
                 Some(NameserverResponse::Delegation { rrs, delegation }) => {
@@ -184,6 +199,7 @@ async fn resolve_recursive_notimeout(
                             cache.insert(rr);
                         }
                         candidates = delegation;
+                        println!("[DEBUG] found better nameserver - restarting current query");
                         continue 'query_nameservers;
                     }
                 }
@@ -196,6 +212,7 @@ async fn resolve_recursive_notimeout(
                         qclass: question.qclass,
                         qtype: question.qtype,
                     };
+                    println!("[DEBUG] current query is a CNAME - restarting with CNAME target");
                     if let Some(resolved) =
                         resolve_recursive_notimeout(root_hints, local_zone, cache, &cname_question)
                             .await
@@ -400,6 +417,14 @@ pub async fn query_nameserver(
     question: &Question,
 ) -> Option<NameserverResponse> {
     let request = Message::from_question(rand::thread_rng().gen(), question.clone());
+
+    println!(
+        "[DEBUG] query remote nameserver {:?} for {:?} {:?} {:?}",
+        address,
+        question.name.to_dotted_string(),
+        question.qclass,
+        question.qtype
+    );
 
     let udp_response = query_nameserver_udp(address, &request).await;
     if udp_response.is_some() {
