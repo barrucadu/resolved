@@ -1,0 +1,26 @@
+
+[package]
+name = "resolved-fuzz"
+version = "0.0.0"
+authors = ["Automatically generated"]
+publish = false
+edition = "2018"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.resolved]
+path = ".."
+
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "wire_deserialise_round_trip"
+path = "fuzz_targets/wire_deserialise_round_trip.rs"
+test = false
+doc = false
