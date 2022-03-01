@@ -12,7 +12,6 @@ use tokio::sync::mpsc;
 
 use crate::net_util::{read_tcp_bytes, TcpError};
 use crate::protocol::wire_types::{Message, Opcode, Rcode};
-use crate::protocol::ConsumableBuffer;
 use crate::resolver::cache::SharedCache;
 use crate::resolver::{resolve, ResolvedRecord};
 use crate::settings::Settings;
@@ -77,9 +76,9 @@ async fn resolve_and_build_response(
 async fn handle_raw_message<'a>(
     settings: &Settings,
     cache: &SharedCache,
-    mut buf: ConsumableBuffer<'a>,
+    buf: &[u8],
 ) -> Option<Message> {
-    let res = Message::parse(&mut buf);
+    let res = Message::from_octets(buf);
     println!("{:?}", res);
 
     match res {
@@ -107,14 +106,7 @@ async fn listen_tcp(settings: Settings, cache: SharedCache, socket: TcpListener)
                 let cache = cache.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
-                        Ok(bytes) => {
-                            handle_raw_message(
-                                &settings,
-                                &cache,
-                                ConsumableBuffer::new(bytes.as_ref()),
-                            )
-                            .await
-                        }
+                        Ok(bytes) => handle_raw_message(&settings, &cache, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
                             id,
                             expected,
@@ -159,7 +151,7 @@ async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
                 let settings = settings.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(&settings, &cache, ConsumableBuffer::new(bytes.as_ref())).await {
+                    if let Some(response_message) = handle_raw_message(&settings, &cache, bytes.as_ref()).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),

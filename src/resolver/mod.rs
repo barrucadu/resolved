@@ -14,7 +14,6 @@ use crate::protocol::wire_types::{
     DomainName, Message, QueryClass, QueryType, Question, Rcode, RecordClass, RecordType,
     RecordTypeWithData, ResourceRecord,
 };
-use crate::protocol::ConsumableBuffer;
 use crate::resolver::cache::SharedCache;
 use crate::settings::Settings;
 
@@ -469,7 +468,7 @@ async fn query_nameserver_udp_notimeout(
             Ok(sock) => match sock.connect((*address, 53)).await {
                 Ok(_) => match sock.send(&serialised).await {
                     Ok(_) => match sock.recv(&mut buf).await {
-                        Ok(_) => match Message::parse(&mut ConsumableBuffer::new(&buf)) {
+                        Ok(_) => match Message::from_octets(&buf) {
                             Ok(response) => validate_nameserver_response(request, response),
                             _ => None,
                         },
@@ -514,7 +513,7 @@ async fn query_nameserver_tcp_notimeout(
     match TcpStream::connect((*address, 53)).await {
         Ok(mut stream) => match stream.write_all(&request.clone().serialise_for_tcp()).await {
             Ok(_) => match read_tcp_bytes(&mut stream).await {
-                Ok(bytes) => match Message::parse(&mut ConsumableBuffer::new(bytes.as_ref())) {
+                Ok(bytes) => match Message::from_octets(bytes.as_ref()) {
                     Ok(response) => validate_nameserver_response(request, response),
                     _ => None,
                 },
