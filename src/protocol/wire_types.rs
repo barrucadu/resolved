@@ -1,6 +1,6 @@
 /// Basic DNS message format, used for both queries and responses.
 ///
-/// ```
+/// ```text
 ///     +---------------------+
 ///     |        Header       |
 ///     +---------------------+
@@ -26,7 +26,7 @@ pub struct Message {
 
 /// Common header type for all messages.
 ///
-/// ```
+/// ```text
 ///                                     1  1  1  1  1  1
 ///       0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
 ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -145,7 +145,7 @@ pub struct Header {
 /// possibly more) being asked.  This is the structure for a single
 /// question.
 ///
-/// ```
+/// ```text
 ///                                     1  1  1  1  1  1
 ///       0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
 ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -184,7 +184,7 @@ pub struct Question {
 /// format: a variable number of resource records.  This is the
 /// structure for a single resource record.
 ///
-/// ```
+/// ```text
 ///                                     1  1  1  1  1  1
 ///       0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
 ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+

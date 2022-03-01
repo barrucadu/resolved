@@ -1,19 +1,14 @@
-pub mod net_util;
-pub mod protocol;
-pub mod resolver;
-pub mod settings;
-
 use bytes::BytesMut;
 use std::env;
 use std::process;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
-use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
-use crate::protocol::wire_types::{Message, Opcode, Rcode};
-use crate::resolver::cache::SharedCache;
-use crate::resolver::{resolve, ResolvedRecord};
-use crate::settings::Settings;
+use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
+use resolved::protocol::wire_types::{Message, Opcode, Rcode};
+use resolved::resolver::cache::SharedCache;
+use resolved::resolver::{resolve, ResolvedRecord};
+use resolved::settings::Settings;
 
 async fn resolve_and_build_response(
     settings: &Settings,
