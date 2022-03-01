@@ -171,7 +171,7 @@ impl RecordClass {
 
 /// A buffer which can be written to, for serialisation purposes.
 pub struct WritableBuffer {
-    octets: Vec<u8>,
+    pub octets: Vec<u8>,
 }
 
 impl Default for WritableBuffer {

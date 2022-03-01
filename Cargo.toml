@@ -12,3 +12,6 @@ config = { version = "0.12", features = ["yaml"] }
 rand = "0.8.5"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "sync", "fs", "time"] }
+
+[dev-dependencies]
+fake = "2"
