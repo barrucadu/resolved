@@ -5,11 +5,10 @@ use rand::Rng;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::time::Duration;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
-use crate::net_util::read_tcp_bytes;
+use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
 use crate::protocol::wire_types::{
     DomainName, Message, QueryClass, QueryType, Question, Rcode, RecordClass, RecordType,
     RecordTypeWithData, ResourceRecord,
@@ -417,6 +416,7 @@ pub async fn query_nameserver(
     question: &Question,
 ) -> Option<NameserverResponse> {
     let request = Message::from_question(rand::thread_rng().gen(), question.clone());
+    let mut serialised_request = request.clone().to_octets();
 
     println!(
         "[DEBUG] query remote nameserver {:?} for {:?} {:?} {:?}",
@@ -426,27 +426,32 @@ pub async fn query_nameserver(
         question.qtype
     );
 
-    let udp_response = query_nameserver_udp(address, &request).await;
+    let udp_response = query_nameserver_udp(address, &mut serialised_request)
+        .await
+        .and_then(|res| validate_nameserver_response(&request, res));
     if udp_response.is_some() {
         udp_response
     } else {
-        query_nameserver_tcp(address, &request).await
+        query_nameserver_tcp(address, &mut serialised_request)
+            .await
+            .and_then(|res| validate_nameserver_response(&request, res))
     }
 }
 
 /// Send a message to a remote nameserver over UDP, returning the
-/// response.  If the response does not match the query (header does
-/// not match, question does not match, response is of the wrong type
-/// or domain), `None` is returned.
+/// response.  If the message would be truncated, or an error occurs
+/// while sending it, `None` is returned.  Otherwise the deserialised
+/// response message is: but this response is NOT validated -
+/// consumers MUST validate the response before using it!
 ///
 /// This has a 5s timeout.
 pub async fn query_nameserver_udp(
     address: &Ipv4Addr,
-    request: &Message,
-) -> Option<NameserverResponse> {
+    serialised_request: &mut [u8],
+) -> Option<Message> {
     match timeout(
         Duration::from_secs(5),
-        query_nameserver_udp_notimeout(address, request),
+        query_nameserver_udp_notimeout(address, serialised_request),
     )
     .await
     {
@@ -456,22 +461,21 @@ pub async fn query_nameserver_udp(
 }
 
 /// Timeout-less version of `query_nameserver_udp`.
-///
-/// TODO: implement
 async fn query_nameserver_udp_notimeout(
     address: &Ipv4Addr,
-    request: &Message,
-) -> Option<NameserverResponse> {
-    if let Some(serialised) = request.clone().serialise_for_udp_if_not_too_big() {
-        let mut buf = vec![0u8; 512];
-        match UdpSocket::bind("0.0.0.0:0").await {
-            Ok(sock) => match sock.connect((*address, 53)).await {
-                Ok(_) => match sock.send(&serialised).await {
-                    Ok(_) => match sock.recv(&mut buf).await {
-                        Ok(_) => match Message::from_octets(&buf) {
-                            Ok(response) => validate_nameserver_response(request, response),
-                            _ => None,
-                        },
+    serialised_request: &mut [u8],
+) -> Option<Message> {
+    if serialised_request.len() > 512 {
+        return None;
+    }
+
+    let mut buf = vec![0u8; 512];
+    match UdpSocket::bind("0.0.0.0:0").await {
+        Ok(sock) => match sock.connect((*address, 53)).await {
+            Ok(_) => match send_udp_bytes(&sock, serialised_request).await {
+                Ok(_) => match sock.recv(&mut buf).await {
+                    Ok(_) => match Message::from_octets(&buf) {
+                        Ok(response) => Some(response),
                         _ => None,
                     },
                     _ => None,
@@ -479,24 +483,23 @@ async fn query_nameserver_udp_notimeout(
                 _ => None,
             },
             _ => None,
-        }
-    } else {
-        None
+        },
+        _ => None,
     }
 }
 
 /// Send a message to a remote nameserver over TCP, returning the
-/// response.  This does the same response validation as
+/// response.  This has the same return value caveats as
 /// `query_nameserver_udp`.
 ///
 /// This has a 5s timeout.
 pub async fn query_nameserver_tcp(
     address: &Ipv4Addr,
-    request: &Message,
-) -> Option<NameserverResponse> {
+    serialised_request: &mut [u8],
+) -> Option<Message> {
     match timeout(
         Duration::from_secs(5),
-        query_nameserver_tcp_notimeout(address, request),
+        query_nameserver_tcp_notimeout(address, serialised_request),
     )
     .await
     {
@@ -508,13 +511,13 @@ pub async fn query_nameserver_tcp(
 /// Timeout-less version of `query_nameserver_tcp`.
 async fn query_nameserver_tcp_notimeout(
     address: &Ipv4Addr,
-    request: &Message,
-) -> Option<NameserverResponse> {
+    serialised_request: &mut [u8],
+) -> Option<Message> {
     match TcpStream::connect((*address, 53)).await {
-        Ok(mut stream) => match stream.write_all(&request.clone().serialise_for_tcp()).await {
+        Ok(mut stream) => match send_tcp_bytes(&mut stream, serialised_request).await {
             Ok(_) => match read_tcp_bytes(&mut stream).await {
                 Ok(bytes) => match Message::from_octets(bytes.as_ref()) {
-                    Ok(response) => validate_nameserver_response(request, response),
+                    Ok(response) => Some(response),
                     _ => None,
                 },
                 _ => None,

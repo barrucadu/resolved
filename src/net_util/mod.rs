@@ -1,7 +1,8 @@
 use bytes::BytesMut;
 use std::io;
-use tokio::io::AsyncReadExt;
-use tokio::net::TcpStream;
+use std::net::SocketAddr;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpStream, UdpSocket};
 
 /// Read a DNS message from a TCP stream.
 ///
@@ -61,4 +62,80 @@ pub enum TcpError {
         id: Option<u16>,
         error: io::Error,
     },
+}
+
+/// Write a serialised message to a UDP channel.  This sets or clears
+/// the TC flag as appropriate.
+///
+/// Panics:
+///
+/// - If the message is shorter than 12 bytes, as that is the minimum
+///   possible size for a DNS message (header and no data)
+pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io::Error> {
+    if bytes.len() < 12 {
+        panic!("send_udp_bytes: message too short (got {:?})", bytes.len())
+    }
+
+    if bytes.len() > 512 {
+        bytes[2] |= 0b00000010;
+        sock.send(&bytes[..512]).await?;
+    } else {
+        bytes[2] &= 0b11111101;
+        sock.send(bytes).await?;
+    }
+
+    Ok(())
+}
+
+/// Like `send_udp_bytes` but sends to the given address
+pub async fn send_udp_bytes_to(
+    sock: &UdpSocket,
+    target: SocketAddr,
+    bytes: &mut [u8],
+) -> Result<(), io::Error> {
+    // TODO: see if this can be combined with `send_udp_bytes`
+
+    if bytes.len() < 12 {
+        panic!(
+            "send_udp_bytes_to: message too short (got {:?})",
+            bytes.len()
+        )
+    }
+
+    if bytes.len() > 512 {
+        bytes[2] |= 0b00000010;
+        sock.send_to(&bytes[..512], target).await?;
+    } else {
+        bytes[2] &= 0b11111101;
+        sock.send_to(bytes, target).await?;
+    }
+
+    Ok(())
+}
+
+/// Write a serialised message to a TCP channel.  This sends a
+/// two-byte length prefix (big-endian u16) and sets or clears the TC
+/// flag as appropriate.
+///
+/// Panics:
+///
+/// - If the message is shorter than 12 bytes, as that is the minimum
+///   possible size for a DNS message (header and no data)
+pub async fn send_tcp_bytes(stream: &mut TcpStream, bytes: &mut [u8]) -> Result<(), io::Error> {
+    if bytes.len() < 12 {
+        panic!("send_tcp_bytes: message too short (got {:?})", bytes.len())
+    }
+
+    let len = if let Ok(len) = bytes.len().try_into() {
+        bytes[2] &= 0b11111101;
+        len
+    } else {
+        bytes[2] |= 0b00000010;
+        u16::MAX
+    };
+
+    stream.write_all(&len.to_be_bytes()).await?;
+    stream.write_all(&bytes[..(len as usize)]).await?;
+
+    Ok(())
 }

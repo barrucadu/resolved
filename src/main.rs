@@ -6,11 +6,10 @@ pub mod settings;
 use bytes::BytesMut;
 use std::env;
 use std::process;
-use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
-use crate::net_util::{read_tcp_bytes, TcpError};
+use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
 use crate::protocol::wire_types::{Message, Opcode, Rcode};
 use crate::resolver::cache::SharedCache;
 use crate::resolver::{resolve, ResolvedRecord};
@@ -124,9 +123,8 @@ async fn listen_tcp(settings: Settings, cache: SharedCache, socket: TcpListener)
                         }
                     };
                     if let Some(message) = response {
-                        if let Err(err) = stream
-                            .write_all(message.serialise_for_tcp().as_slice())
-                            .await
+                        if let Err(err) =
+                            send_tcp_bytes(&mut stream, &mut message.to_octets()).await
                         {
                             println!("[{:?}] tcp send error \"{:?}\"", peer, err);
                         }
@@ -160,9 +158,7 @@ async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
                 });
             }
 
-            Some((response_message, peer)) = rx.recv() => if let Err(err) = socket
-                .send_to(response_message.serialise_for_udp().as_slice(), peer)
-                .await
+            Some((response_message, peer)) = rx.recv() => if let Err(err) = send_udp_bytes_to(&socket, peer, &mut response_message.to_octets()).await
             {
                 println!("[{:?}] udp send error \"{:?}\"", peer, err);
             }
