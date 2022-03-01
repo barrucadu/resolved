@@ -39,7 +39,7 @@ impl Header {
                 0
             });
         let flags2 = (if self.recursion_available {
-            0b1000000
+            0b10000000
         } else {
             0
         }) | (0b00001111 & u8::from(self.rcode));
