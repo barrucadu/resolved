@@ -173,12 +173,12 @@ impl Header {
         Ok(Self {
             id,
             is_response: flags1 & 0b10000000 != 0,
-            opcode: Opcode::from_u8((flags1 & 0b01111000) >> 3),
+            opcode: Opcode::from((flags1 & 0b01111000) >> 3),
             is_authoritative: flags1 & 0b00000100 != 0,
             is_truncated: flags1 & 0b00000010 != 0,
             recursion_desired: flags1 & 0b00000001 != 0,
             recursion_available: flags2 & 0b10000000 != 0,
-            rcode: Rcode::from_u8(flags2 & 0b00001111),
+            rcode: Rcode::from(flags2 & 0b00001111),
             qdcount,
             ancount,
             nscount,
@@ -188,7 +188,7 @@ impl Header {
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         let flags1 = (if self.is_response { 0b10000000 } else { 0 })
-            | (0b01111000 & (self.opcode.to_u8() << 3))
+            | (0b01111000 & (u8::from(self.opcode) << 3))
             | (if self.is_authoritative { 0b00000100 } else { 0 })
             | (if self.is_truncated { 0b00000010 } else { 0 })
             | (if self.recursion_desired {
@@ -200,7 +200,7 @@ impl Header {
             0b1000000
         } else {
             0
-        }) | (0b00001111 & self.rcode.to_u8());
+        }) | (0b00001111 & u8::from(self.rcode));
 
         buffer.write_u16(self.id);
         buffer.write_u8(flags1);
@@ -414,52 +414,6 @@ impl RecordTypeWithData {
     }
 }
 
-impl Opcode {
-    pub fn from_u8(octet: u8) -> Opcode {
-        match octet {
-            0 => Opcode::Standard,
-            1 => Opcode::Inverse,
-            2 => Opcode::Status,
-            _ => Opcode::Reserved(octet),
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        match self {
-            Opcode::Standard => 0,
-            Opcode::Inverse => 1,
-            Opcode::Status => 2,
-            Opcode::Reserved(octet) => octet,
-        }
-    }
-}
-
-impl Rcode {
-    pub fn from_u8(octet: u8) -> Rcode {
-        match octet {
-            0 => Rcode::NoError,
-            1 => Rcode::FormatError,
-            2 => Rcode::ServerFailure,
-            3 => Rcode::NameError,
-            4 => Rcode::NotImplemented,
-            5 => Rcode::Refused,
-            _ => Rcode::Reserved(octet),
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        match self {
-            Rcode::NoError => 0,
-            Rcode::FormatError => 1,
-            Rcode::ServerFailure => 2,
-            Rcode::NameError => 3,
-            Rcode::NotImplemented => 4,
-            Rcode::Refused => 5,
-            Rcode::Reserved(octet) => octet,
-        }
-    }
-}
-
 impl DomainName {
     pub fn root_domain() -> Self {
         DomainName {
@@ -614,31 +568,11 @@ impl QueryType {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::QuestionTooShort(id))?;
-        Ok(Self::from_u16(value))
+        Ok(Self::from(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        buffer.write_u16(self.to_u16());
-    }
-
-    pub fn from_u16(value: u16) -> Self {
-        match value {
-            252 => QueryType::AXFR,
-            253 => QueryType::MAILB,
-            254 => QueryType::MAILA,
-            255 => QueryType::Wildcard,
-            _ => QueryType::Record(RecordType::from_u16(value)),
-        }
-    }
-
-    pub fn to_u16(self) -> u16 {
-        match self {
-            QueryType::AXFR => 252,
-            QueryType::MAILB => 253,
-            QueryType::MAILA => 254,
-            QueryType::Wildcard => 255,
-            QueryType::Record(rtype) => rtype.to_u16(),
-        }
+        buffer.write_u16(self.into());
     }
 }
 
@@ -647,25 +581,11 @@ impl QueryClass {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::QuestionTooShort(id))?;
-        Ok(Self::from_u16(value))
+        Ok(Self::from(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        buffer.write_u16(self.to_u16());
-    }
-
-    pub fn from_u16(value: u16) -> Self {
-        match value {
-            255 => QueryClass::Wildcard,
-            _ => QueryClass::Record(RecordClass::from_u16(value)),
-        }
-    }
-
-    pub fn to_u16(self) -> u16 {
-        match self {
-            QueryClass::Wildcard => 255,
-            QueryClass::Record(rclass) => rclass.to_u16(),
-        }
+        buffer.write_u16(self.into());
     }
 }
 
@@ -674,55 +594,11 @@ impl RecordType {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
-        Ok(Self::from_u16(value))
+        Ok(Self::from(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        buffer.write_u16(self.to_u16());
-    }
-
-    pub fn from_u16(value: u16) -> Self {
-        match value {
-            1 => RecordType::A,
-            2 => RecordType::NS,
-            3 => RecordType::MD,
-            4 => RecordType::MF,
-            5 => RecordType::CNAME,
-            6 => RecordType::SOA,
-            7 => RecordType::MB,
-            8 => RecordType::MG,
-            9 => RecordType::MR,
-            10 => RecordType::NULL,
-            11 => RecordType::WKS,
-            12 => RecordType::PTR,
-            13 => RecordType::HINFO,
-            14 => RecordType::MINFO,
-            15 => RecordType::MX,
-            16 => RecordType::TXT,
-            _ => RecordType::Unknown(value),
-        }
-    }
-
-    pub fn to_u16(self) -> u16 {
-        match self {
-            RecordType::A => 1,
-            RecordType::NS => 2,
-            RecordType::MD => 3,
-            RecordType::MF => 4,
-            RecordType::CNAME => 5,
-            RecordType::SOA => 6,
-            RecordType::MB => 7,
-            RecordType::MG => 8,
-            RecordType::MR => 9,
-            RecordType::NULL => 10,
-            RecordType::WKS => 11,
-            RecordType::PTR => 12,
-            RecordType::HINFO => 13,
-            RecordType::MINFO => 14,
-            RecordType::MX => 15,
-            RecordType::TXT => 16,
-            RecordType::Unknown(value) => value,
-        }
+        buffer.write_u16(self.into());
     }
 
     pub fn matches(&self, qtype: &QueryType) -> bool {
@@ -739,31 +615,11 @@ impl RecordClass {
         let value = buffer
             .next_u16()
             .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
-        Ok(Self::from_u16(value))
+        Ok(Self::from(value))
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        buffer.write_u16(self.to_u16());
-    }
-
-    pub fn from_u16(value: u16) -> Self {
-        match value {
-            1 => RecordClass::IN,
-            2 => RecordClass::CS,
-            3 => RecordClass::CH,
-            4 => RecordClass::HS,
-            _ => RecordClass::Unknown(value),
-        }
-    }
-
-    pub fn to_u16(self) -> u16 {
-        match self {
-            RecordClass::IN => 1,
-            RecordClass::CS => 2,
-            RecordClass::CH => 3,
-            RecordClass::HS => 4,
-            RecordClass::Unknown(value) => value,
-        }
+        buffer.write_u16(self.into());
     }
 
     pub fn matches(&self, qclass: &QueryClass) -> bool {

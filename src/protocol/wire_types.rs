@@ -268,6 +268,28 @@ pub enum Opcode {
     Reserved(u8),
 }
 
+impl From<u8> for Opcode {
+    fn from(octet: u8) -> Self {
+        match octet {
+            0 => Opcode::Standard,
+            1 => Opcode::Inverse,
+            2 => Opcode::Status,
+            _ => Opcode::Reserved(octet),
+        }
+    }
+}
+
+impl From<Opcode> for u8 {
+    fn from(value: Opcode) -> Self {
+        match value {
+            Opcode::Standard => 0,
+            Opcode::Inverse => 1,
+            Opcode::Status => 2,
+            Opcode::Reserved(octet) => octet,
+        }
+    }
+}
+
 /// What sort of response this is.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Rcode {
@@ -278,6 +300,34 @@ pub enum Rcode {
     NotImplemented,
     Refused,
     Reserved(u8),
+}
+
+impl From<u8> for Rcode {
+    fn from(octet: u8) -> Self {
+        match octet {
+            0 => Rcode::NoError,
+            1 => Rcode::FormatError,
+            2 => Rcode::ServerFailure,
+            3 => Rcode::NameError,
+            4 => Rcode::NotImplemented,
+            5 => Rcode::Refused,
+            _ => Rcode::Reserved(octet),
+        }
+    }
+}
+
+impl From<Rcode> for u8 {
+    fn from(value: Rcode) -> Self {
+        match value {
+            Rcode::NoError => 0,
+            Rcode::FormatError => 1,
+            Rcode::ServerFailure => 2,
+            Rcode::NameError => 3,
+            Rcode::NotImplemented => 4,
+            Rcode::Refused => 5,
+            Rcode::Reserved(octet) => octet,
+        }
+    }
 }
 
 /// A domain name is a sequence of labels, where each label is a
@@ -304,11 +354,53 @@ pub enum QueryType {
     Wildcard,
 }
 
+impl From<u16> for QueryType {
+    fn from(value: u16) -> Self {
+        match value {
+            252 => QueryType::AXFR,
+            253 => QueryType::MAILB,
+            254 => QueryType::MAILA,
+            255 => QueryType::Wildcard,
+            _ => QueryType::Record(RecordType::from(value)),
+        }
+    }
+}
+
+impl From<QueryType> for u16 {
+    fn from(value: QueryType) -> Self {
+        match value {
+            QueryType::AXFR => 252,
+            QueryType::MAILB => 253,
+            QueryType::MAILA => 254,
+            QueryType::Wildcard => 255,
+            QueryType::Record(rtype) => rtype.into(),
+        }
+    }
+}
+
 /// Query classes are a superset of record classes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum QueryClass {
     Record(RecordClass),
     Wildcard,
+}
+
+impl From<u16> for QueryClass {
+    fn from(value: u16) -> Self {
+        match value {
+            255 => QueryClass::Wildcard,
+            _ => QueryClass::Record(RecordClass::from(value)),
+        }
+    }
+}
+
+impl From<QueryClass> for u16 {
+    fn from(value: QueryClass) -> Self {
+        match value {
+            QueryClass::Wildcard => 255,
+            QueryClass::Record(rclass) => rclass.into(),
+        }
+    }
 }
 
 /// Record types are used by resource records and by queries.
@@ -333,6 +425,54 @@ pub enum RecordType {
     Unknown(u16),
 }
 
+impl From<u16> for RecordType {
+    fn from(value: u16) -> Self {
+        match value {
+            1 => RecordType::A,
+            2 => RecordType::NS,
+            3 => RecordType::MD,
+            4 => RecordType::MF,
+            5 => RecordType::CNAME,
+            6 => RecordType::SOA,
+            7 => RecordType::MB,
+            8 => RecordType::MG,
+            9 => RecordType::MR,
+            10 => RecordType::NULL,
+            11 => RecordType::WKS,
+            12 => RecordType::PTR,
+            13 => RecordType::HINFO,
+            14 => RecordType::MINFO,
+            15 => RecordType::MX,
+            16 => RecordType::TXT,
+            _ => RecordType::Unknown(value),
+        }
+    }
+}
+
+impl From<RecordType> for u16 {
+    fn from(value: RecordType) -> Self {
+        match value {
+            RecordType::A => 1,
+            RecordType::NS => 2,
+            RecordType::MD => 3,
+            RecordType::MF => 4,
+            RecordType::CNAME => 5,
+            RecordType::SOA => 6,
+            RecordType::MB => 7,
+            RecordType::MG => 8,
+            RecordType::MR => 9,
+            RecordType::NULL => 10,
+            RecordType::WKS => 11,
+            RecordType::PTR => 12,
+            RecordType::HINFO => 13,
+            RecordType::MINFO => 14,
+            RecordType::MX => 15,
+            RecordType::TXT => 16,
+            RecordType::Unknown(value) => value,
+        }
+    }
+}
+
 /// Record classes are used by resource records and by queries.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum RecordClass {
@@ -341,4 +481,75 @@ pub enum RecordClass {
     CH,
     HS,
     Unknown(u16),
+}
+
+impl From<u16> for RecordClass {
+    fn from(value: u16) -> Self {
+        match value {
+            1 => RecordClass::IN,
+            2 => RecordClass::CS,
+            3 => RecordClass::CH,
+            4 => RecordClass::HS,
+            _ => RecordClass::Unknown(value),
+        }
+    }
+}
+
+impl From<RecordClass> for u16 {
+    fn from(value: RecordClass) -> Self {
+        match value {
+            RecordClass::IN => 1,
+            RecordClass::CS => 2,
+            RecordClass::CH => 3,
+            RecordClass::HS => 4,
+            RecordClass::Unknown(value) => value,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn u8_opcode_roundtrip() {
+        for i in 0..100 {
+            assert_eq!(u8::from(Opcode::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn u8_rcode_roundtrip() {
+        for i in 0..100 {
+            assert_eq!(u8::from(Rcode::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn u16_querytype_roundtrip() {
+        for i in 0..100 {
+            assert_eq!(u16::from(QueryType::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn u16_queryclass_roundtrip() {
+        for i in 0..100 {
+            assert_eq!(u16::from(QueryClass::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn u16_recordtype_roundtrip() {
+        for i in 0..100 {
+            assert_eq!(u16::from(RecordType::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn u16_recordclass_roundtrip() {
+        for i in 0..100 {
+            assert_eq!(u16::from(RecordClass::from(i)), i);
+        }
+    }
 }
