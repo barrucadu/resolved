@@ -115,14 +115,20 @@ impl DomainName {
 
     pub fn to_dotted_string(&self) -> String {
         let mut out = String::with_capacity(self.octets.len());
+        let mut dot = false;
         for label in &self.labels {
             for octet in label {
                 out.push(*octet as char);
             }
             if !label.is_empty() {
                 out.push('.');
+                dot = true;
             }
         }
+        if !dot {
+            out.push('.');
+        }
+
         out
     }
 
@@ -148,6 +154,10 @@ impl DomainName {
     }
 
     pub fn from_labels(mixed_case_labels: Vec<Vec<u8>>) -> Option<Self> {
+        if mixed_case_labels.is_empty() {
+            return None;
+        }
+
         let mut labels = Vec::<Vec<u8>>::with_capacity(mixed_case_labels.len());
         let mut octets = Vec::<u8>::with_capacity(255);
         let mut blank_label = false;
@@ -201,6 +211,84 @@ impl RecordClass {
         match qclass {
             QueryClass::Wildcard => true,
             QueryClass::Record(rclass) => rclass == self,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fake::{Fake, Faker};
+
+    use super::*;
+
+    #[test]
+    fn domainname_root_conversions() {
+        assert_eq!(
+            Some(DomainName::root_domain()),
+            DomainName::from_dotted_string("")
+        );
+
+        assert_eq!(
+            Some(DomainName::root_domain()),
+            DomainName::from_labels(vec![Vec::new()])
+        );
+
+        assert_eq!(".", DomainName::root_domain().to_dotted_string())
+    }
+
+    #[test]
+    fn domainname_conversions() {
+        for _ in 0..100 {
+            let labels_len = (0..5).fake::<usize>();
+
+            let mut dotted_string_input = String::new();
+            let mut labels_input = Vec::with_capacity(labels_len);
+            let mut output = String::new();
+
+            for i in 0..labels_len {
+                let label_len = (1..10).fake::<usize>();
+
+                if i > 0 {
+                    dotted_string_input.push('.');
+                    output.push('.');
+                }
+
+                let mut label = Vec::with_capacity(label_len);
+                for _ in 0..label_len {
+                    let mut chr = (32..126).fake::<u8>();
+
+                    // turn '.' to 'X'
+                    if chr == 46 {
+                        chr = 88;
+                    }
+
+                    label.push(chr);
+                    dotted_string_input.push(chr as char);
+                    output.push(chr.to_ascii_lowercase() as char);
+                }
+                labels_input.push(label);
+            }
+
+            labels_input.push(Vec::new());
+            if Faker.fake() && output.len() > 0 {
+                dotted_string_input.push('.');
+            }
+            output.push('.');
+
+            assert_eq!(
+                Some(output.clone()),
+                DomainName::from_dotted_string(&dotted_string_input).map(|d| d.to_dotted_string())
+            );
+
+            assert_eq!(
+                Some(output),
+                DomainName::from_labels(labels_input.clone()).map(|d| d.to_dotted_string())
+            );
+
+            assert_eq!(
+                DomainName::from_dotted_string(&dotted_string_input).map(|d| d.to_dotted_string()),
+                DomainName::from_labels(labels_input).map(|d| d.to_dotted_string())
+            );
         }
     }
 }
