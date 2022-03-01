@@ -1,7 +1,5 @@
 pub mod wire_types;
 
-use std::slice;
-
 use self::wire_types::*;
 
 impl Message {
@@ -292,14 +290,14 @@ impl ResourceRecord {
             },
 
             _ => {
-                let mut octets = Vec::with_capacity(rdlength.into());
-                for _ in 0..rdlength {
-                    let octet = buffer
-                        .next_u8()
-                        .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
-                    octets.push(octet);
+                if let Some(octets) = buffer.take(rdlength as usize) {
+                    RecordTypeWithData::Uninterpreted {
+                        rtype,
+                        octets: octets.to_vec(),
+                    }
+                } else {
+                    return Err(ProtocolError::ResourceRecordTooShort(id));
                 }
-                RecordTypeWithData::Uninterpreted { rtype, octets }
             }
         };
 
@@ -507,20 +505,21 @@ impl DomainName {
                     break 'outer;
                 }
 
-                for _ in 0..size {
-                    let octet = buffer
-                        .next_u8()
-                        .ok_or(ProtocolError::DomainTooShort(id))?
-                        .to_ascii_lowercase();
-                    octets.push(octet);
-                    label.push(octet);
-
-                    if octets.len() > 255 {
-                        labels.push(label);
-                        break 'outer;
+                if let Some(os) = buffer.take(size as usize) {
+                    for o in os {
+                        let lowered = o.to_ascii_lowercase();
+                        octets.push(lowered);
+                        label.push(lowered);
                     }
+                } else {
+                    return Err(ProtocolError::DomainTooShort(id));
                 }
+
                 labels.push(label);
+
+                if octets.len() > 255 {
+                    break 'outer;
+                }
             } else if size >= 192 {
                 // this requires re-parsing the pointed-to domain -
                 // not great but works for now.
@@ -680,7 +679,6 @@ impl ProtocolError {
 
 /// A buffer which will be consumed by the parsing process.
 pub struct ConsumableBuffer<'a> {
-    iter: slice::Iter<'a, u8>,
     octets: &'a [u8],
     position: usize,
 }
@@ -688,52 +686,57 @@ pub struct ConsumableBuffer<'a> {
 impl<'a> ConsumableBuffer<'a> {
     pub fn new(octets: &'a [u8]) -> Self {
         Self {
-            iter: octets.iter(),
             octets,
             position: 0,
         }
     }
 
     pub fn next_u8(&mut self) -> Option<u8> {
-        let octet = self.iter.next().copied();
-
-        if octet.is_some() {
+        if self.octets.len() > self.position {
+            let a = self.octets[self.position];
             self.position += 1;
+            Some(a)
+        } else {
+            None
         }
-
-        octet
     }
 
     pub fn next_u16(&mut self) -> Option<u16> {
-        if let Some(hi) = self.next_u8() {
-            if let Some(lo) = self.next_u8() {
-                return Some(u16::from_be_bytes([hi, lo]));
-            }
+        if self.octets.len() > self.position + 1 {
+            let a = self.octets[self.position];
+            let b = self.octets[self.position + 1];
+            self.position += 2;
+            Some(u16::from_be_bytes([a, b]))
+        } else {
+            None
         }
-        None
     }
 
     pub fn next_u32(&mut self) -> Option<u32> {
-        if let Some(hihi) = self.next_u8() {
-            if let Some(lohi) = self.next_u8() {
-                if let Some(hilo) = self.next_u8() {
-                    if let Some(lolo) = self.next_u8() {
-                        return Some(u32::from_be_bytes([hihi, lohi, hilo, lolo]));
-                    }
-                }
-            }
+        if self.octets.len() > self.position + 3 {
+            let a = self.octets[self.position];
+            let b = self.octets[self.position + 1];
+            let c = self.octets[self.position + 2];
+            let d = self.octets[self.position + 3];
+            self.position += 4;
+            Some(u32::from_be_bytes([a, b, c, d]))
+        } else {
+            None
         }
-        None
+    }
+
+    pub fn take(&mut self, size: usize) -> Option<&'a [u8]> {
+        if self.octets.len() >= self.position + size {
+            let slice = &self.octets[self.position..self.position + size];
+            self.position += size;
+            Some(slice)
+        } else {
+            None
+        }
     }
 
     pub fn at_offset(&self, position: usize) -> ConsumableBuffer<'a> {
-        let mut iter = self.octets.iter();
-        if position > 0 {
-            iter.nth(position - 1);
-        }
-
         Self {
-            iter,
             octets: self.octets,
             position,
         }
