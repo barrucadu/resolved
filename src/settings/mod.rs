@@ -4,7 +4,7 @@ use serde::Deserialize;
 use std::fmt;
 use std::net::Ipv4Addr;
 
-use crate::protocol::DomainName;
+use crate::protocol::wire_types::DomainName;
 
 #[derive(Debug, Clone, Eq, PartialEq, Deserialize, Default)]
 pub struct Settings {

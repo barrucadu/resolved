@@ -10,10 +10,11 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
 use crate::net_util::read_tcp_bytes;
-use crate::protocol::{
-    ConsumableBuffer, DomainName, Message, QueryClass, QueryType, Question, Rcode, RecordClass,
-    RecordType, RecordTypeWithData, ResourceRecord,
+use crate::protocol::wire_types::{
+    DomainName, Message, QueryClass, QueryType, Question, Rcode, RecordClass, RecordType,
+    RecordTypeWithData, ResourceRecord,
 };
+use crate::protocol::ConsumableBuffer;
 use crate::resolver::cache::SharedCache;
 use crate::settings::Settings;
 

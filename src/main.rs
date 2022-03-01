@@ -11,7 +11,8 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 
 use crate::net_util::{read_tcp_bytes, TcpError};
-use crate::protocol::{ConsumableBuffer, Message};
+use crate::protocol::wire_types::{Message, Opcode, Rcode};
+use crate::protocol::ConsumableBuffer;
 use crate::resolver::cache::SharedCache;
 use crate::resolver::{resolve, ResolvedRecord};
 use crate::settings::Settings;
@@ -64,7 +65,7 @@ async fn resolve_and_build_response(
     // response should include an NS record for something which can
     // help.
     if response.answers.is_empty() {
-        response.header.rcode = protocol::Rcode::ServerFailure;
+        response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
 
@@ -85,11 +86,11 @@ async fn handle_raw_message<'a>(
         Ok(msg) => {
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
-            } else if msg.header.opcode == protocol::Opcode::Standard {
+            } else if msg.header.opcode == Opcode::Standard {
                 Some(resolve_and_build_response(settings, cache, msg).await)
             } else {
                 let mut response = msg.make_response();
-                response.header.rcode = protocol::Rcode::NotImplemented;
+                response.header.rcode = Rcode::NotImplemented;
                 Some(response)
             }
         }

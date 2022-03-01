@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-use crate::protocol::{
+use crate::protocol::wire_types::{
     DomainName, QueryClass, QueryType, RecordClass, RecordTypeWithData, ResourceRecord,
 };
 
