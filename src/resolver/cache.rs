@@ -242,8 +242,34 @@ impl Cache {
         let tuple = (record.rtype_with_data.clone(), record.rclass, expiry);
         if let Some(entry) = self.entries.get_mut(&record.name) {
             if let Some(tuples) = entry.records.get_mut(&rtype) {
-                // TODO: handle duplicate entries
+                let mut duplicate_expires_at = None;
+                for i in 0..tuples.len() {
+                    let t = &tuples[i];
+                    if t.0 == tuple.0 && t.1 == tuple.1 {
+                        duplicate_expires_at = Some(t.2);
+                        tuples.swap_remove(i);
+                        break;
+                    }
+                }
+
                 tuples.push(tuple);
+
+                if let Some(dup_expiry) = duplicate_expires_at {
+                    entry.size -= 1;
+                    self.current_size -= 1;
+
+                    if dup_expiry == entry.next_expiry {
+                        let mut new_next_expiry = expiry;
+                        for (_, _, e) in tuples {
+                            if *e < new_next_expiry {
+                                new_next_expiry = *e;
+                            }
+                        }
+                        entry.next_expiry = new_next_expiry;
+                        self.expiry_priority
+                            .change_priority(&record.name, Reverse(entry.next_expiry));
+                    }
+                }
             } else {
                 entry.records.insert(rtype, vec![tuple]);
             }
@@ -458,6 +484,18 @@ mod tests {
                 ),
             );
         }
+    }
+
+    #[test]
+    fn cache_put_deduplicates_and_maintains_invariants() {
+        let mut cache = Cache::new();
+        let rr = arbitrary_resourcerecord();
+
+        cache.insert(&rr);
+        cache.insert(&rr);
+
+        assert_eq!(1, cache.current_size);
+        assert_invariants(&cache);
     }
 
     #[test]
