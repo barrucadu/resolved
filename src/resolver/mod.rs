@@ -1,19 +1,19 @@
 pub mod cache;
+pub mod rr_util;
 
 use async_recursion::async_recursion;
 use rand::Rng;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
+use self::cache::SharedCache;
+use self::rr_util::follow_cnames;
+
 use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
-use crate::protocol::wire_types::{
-    DomainName, Message, QueryClass, QueryType, Question, Rcode, RecordClass, RecordType,
-    RecordTypeWithData, ResourceRecord,
-};
-use crate::resolver::cache::SharedCache;
+use crate::protocol::wire_types::*;
 use crate::settings::Settings;
 
 /// Resolve a question using the standard DNS algorithms.
@@ -538,12 +538,13 @@ async fn query_nameserver_tcp_notimeout(
 ///
 /// Then, only keep valid RRs:
 ///
-/// - `NS` RRs for a superdomain of the query domain
+/// - RRs matching the query domain (or the name it ends up being
+///   after following `CNAME`s, class, and type (or `CNAME`)
 ///
-/// - `A` RRs corresponding to a `NS` RR
+/// - `NS` RRs for a superdomain of the query domain (if it matches
+///   better than our current nameservers).
 ///
-/// - RRs matching the query domain (or a `CNAME` from it), class, and
-///   type (or `CNAME`)
+/// - `A` RRs corresponding to a selected `NS` RR
 ///
 /// Then, decide whether:
 ///
@@ -594,128 +595,127 @@ pub fn validate_nameserver_response(
         return None;
     }
 
-    // step 2.1: get the `CNAME` and `NS` RRs
-    //
-    // NOTE: `NS` RRs may be in any section, whereas (but are most
-    // likely to be in ANSWER or AUTHORITY) `CNAME`s related to the
-    // query domain should only be in the ANSWER section.
-    //
-    // TODO: better CNAME algorithm - but records aren't necessarily
-    // topographically sorted, so CNAME resolution is a bit awkward...
-    let mut ns_rrs_for_superdomain_of_query = Vec::<ResourceRecord>::with_capacity(std::cmp::max(
-        response.header.ancount as usize,
-        response.header.nscount as usize,
-    ));
-    let mut match_count = 0;
-    let mut match_name = None;
-    let mut ns_names = HashSet::<DomainName>::new();
-    let mut name_map = HashMap::<DomainName, DomainName>::new();
-    for an in &response.answers {
-        if let RecordTypeWithData::Named { rtype, name } = &an.rtype_with_data {
-            if *rtype == RecordType::NS && question.name.is_subdomain_of(&an.name) {
-                if an.name.labels.len() > match_count {
-                    ns_rrs_for_superdomain_of_query.clear();
-                    ns_names.clear();
-                    match_count = an.name.labels.len();
-                    match_name = Some(an.name.clone());
+    if let Some((final_name, cname_map)) = follow_cnames(
+        &response.answers,
+        &question.name,
+        &question.qclass,
+        &question.qtype,
+    ) {
+        // step 2.1: get RRs matching the query name or the names it
+        // `CNAME`s to
+
+        let mut rrs_for_query =
+            Vec::<ResourceRecord>::with_capacity(response.header.ancount as usize);
+        let mut seen_final_record = false;
+        for an in &response.answers {
+            if an.rclass.matches(&question.qclass) {
+                let rtype = an.rtype_with_data.rtype();
+                if rtype.matches(&question.qtype) && an.name == final_name {
+                    rrs_for_query.push(an.clone());
+                    seen_final_record = true;
+                } else if rtype == RecordType::CNAME && cname_map.contains_key(&an.name) {
+                    rrs_for_query.push(an.clone());
                 }
-                ns_names.insert(name.clone());
-                ns_rrs_for_superdomain_of_query.push(an.clone());
-            } else if *rtype == RecordType::CNAME {
-                name_map.insert(an.name.clone(), name.clone());
             }
         }
-    }
-    for ns in &response.authority {
-        if let RecordTypeWithData::Named { rtype, name } = &ns.rtype_with_data {
-            if *rtype == RecordType::NS && question.name.is_subdomain_of(&ns.name) {
-                if ns.name.labels.len() > match_count {
-                    ns_rrs_for_superdomain_of_query.clear();
-                    ns_names.clear();
-                    match_count = ns.name.labels.len();
-                    match_name = Some(ns.name.clone());
-                }
-                ns_names.insert(name.clone());
-                ns_rrs_for_superdomain_of_query.push(ns.clone());
+
+        if rrs_for_query.is_empty() {
+            panic!("[ERROR] validate_nameserver_response: there should at least be CNAME RRs here")
+        } else {
+            // step 3.1 & 3.2: what sort of answer is this?
+            if seen_final_record {
+                // TODO: implement authority
+                Some(NameserverResponse::Answer {
+                    rrs: rrs_for_query,
+                    authority: None,
+                })
+            } else {
+                Some(NameserverResponse::CNAME {
+                    rrs: rrs_for_query,
+                    cname: final_name,
+                })
             }
         }
-    }
-
-    let mut ok_names = HashSet::<DomainName>::new();
-    let mut final_name = question.name.clone();
-    while let Some(target) = name_map.get(&final_name) {
-        ok_names.insert(target.clone());
-        final_name = target.clone();
-    }
-    ok_names.insert(question.name.clone());
-
-    // step 2.2: get `A` RRs for the nameservers - assume as a
-    // starting point that we have 1 `A` per `NS` (but it may well be
-    // zero)
-    //
-    // NOTE: `A` RRs should only be in the ANSWER or ADDITIONAL
-    // sections - not the AUTHORITY.
-    let mut a_rrs_for_nameservers =
-        Vec::<ResourceRecord>::with_capacity(ns_rrs_for_superdomain_of_query.len());
-    for an in &response.answers {
-        if an.rtype_with_data.rtype() == RecordType::A && ns_names.contains(&an.name) {
-            a_rrs_for_nameservers.push(an.clone());
+    } else {
+        // steps 2.2: get NS RRs
+        //
+        // NOTE: `NS` RRs may be in the ANSWER *or* AUTHORITY
+        // sections.
+        let mut ns_rrs_for_superdomain_of_query =
+            Vec::<ResourceRecord>::with_capacity(std::cmp::max(
+                response.header.ancount as usize,
+                response.header.nscount as usize,
+            ));
+        let mut match_count = 0;
+        let mut match_name = None;
+        let mut ns_names = HashSet::<DomainName>::new();
+        for an in &response.answers {
+            if let RecordTypeWithData::Named { rtype, name } = &an.rtype_with_data {
+                if *rtype == RecordType::NS && question.name.is_subdomain_of(&an.name) {
+                    if an.name.labels.len() > match_count {
+                        ns_rrs_for_superdomain_of_query.clear();
+                        ns_names.clear();
+                        match_count = an.name.labels.len();
+                        match_name = Some(an.name.clone());
+                    }
+                    ns_names.insert(name.clone());
+                    ns_rrs_for_superdomain_of_query.push(an.clone());
+                }
+            }
         }
-    }
-    for ar in &response.additional {
-        if ar.rtype_with_data.rtype() == RecordType::A && ns_names.contains(&ar.name) {
-            a_rrs_for_nameservers.push(ar.clone());
+        for ns in &response.authority {
+            if let RecordTypeWithData::Named { rtype, name } = &ns.rtype_with_data {
+                if *rtype == RecordType::NS && question.name.is_subdomain_of(&ns.name) {
+                    if ns.name.labels.len() > match_count {
+                        ns_rrs_for_superdomain_of_query.clear();
+                        ns_names.clear();
+                        match_count = ns.name.labels.len();
+                        match_name = Some(ns.name.clone());
+                    }
+                    ns_names.insert(name.clone());
+                    ns_rrs_for_superdomain_of_query.push(ns.clone());
+                }
+            }
         }
-    }
 
-    // step 2.3: get matching RRs for the query
-    //
-    // NOTE: these should only be in the ANSWER section.
-    let mut rrs_for_query = Vec::<ResourceRecord>::with_capacity(response.header.ancount as usize);
-    let mut seen_final_record = false;
-    for an in &response.answers {
-        if (an.rtype_with_data.matches(&question.qtype)
-            || an.rtype_with_data.rtype() == RecordType::CNAME)
-            && an.rclass.matches(&question.qclass)
-            && ok_names.contains(&an.name)
-        {
-            rrs_for_query.push(an.clone());
-            seen_final_record |=
-                an.name == question.name && an.rtype_with_data.matches(&question.qtype);
+        // step 2.3: get `A` RRs for the nameservers - assume as a
+        // starting point that we have 1 `A` per `NS` (but it may well be
+        // zero)
+        //
+        // NOTE: `A` RRs should only be in the ANSWER or ADDITIONAL
+        // sections - not the AUTHORITY.
+        let mut a_rrs_for_nameservers =
+            Vec::<ResourceRecord>::with_capacity(ns_rrs_for_superdomain_of_query.len());
+        for an in &response.answers {
+            if an.rtype_with_data.rtype() == RecordType::A && ns_names.contains(&an.name) {
+                a_rrs_for_nameservers.push(an.clone());
+            }
         }
-    }
+        for ar in &response.additional {
+            if ar.rtype_with_data.rtype() == RecordType::A && ns_names.contains(&ar.name) {
+                a_rrs_for_nameservers.push(ar.clone());
+            }
+        }
 
-    // step 3: decide which case we have
-    if !rrs_for_query.is_empty() {
-        if seen_final_record {
-            // TODO: implement authority
-            Some(NameserverResponse::Answer {
-                rrs: rrs_for_query,
-                authority: None,
+        if let Some(name) = match_name {
+            let mut rrs = Vec::with_capacity(
+                ns_rrs_for_superdomain_of_query.len() + a_rrs_for_nameservers.len(),
+            );
+            rrs.append(&mut ns_rrs_for_superdomain_of_query);
+            rrs.append(&mut a_rrs_for_nameservers);
+
+            let mut hostnames = Vec::with_capacity(ns_names.len());
+            for ns in ns_names {
+                hostnames.push(HostOrIP::Host(ns.clone()));
+            }
+
+            Some(NameserverResponse::Delegation {
+                rrs,
+                delegation: Nameservers { hostnames, name },
             })
         } else {
-            Some(NameserverResponse::CNAME {
-                rrs: rrs_for_query,
-                cname: final_name,
-            })
+            None
         }
-    } else if let Some(name) = match_name {
-        let mut rrs =
-            Vec::with_capacity(ns_rrs_for_superdomain_of_query.len() + a_rrs_for_nameservers.len());
-        rrs.append(&mut ns_rrs_for_superdomain_of_query);
-        rrs.append(&mut a_rrs_for_nameservers);
-
-        let mut hostnames = Vec::with_capacity(ns_names.len());
-        for ns in ns_names {
-            hostnames.push(HostOrIP::Host(ns.clone()));
-        }
-
-        Some(NameserverResponse::Delegation {
-            rrs,
-            delegation: Nameservers { hostnames, name },
-        })
-    } else {
-        None
     }
 }
 
@@ -762,36 +762,24 @@ pub enum NameserverResponse {
 fn lookup_ip(record: Option<ResolvedRecord>, hostname: &DomainName) -> Option<Ipv4Addr> {
     if let Some(resolved) = record {
         let rrs = resolved.rrs();
-
-        // TODO: deduplicate with `CNAME`-following logic in
-        // `validate_nameserver_response`
-        let mut name_map = HashMap::<DomainName, DomainName>::new();
-        for rr in &rrs {
-            if let RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name,
-            } = &rr.rtype_with_data
-            {
-                name_map.insert(rr.name.clone(), name.clone());
-            }
-        }
-
-        let mut final_name = hostname.clone();
-        while let Some(target) = name_map.get(&final_name) {
-            final_name = target.clone();
-        }
-
-        for rr in &rrs {
-            match &rr.rtype_with_data {
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets,
-                } if rr.name == final_name && rr.rclass == RecordClass::IN => {
-                    if let &[a, b, c, d] = octets.as_slice() {
-                        return Some(Ipv4Addr::new(a, b, c, d));
+        if let Some((final_name, _)) = follow_cnames(
+            &rrs,
+            hostname,
+            &QueryClass::Record(RecordClass::IN),
+            &QueryType::Record(RecordType::A),
+        ) {
+            for rr in &rrs {
+                match &rr.rtype_with_data {
+                    RecordTypeWithData::Uninterpreted {
+                        rtype: RecordType::A,
+                        octets,
+                    } if rr.name == final_name && rr.rclass == RecordClass::IN => {
+                        if let &[a, b, c, d] = octets.as_slice() {
+                            return Some(Ipv4Addr::new(a, b, c, d));
+                        }
                     }
+                    _ => (),
                 }
-                _ => (),
             }
         }
     }
