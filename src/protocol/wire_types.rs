@@ -265,8 +265,13 @@ pub enum Opcode {
     Standard,
     Inverse,
     Status,
-    Reserved(u8),
+    Reserved(OpcodeReserved),
 }
+
+/// A struct with a private constructor, to ensure invalid `Opcode`s
+/// cannot be created.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct OpcodeReserved(u8);
 
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
@@ -274,7 +279,7 @@ impl From<u8> for Opcode {
             0 => Opcode::Standard,
             1 => Opcode::Inverse,
             2 => Opcode::Status,
-            _ => Opcode::Reserved(octet),
+            _ => Opcode::Reserved(OpcodeReserved(octet)),
         }
     }
 }
@@ -285,7 +290,7 @@ impl From<Opcode> for u8 {
             Opcode::Standard => 0,
             Opcode::Inverse => 1,
             Opcode::Status => 2,
-            Opcode::Reserved(octet) => octet,
+            Opcode::Reserved(OpcodeReserved(octet)) => octet,
         }
     }
 }
@@ -299,8 +304,13 @@ pub enum Rcode {
     NameError,
     NotImplemented,
     Refused,
-    Reserved(u8),
+    Reserved(RcodeReserved),
 }
+
+/// A struct with a private constructor, to ensure invalid `Rcode`s
+/// cannot be created.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct RcodeReserved(u8);
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
@@ -311,7 +321,7 @@ impl From<u8> for Rcode {
             3 => Rcode::NameError,
             4 => Rcode::NotImplemented,
             5 => Rcode::Refused,
-            _ => Rcode::Reserved(octet),
+            _ => Rcode::Reserved(RcodeReserved(octet)),
         }
     }
 }
@@ -325,7 +335,7 @@ impl From<Rcode> for u8 {
             Rcode::NameError => 3,
             Rcode::NotImplemented => 4,
             Rcode::Refused => 5,
-            Rcode::Reserved(octet) => octet,
+            Rcode::Reserved(RcodeReserved(octet)) => octet,
         }
     }
 }
@@ -422,8 +432,13 @@ pub enum RecordType {
     MINFO,
     MX,
     TXT,
-    Unknown(u16),
+    Unknown(RecordTypeUnknown),
 }
+
+/// A struct with a private constructor, to ensure invalid `RecordType`s
+/// cannot be created.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct RecordTypeUnknown(u16);
 
 impl From<u16> for RecordType {
     fn from(value: u16) -> Self {
@@ -444,7 +459,7 @@ impl From<u16> for RecordType {
             14 => RecordType::MINFO,
             15 => RecordType::MX,
             16 => RecordType::TXT,
-            _ => RecordType::Unknown(value),
+            _ => RecordType::Unknown(RecordTypeUnknown(value)),
         }
     }
 }
@@ -468,7 +483,7 @@ impl From<RecordType> for u16 {
             RecordType::MINFO => 14,
             RecordType::MX => 15,
             RecordType::TXT => 16,
-            RecordType::Unknown(value) => value,
+            RecordType::Unknown(RecordTypeUnknown(value)) => value,
         }
     }
 }
@@ -480,8 +495,13 @@ pub enum RecordClass {
     CS,
     CH,
     HS,
-    Unknown(u16),
+    Unknown(RecordClassUnknown),
 }
+
+/// A struct with a private constructor, to ensure invalid
+/// `RecordClass`es cannot be created.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub struct RecordClassUnknown(u16);
 
 impl From<u16> for RecordClass {
     fn from(value: u16) -> Self {
@@ -490,7 +510,7 @@ impl From<u16> for RecordClass {
             2 => RecordClass::CS,
             3 => RecordClass::CH,
             4 => RecordClass::HS,
-            _ => RecordClass::Unknown(value),
+            _ => RecordClass::Unknown(RecordClassUnknown(value)),
         }
     }
 }
@@ -502,7 +522,7 @@ impl From<RecordClass> for u16 {
             RecordClass::CS => 2,
             RecordClass::CH => 3,
             RecordClass::HS => 4,
-            RecordClass::Unknown(value) => value,
+            RecordClass::Unknown(RecordClassUnknown(value)) => value,
         }
     }
 }
