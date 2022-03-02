@@ -11,7 +11,7 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
 use self::cache::SharedCache;
-use self::rr_util::{follow_cnames, get_better_ns_names};
+use self::rr_util::*;
 
 use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
 use crate::protocol::wire_types::*;
@@ -170,20 +170,18 @@ async fn resolve_recursive_notimeout(
     'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
         if let Some(ip) = match candidate {
             HostOrIP::IP(ip) => Some(ip),
-            HostOrIP::Host(name) => lookup_ip(
-                resolve_recursive_notimeout(
-                    root_hints,
-                    local_zone,
-                    cache,
-                    &Question {
-                        name: name.clone(),
-                        qclass: QueryClass::Record(RecordClass::IN),
-                        qtype: QueryType::Record(RecordType::A),
-                    },
-                )
-                .await,
-                &name,
-            ),
+            HostOrIP::Host(name) => resolve_recursive_notimeout(
+                root_hints,
+                local_zone,
+                cache,
+                &Question {
+                    name: name.clone(),
+                    qclass: QueryClass::Record(RecordClass::IN),
+                    qtype: QueryType::Record(RecordType::A),
+                },
+            )
+            .await
+            .and_then(|res| get_ip(&res.rrs(), &name)),
         } {
             match query_nameserver(&ip, question, candidates.match_count()).await {
                 Some(NameserverResponse::Answer { rrs, authority }) => {
@@ -745,34 +743,4 @@ pub enum NameserverResponse {
         rrs: Vec<ResourceRecord>,
         delegation: Nameservers,
     },
-}
-
-/// Helper to look through an `Option<ResolvedRecord>` for an A record
-/// corresponding to the given hostname, and return its IP.
-fn lookup_ip(record: Option<ResolvedRecord>, hostname: &DomainName) -> Option<Ipv4Addr> {
-    if let Some(resolved) = record {
-        let rrs = resolved.rrs();
-        if let Some((final_name, _)) = follow_cnames(
-            &rrs,
-            hostname,
-            &QueryClass::Record(RecordClass::IN),
-            &QueryType::Record(RecordType::A),
-        ) {
-            for rr in &rrs {
-                match &rr.rtype_with_data {
-                    RecordTypeWithData::Uninterpreted {
-                        rtype: RecordType::A,
-                        octets,
-                    } if rr.name == final_name && rr.rclass == RecordClass::IN => {
-                        if let &[a, b, c, d] = octets.as_slice() {
-                            return Some(Ipv4Addr::new(a, b, c, d));
-                        }
-                    }
-                    _ => (),
-                }
-            }
-        }
-    }
-
-    None
 }

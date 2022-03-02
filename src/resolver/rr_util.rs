@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
+use std::net::Ipv4Addr;
 
 use crate::protocol::wire_types::*;
 
@@ -85,6 +86,34 @@ pub fn get_better_ns_names(
     }
 
     match_name.map(|mn| (mn, ns_names))
+}
+
+/// Given a set of RRs and a domain name we're looking for, follow any
+/// `CNAME`s in the response and get the address from the final `A`
+/// record.
+pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
+    if let Some((final_name, _)) = follow_cnames(
+        rrs,
+        target,
+        &QueryClass::Record(RecordClass::IN),
+        &QueryType::Record(RecordType::A),
+    ) {
+        for rr in rrs {
+            match &rr.rtype_with_data {
+                RecordTypeWithData::Uninterpreted {
+                    rtype: RecordType::A,
+                    octets,
+                } if rr.name == final_name => {
+                    if let &[a, b, c, d] = octets.as_slice() {
+                        return Some(Ipv4Addr::new(a, b, c, d));
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]
@@ -237,6 +266,31 @@ mod tests {
                 [domain("ns3.icann.org")].into_iter().collect()
             )),
             get_better_ns_names(&[rr_ns1, rr_ns2], &domain("www.example.com"), 0)
+        );
+    }
+
+    #[test]
+    fn get_ip_no_match() {
+        let a_rr = a_record("www.example.net", vec![127, 0, 0, 1]);
+        assert_eq!(None, get_ip(&[a_rr], &domain("www.example.com")));
+    }
+
+    #[test]
+    fn get_ip_direct_match() {
+        let a_rr = a_record("www.example.com", vec![127, 0, 0, 1]);
+        assert_eq!(
+            Some(Ipv4Addr::new(127, 0, 0, 1)),
+            get_ip(&[a_rr], &domain("www.example.com"))
+        );
+    }
+
+    #[test]
+    fn get_ip_cname_match() {
+        let cname_rr = cname_record("www.example.com", "www.example.net");
+        let a_rr = a_record("www.example.net", vec![127, 0, 0, 1]);
+        assert_eq!(
+            Some(Ipv4Addr::new(127, 0, 0, 1)),
+            get_ip(&[cname_rr, a_rr], &domain("www.example.com"))
         );
     }
 
