@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use crate::protocol::wire_types::*;
@@ -45,6 +46,45 @@ pub fn follow_cnames(
     } else {
         None
     }
+}
+
+/// Given a set of RRs and a domain name we're looking for, look for
+/// better matching NS RRs (by comparing the current match count).
+/// Returns the new matching superdomain and the nameserver hostnames.
+pub fn get_better_ns_names(
+    rrs: &[ResourceRecord],
+    target: &DomainName,
+    current_match_count: usize,
+) -> Option<(DomainName, HashSet<DomainName>)> {
+    let mut ns_names = HashSet::new();
+    let mut match_count = current_match_count;
+    let mut match_name = None;
+
+    for rr in rrs {
+        if let RecordTypeWithData::Named {
+            rtype: RecordType::NS,
+            name,
+        } = &rr.rtype_with_data
+        {
+            if target.is_subdomain_of(&rr.name) {
+                match rr.name.labels.len().cmp(&match_count) {
+                    Ordering::Greater => {
+                        match_count = rr.name.labels.len();
+                        match_name = Some(rr.name.clone());
+
+                        ns_names.clear();
+                        ns_names.insert(name.clone());
+                    }
+                    Ordering::Equal => {
+                        ns_names.insert(name.clone());
+                    }
+                    Ordering::Less => (),
+                }
+            }
+        }
+    }
+
+    match_name.map(|mn| (mn, ns_names))
 }
 
 #[cfg(test)]
@@ -157,6 +197,49 @@ mod tests {
         )
     }
 
+    #[test]
+    fn get_better_ns_names_no_match() {
+        let rr_ns = ns_record("example", "ns1.icann.org");
+        assert_eq!(
+            None,
+            get_better_ns_names(&[rr_ns], &domain("www.example.com"), 0)
+        );
+    }
+
+    #[test]
+    fn get_better_ns_names_no_better() {
+        let rr_ns = ns_record("com", "ns1.icann.org");
+        assert_eq!(
+            None,
+            get_better_ns_names(&[rr_ns], &domain("www.example.com"), 2)
+        );
+    }
+
+    #[test]
+    fn get_better_ns_names_better() {
+        let rr_ns = ns_record("example.com", "ns2.icann.org");
+        assert_eq!(
+            Some((
+                domain("example.com"),
+                [domain("ns2.icann.org")].into_iter().collect()
+            )),
+            get_better_ns_names(&[rr_ns], &domain("www.example.com"), 0)
+        );
+    }
+
+    #[test]
+    fn get_better_ns_names_better_better() {
+        let rr_ns1 = ns_record("example.com", "ns2.icann.org");
+        let rr_ns2 = ns_record("www.example.com", "ns3.icann.org");
+        assert_eq!(
+            Some((
+                domain("www.example.com"),
+                [domain("ns3.icann.org")].into_iter().collect()
+            )),
+            get_better_ns_names(&[rr_ns1, rr_ns2], &domain("www.example.com"), 0)
+        );
+    }
+
     fn domain(name: &str) -> DomainName {
         DomainName::from_dotted_string(name).unwrap()
     }
@@ -179,6 +262,18 @@ mod tests {
             rtype_with_data: RecordTypeWithData::Named {
                 rtype: RecordType::CNAME,
                 name: domain(target_name),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+
+    fn ns_record(superdomain_name: &str, nameserver_name: &str) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(superdomain_name),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::NS,
+                name: domain(nameserver_name),
             },
             rclass: RecordClass::IN,
             ttl: 300,
