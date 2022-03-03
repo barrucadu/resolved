@@ -329,11 +329,18 @@ pub fn nonauthoritative_from_cache(
     cache: &SharedCache,
     question: &Question,
 ) -> (Vec<ResourceRecord>, Option<ResourceRecord>) {
+    let mut rrs = cache.get(&question.name, &question.qtype, &question.qclass);
+
+    if rrs.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
+        rrs = cache.get(
+            &question.name,
+            &QueryType::Record(RecordType::CNAME),
+            &question.qclass,
+        )
+    }
+
     // TODO: implement authority record
-    (
-        cache.get(&question.name, &question.qtype, &question.qclass),
-        None,
-    )
+    (rrs, None)
 }
 
 /// Get the best nameservers.
@@ -743,4 +750,76 @@ pub enum NameserverResponse {
         rrs: Vec<ResourceRecord>,
         delegation: Nameservers,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nonauthoritative_from_cache_finds_record() {
+        let rr = ResourceRecord {
+            name: domain("www.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![1, 1, 1, 1],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let cache = SharedCache::new();
+        cache.insert(&rr);
+
+        let (actuals, _) = nonauthoritative_from_cache(
+            &cache,
+            &Question {
+                name: domain("www.example.com"),
+                qtype: QueryType::Record(RecordType::A),
+                qclass: QueryClass::Wildcard,
+            },
+        );
+        assert_rr(&rr, actuals);
+    }
+
+    #[test]
+    fn nonauthoritative_from_cache_falls_back_to_cname() {
+        let rr = ResourceRecord {
+            name: domain("www.example.com"),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::CNAME,
+                name: domain("cname-target.example.com"),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let cache = SharedCache::new();
+        cache.insert(&rr);
+
+        let (actuals, _) = nonauthoritative_from_cache(
+            &cache,
+            &Question {
+                name: domain("www.example.com"),
+                qtype: QueryType::Record(RecordType::A),
+                qclass: QueryClass::Wildcard,
+            },
+        );
+        assert_rr(&rr, actuals);
+    }
+
+    fn domain(name: &str) -> DomainName {
+        DomainName::from_dotted_string(name).unwrap()
+    }
+
+    // TODO: reduce duplication with cache tests
+    fn assert_rr(expected: &ResourceRecord, actuals: Vec<ResourceRecord>) {
+        assert_eq!(1, actuals.len());
+        let actual = actuals[0].clone();
+
+        assert_eq!(expected.name, actual.name);
+        assert_eq!(expected.rtype_with_data, actual.rtype_with_data);
+        assert_eq!(expected.rclass, actual.rclass);
+        assert!(expected.ttl >= actual.ttl);
+    }
 }
