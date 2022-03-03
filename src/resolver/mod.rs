@@ -296,7 +296,7 @@ pub fn authoritative_from_zone(
                     rtype: RecordType::CNAME,
                     name: name.domain.clone(),
                 }));
-            } else if question.qtype == QueryType::Record(RecordType::A) {
+            } else if RecordType::A.matches(&question.qtype) {
                 if let Some(address) = static_record.record_a {
                     return Some(make_rr(RecordTypeWithData::Uninterpreted {
                         rtype: RecordType::A,
@@ -755,6 +755,76 @@ pub enum NameserverResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::*;
+
+    #[test]
+    fn authoritative_from_zone_finds_record() {
+        assert_eq!(
+            Some(ResourceRecord {
+                name: domain("a.example.com"),
+                rtype_with_data: RecordTypeWithData::Uninterpreted {
+                    rtype: RecordType::A,
+                    octets: vec![1, 1, 1, 1]
+                },
+                rclass: RecordClass::IN,
+                ttl: 300
+            }),
+            authoritative_from_zone(
+                &local_zone(),
+                &Question {
+                    name: domain("a.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard
+                }
+            )
+        )
+    }
+
+    #[test]
+    fn authoritative_from_zone_prefers_cname() {
+        assert_eq!(
+            Some(ResourceRecord {
+                name: domain("cname-and-a.example.com"),
+                rtype_with_data: RecordTypeWithData::Named {
+                    rtype: RecordType::CNAME,
+                    name: domain("cname-target.example.com"),
+                },
+                rclass: RecordClass::IN,
+                ttl: 300
+            }),
+            authoritative_from_zone(
+                &local_zone(),
+                &Question {
+                    name: domain("cname-and-a.example.com"),
+                    qtype: QueryType::Record(RecordType::A),
+                    qclass: QueryClass::Wildcard
+                }
+            )
+        )
+    }
+
+    #[test]
+    fn authoritative_from_zone_blocklists_to_a0000() {
+        assert_eq!(
+            Some(ResourceRecord {
+                name: domain("blocked.example.com"),
+                rtype_with_data: RecordTypeWithData::Uninterpreted {
+                    rtype: RecordType::A,
+                    octets: vec![0, 0, 0, 0]
+                },
+                rclass: RecordClass::IN,
+                ttl: 300
+            }),
+            authoritative_from_zone(
+                &local_zone(),
+                &Question {
+                    name: domain("blocked.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard
+                }
+            )
+        )
+    }
 
     #[test]
     fn nonauthoritative_from_cache_finds_record() {
@@ -806,6 +876,34 @@ mod tests {
             },
         );
         assert_rr(&rr, actuals);
+    }
+
+    fn local_zone() -> Settings {
+        let to_domain = |name| DomainWithOptionalSubdomains {
+            name: Name {
+                domain: domain(name),
+            },
+            include_subdomains: false,
+        };
+
+        Settings {
+            root_hints: Vec::new(),
+            blocked_domains: vec![to_domain("blocked.example.com")],
+            static_records: vec![
+                Record {
+                    domain: to_domain("cname-and-a.example.com"),
+                    record_a: Some(Ipv4Addr::new(1, 1, 1, 1)),
+                    record_cname: Some(Name {
+                        domain: domain("cname-target.example.com"),
+                    }),
+                },
+                Record {
+                    domain: to_domain("a.example.com"),
+                    record_a: Some(Ipv4Addr::new(1, 1, 1, 1)),
+                    record_cname: None,
+                },
+            ],
+        }
     }
 
     fn domain(name: &str) -> DomainName {
