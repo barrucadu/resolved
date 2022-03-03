@@ -1,8 +1,10 @@
 use bytes::BytesMut;
 use std::env;
 use std::process;
+use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
+use tokio::time::sleep;
 
 use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
 use resolved::protocol::wire_types::{Message, Opcode, Rcode};
@@ -161,6 +163,24 @@ async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
     }
 }
 
+/// Delete expired cache entries every 5 minutes.
+///
+/// Always removes all expired entries, and then if the cache is still
+/// too big prunes it down to size.
+async fn prune_cache_task(cache: SharedCache) {
+    loop {
+        sleep(Duration::from_secs(60 * 5)).await;
+
+        let expired = cache.remove_expired();
+        let pruned = cache.prune();
+
+        println!(
+            "[CACHE] expired {:?} and pruned {:?} entries",
+            expired, pruned
+        );
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let settings = if let Some(fname) = env::args().nth(1) {
@@ -197,12 +217,8 @@ async fn main() {
 
     let cache = SharedCache::new();
 
-    let tcp_settings = settings.clone();
-    let udp_settings = settings;
-    // TODO: fix misleading names, the cache is shared, it's just
-    // separate `Arc`s to pass into each method.
-    let tcp_cache = cache.clone();
-    let udp_cache = cache;
-    tokio::spawn(async move { listen_tcp(tcp_settings, tcp_cache, tcp).await });
-    listen_udp(udp_settings, udp_cache, udp).await;
+    tokio::spawn(listen_tcp(settings.clone(), cache.clone(), tcp));
+    tokio::spawn(listen_udp(settings.clone(), cache.clone(), udp));
+
+    prune_cache_task(cache).await;
 }
