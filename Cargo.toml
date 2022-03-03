@@ -16,3 +16,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-uti
 
 [dev-dependencies]
 fake = "2"
+criterion = "0.3.5"
+
+[[bench]]
+name = "cache"
+harness = false
