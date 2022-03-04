@@ -581,3 +581,48 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+pub mod test_util {
+    use super::*;
+
+    pub fn domain(name: &str) -> DomainName {
+        DomainName::from_dotted_string(name).unwrap()
+    }
+
+    pub fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(name),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+
+    pub fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(name),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::CNAME,
+                name: domain(target_name),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+
+    pub fn ns_record(superdomain_name: &str, nameserver_name: &str) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(superdomain_name),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::NS,
+                name: domain(nameserver_name),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+}

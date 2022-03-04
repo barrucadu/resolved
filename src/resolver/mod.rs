@@ -739,23 +739,17 @@ pub enum NameserverResponse {
 
 #[cfg(test)]
 mod tests {
+    use super::cache::test_util::*;
     use super::*;
+    use crate::protocol::wire_types::test_util::*;
     use crate::settings::*;
 
     #[test]
     fn resolve_nonrecursive_is_authoritative_for_local_zone() {
-        let rr = ResourceRecord {
-            name: domain("a.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![1, 1, 1, 1],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
-
         assert_eq!(
-            Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
+            Some(ResolvedRecord::Authoritative {
+                rrs: vec![a_record("a.example.com", vec![1, 1, 1, 1])]
+            }),
             resolve_nonrecursive(
                 &local_zone(),
                 &SharedCache::new(),
@@ -770,15 +764,7 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_is_nonauthoritative_for_cache() {
-        let rr = ResourceRecord {
-            name: domain("cached.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![1, 1, 1, 1],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
+        let rr = a_record("cached.example.com", vec![1, 1, 1, 1]);
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -795,34 +781,18 @@ mod tests {
                 qclass: QueryClass::Wildcard,
             },
         ) {
-            assert_rr(&rr, rrs);
+            assert_cache_response(&rr, rrs);
         } else {
-            assert!(false);
+            panic!("expected Some response");
         }
     }
 
     #[test]
     fn resolve_nonrecursive_prefers_local_zone() {
-        let rr = ResourceRecord {
-            name: domain("a.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![1, 1, 1, 1],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
+        let rr = a_record("a.example.com", vec![1, 1, 1, 1]);
 
         let cache = SharedCache::new();
-        cache.insert(&ResourceRecord {
-            name: domain("a.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![8, 8, 8, 8],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        });
+        cache.insert(&a_record("a.example.com", vec![8, 8, 8, 8]));
 
         assert_eq!(
             Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
@@ -840,33 +810,9 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_expands_cnames() {
-        let cname_rr1 = ResourceRecord {
-            name: domain("cname-1.example.com"),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain("cname-2.example.com"),
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
-        let cname_rr2 = ResourceRecord {
-            name: domain("cname-2.example.com"),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain("a.example.com"),
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
-        let a_rr = ResourceRecord {
-            name: domain("a.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![1, 1, 1, 1],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
+        let cname_rr1 = cname_record("cname-1.example.com", "cname-2.example.com");
+        let cname_rr2 = cname_record("cname-2.example.com", "a.example.com");
+        let a_rr = a_record("a.example.com", vec![1, 1, 1, 1]);
 
         let cache = SharedCache::new();
         cache.insert(&cname_rr1);
@@ -885,28 +831,18 @@ mod tests {
             },
         ) {
             assert_eq!(3, rrs.len());
-            assert_rr(&cname_rr1, vec![rrs[0].clone()]);
-            assert_rr(&cname_rr2, vec![rrs[1].clone()]);
-            assert_rr(&a_rr, vec![rrs[2].clone()]);
+            assert_cache_response(&cname_rr1, vec![rrs[0].clone()]);
+            assert_cache_response(&cname_rr2, vec![rrs[1].clone()]);
+            assert_cache_response(&a_rr, vec![rrs[2].clone()]);
         } else {
-            assert!(false);
+            panic!("expected Some response");
         }
     }
 
     #[test]
     fn authoritative_from_zone_finds_record() {
-        let rr = ResourceRecord {
-            name: domain("a.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![1, 1, 1, 1],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
-
         assert_eq!(
-            Some(rr),
+            Some(a_record("a.example.com", vec![1, 1, 1, 1])),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -920,18 +856,11 @@ mod tests {
 
     #[test]
     fn authoritative_from_zone_prefers_cname() {
-        let rr = ResourceRecord {
-            name: domain("cname-and-a.example.com"),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain("cname-target.example.com"),
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
-
         assert_eq!(
-            Some(rr),
+            Some(cname_record(
+                "cname-and-a.example.com",
+                "cname-target.example.com"
+            )),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -946,15 +875,7 @@ mod tests {
     #[test]
     fn authoritative_from_zone_blocklists_to_a0000() {
         assert_eq!(
-            Some(ResourceRecord {
-                name: domain("blocked.example.com"),
-                rtype_with_data: RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets: vec![0, 0, 0, 0]
-                },
-                rclass: RecordClass::IN,
-                ttl: 300
-            }),
+            Some(a_record("blocked.example.com", vec![0, 0, 0, 0])),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -968,15 +889,7 @@ mod tests {
 
     #[test]
     fn nonauthoritative_from_cache_finds_record() {
-        let rr = ResourceRecord {
-            name: domain("www.example.com"),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![1, 1, 1, 1],
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
+        let rr = a_record("www.example.com", vec![1, 1, 1, 1]);
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -989,20 +902,12 @@ mod tests {
                 qclass: QueryClass::Wildcard,
             },
         );
-        assert_rr(&rr, actuals);
+        assert_cache_response(&rr, actuals);
     }
 
     #[test]
     fn nonauthoritative_from_cache_falls_back_to_cname() {
-        let rr = ResourceRecord {
-            name: domain("www.example.com"),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain("cname-target.example.com"),
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        };
+        let rr = cname_record("www.example.com", "cname-target.example.com");
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -1015,7 +920,7 @@ mod tests {
                 qclass: QueryClass::Wildcard,
             },
         );
-        assert_rr(&rr, actuals);
+        assert_cache_response(&rr, actuals);
     }
 
     #[test]
@@ -1079,24 +984,8 @@ mod tests {
         let cache = SharedCache::new();
 
         for name in names {
-            cache.insert(&ResourceRecord {
-                name: domain(name),
-                rtype_with_data: RecordTypeWithData::Named {
-                    rtype: RecordType::NS,
-                    name: domain("ns1.example.com"),
-                },
-                rclass: RecordClass::IN,
-                ttl: 172800,
-            });
-            cache.insert(&ResourceRecord {
-                name: domain(name),
-                rtype_with_data: RecordTypeWithData::Named {
-                    rtype: RecordType::NS,
-                    name: domain("ns2.example.com"),
-                },
-                rclass: RecordClass::IN,
-                ttl: 172800,
-            });
+            cache.insert(&ns_record(name, "ns1.example.com"));
+            cache.insert(&ns_record(name, "ns2.example.com"));
         }
 
         cache
@@ -1128,20 +1017,5 @@ mod tests {
                 },
             ],
         }
-    }
-
-    fn domain(name: &str) -> DomainName {
-        DomainName::from_dotted_string(name).unwrap()
-    }
-
-    // TODO: reduce duplication with cache tests
-    fn assert_rr(expected: &ResourceRecord, actuals: Vec<ResourceRecord>) {
-        assert_eq!(1, actuals.len());
-        let actual = actuals[0].clone();
-
-        assert_eq!(expected.name, actual.name);
-        assert_eq!(expected.rtype_with_data, actual.rtype_with_data);
-        assert_eq!(expected.rclass, actual.rclass);
-        assert!(expected.ttl >= actual.ttl);
     }
 }

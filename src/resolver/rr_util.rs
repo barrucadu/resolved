@@ -119,6 +119,7 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::wire_types::test_util::*;
 
     #[test]
     fn follow_cnames_empty() {
@@ -292,45 +293,5 @@ mod tests {
             Some(Ipv4Addr::new(127, 0, 0, 1)),
             get_ip(&[cname_rr, a_rr], &domain("www.example.com"))
         );
-    }
-
-    fn domain(name: &str) -> DomainName {
-        DomainName::from_dotted_string(name).unwrap()
-    }
-
-    fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
-        ResourceRecord {
-            name: domain(name),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets,
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        }
-    }
-
-    fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
-        ResourceRecord {
-            name: domain(name),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain(target_name),
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        }
-    }
-
-    fn ns_record(superdomain_name: &str, nameserver_name: &str) -> ResourceRecord {
-        ResourceRecord {
-            name: domain(superdomain_name),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::NS,
-                name: domain(nameserver_name),
-            },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        }
     }
 }

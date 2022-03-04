@@ -442,6 +442,7 @@ fn to_rrs(
 mod tests {
     use fake::{Fake, Faker};
 
+    use super::test_util::*;
     use super::*;
 
     #[test]
@@ -451,7 +452,7 @@ mod tests {
             let rr = arbitrary_resourcerecord();
             cache.insert(&rr);
 
-            assert_rr(
+            assert_cache_response(
                 &rr,
                 cache.get_without_checking_expiration(
                     &rr.name,
@@ -459,7 +460,7 @@ mod tests {
                     &QueryClass::Record(rr.rclass),
                 ),
             );
-            assert_rr(
+            assert_cache_response(
                 &rr,
                 cache.get_without_checking_expiration(
                     &rr.name,
@@ -467,7 +468,7 @@ mod tests {
                     &QueryClass::Record(rr.rclass),
                 ),
             );
-            assert_rr(
+            assert_cache_response(
                 &rr,
                 cache.get_without_checking_expiration(
                     &rr.name,
@@ -475,7 +476,7 @@ mod tests {
                     &QueryClass::Wildcard,
                 ),
             );
-            assert_rr(
+            assert_cache_response(
                 &rr,
                 cache.get_without_checking_expiration(
                     &rr.name,
@@ -588,16 +589,6 @@ mod tests {
         assert_eq!(49, cache.prune());
     }
 
-    fn assert_rr(expected: &ResourceRecord, actuals: Vec<ResourceRecord>) {
-        assert_eq!(1, actuals.len());
-        let actual = actuals[0].clone();
-
-        assert_eq!(expected.name, actual.name);
-        assert_eq!(expected.rtype_with_data, actual.rtype_with_data);
-        assert_eq!(expected.rclass, actual.rclass);
-        assert!(expected.ttl >= actual.ttl);
-    }
-
     fn assert_invariants(cache: &Cache) {
         assert_eq!(
             cache.current_size,
@@ -690,5 +681,23 @@ mod tests {
 
     fn arbitrary_recordclass() -> RecordClass {
         Faker.fake::<u16>().into()
+    }
+}
+
+#[cfg(test)]
+pub mod test_util {
+    use super::*;
+
+    /// Assert that the cache response has exactly one element and
+    /// that it matches the original (all fields equal except TTL,
+    /// where the original is >=).
+    pub fn assert_cache_response(original: &ResourceRecord, response: Vec<ResourceRecord>) {
+        assert_eq!(1, response.len());
+        let cached = response[0].clone();
+
+        assert_eq!(original.name, cached.name);
+        assert_eq!(original.rtype_with_data, cached.rtype_with_data);
+        assert_eq!(original.rclass, cached.rclass);
+        assert!(original.ttl >= cached.ttl);
     }
 }
