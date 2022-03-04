@@ -15,7 +15,7 @@
 /// ```
 ///
 /// See section 4.1 of RFC 1035.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -45,7 +45,7 @@ pub struct Message {
 /// ```
 ///
 /// See section 4.1.1 of RFC 1035.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Header {
     /// A 16 bit identifier assigned by the program that generates any
     /// kind of query.  This identifier is copied the corresponding
@@ -160,7 +160,7 @@ pub struct Header {
 /// ```
 ///
 /// See section 4.1.2 of RFC 1035.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Question {
     /// a domain name represented as a sequence of labels, where each
     /// label consists of a length octet followed by that number of
@@ -208,7 +208,7 @@ pub struct Question {
 /// ```
 ///
 /// See section 4.1.3 of RFC 1035.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
     pub name: DomainName,
@@ -230,7 +230,7 @@ pub struct ResourceRecord {
 
 /// A record type with its associated data.  This is so any pointers
 /// in domain names will be expanded before further processing.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordTypeWithData {
     Uninterpreted {
         rtype: RecordType,
@@ -260,7 +260,7 @@ pub enum RecordTypeWithData {
 }
 
 /// What sort of query this is.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Opcode {
     Standard,
     Inverse,
@@ -270,7 +270,7 @@ pub enum Opcode {
 
 /// A struct with a private constructor, to ensure invalid `Opcode`s
 /// cannot be created.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct OpcodeReserved(u8);
 
 impl From<u8> for Opcode {
@@ -296,7 +296,7 @@ impl From<Opcode> for u8 {
 }
 
 /// What sort of response this is.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Rcode {
     NoError,
     FormatError,
@@ -309,7 +309,7 @@ pub enum Rcode {
 
 /// A struct with a private constructor, to ensure invalid `Rcode`s
 /// cannot be created.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RcodeReserved(u8);
 
 impl From<u8> for Rcode {
@@ -348,14 +348,14 @@ impl From<Rcode> for u8 {
 ///
 /// A label must be 63 octets or shorter.  A name must be 255 octets
 /// or shorter in total, including both length and label octets.
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DomainName {
     pub octets: Vec<u8>,
     pub labels: Vec<Vec<u8>>,
 }
 
 /// Query types are a superset of record types.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum QueryType {
     Record(RecordType),
     AXFR,
@@ -389,7 +389,7 @@ impl From<QueryType> for u16 {
 }
 
 /// Query classes are a superset of record classes.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum QueryClass {
     Record(RecordClass),
     Wildcard,
@@ -414,7 +414,7 @@ impl From<QueryClass> for u16 {
 }
 
 /// Record types are used by resource records and by queries.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordType {
     A,
     NS,
@@ -437,7 +437,7 @@ pub enum RecordType {
 
 /// A struct with a private constructor, to ensure invalid `RecordType`s
 /// cannot be created.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RecordTypeUnknown(u16);
 
 impl From<u16> for RecordType {
@@ -489,7 +489,7 @@ impl From<RecordType> for u16 {
 }
 
 /// Record classes are used by resource records and by queries.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordClass {
     IN,
     CS,
@@ -500,7 +500,7 @@ pub enum RecordClass {
 
 /// A struct with a private constructor, to ensure invalid
 /// `RecordClass`es cannot be created.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RecordClassUnknown(u16);
 
 impl From<u16> for RecordClass {
