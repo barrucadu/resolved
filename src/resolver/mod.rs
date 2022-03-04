@@ -718,6 +718,8 @@ pub fn validate_nameserver_response(
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Nameservers {
     /// Guaranteed to be non-empty.
+    ///
+    /// TODO: find a non-empty-vec type
     pub hostnames: Vec<HostOrIP>,
     pub name: DomainName,
 }
