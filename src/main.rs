@@ -18,7 +18,6 @@ async fn resolve_and_build_response(
     query: Message,
 ) -> Message {
     let mut response = query.make_response();
-    response.header.recursion_available = true;
     response.header.is_authoritative = true;
 
     for question in &query.questions {
