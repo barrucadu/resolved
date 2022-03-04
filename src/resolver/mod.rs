@@ -343,7 +343,9 @@ pub fn nonauthoritative_from_cache(
     (rrs, None)
 }
 
-/// Get the best nameservers.
+/// Get the best nameservers by non-recursively looking them up for
+/// the domain and all its superdomains, in order.  If no nameservers
+/// are found, the root hints are returned.
 ///
 /// This corresponds to step 2 of the standard resolver algorithm.
 pub fn candidate_nameservers(
@@ -355,57 +357,38 @@ pub fn candidate_nameservers(
     for i in 0..question.labels.len() {
         let labels = &question.labels[i..];
         if let Some(name) = DomainName::from_labels(labels.into()) {
-            if let Some(nameservers) = find_nameservers(local_zone, cache, &name) {
-                return nameservers;
+            let ns_q = Question {
+                name: name.clone(),
+                qtype: QueryType::Record(RecordType::NS),
+                qclass: QueryClass::Record(RecordClass::IN),
+            };
+
+            let mut hostnames = Vec::new();
+
+            if let Some(resolved) = resolve_nonrecursive(local_zone, cache, &ns_q) {
+                for ns_rr in resolved.rrs() {
+                    if let RecordTypeWithData::Named {
+                        rtype: RecordType::NS,
+                        name,
+                    } = &ns_rr.rtype_with_data
+                    {
+                        hostnames.push(HostOrIP::Host(name.clone()));
+                    }
+                }
+            }
+
+            if !hostnames.is_empty() {
+                return Nameservers {
+                    hostnames,
+                    name: ns_q.name,
+                };
             }
         }
-    }
-
-    let mut root_hostnames = Vec::with_capacity(root_hints.len());
-    for ip in root_hints {
-        root_hostnames.push(HostOrIP::IP(*ip));
     }
 
     Nameservers {
-        hostnames: root_hostnames,
+        hostnames: root_hints.iter().copied().map(HostOrIP::IP).collect(),
         name: DomainName::root_domain(),
-    }
-}
-
-/// Non-recursively look up nameservers for a domain and return their
-/// hostnames.
-pub fn find_nameservers(
-    local_zone: &Settings,
-    cache: &SharedCache,
-    name: &DomainName,
-) -> Option<Nameservers> {
-    let mut hostnames = Vec::new();
-
-    let ns_q = Question {
-        name: name.clone(),
-        qtype: QueryType::Record(RecordType::NS),
-        qclass: QueryClass::Record(RecordClass::IN),
-    };
-
-    if let Some(resolved) = resolve_nonrecursive(local_zone, cache, &ns_q) {
-        for ns_rr in resolved.rrs() {
-            if let RecordTypeWithData::Named {
-                rtype: RecordType::NS,
-                name,
-            } = &ns_rr.rtype_with_data
-            {
-                hostnames.push(HostOrIP::Host(name.clone()));
-            }
-        }
-    }
-
-    if hostnames.is_empty() {
-        None
-    } else {
-        Some(Nameservers {
-            hostnames,
-            name: ns_q.name,
-        })
     }
 }
 
@@ -1033,6 +1016,90 @@ mod tests {
             },
         );
         assert_rr(&rr, actuals);
+    }
+
+    #[test]
+    fn candidate_nameservers_gets_all_matches() {
+        let qdomain = domain("com");
+        assert_eq!(
+            Nameservers {
+                hostnames: vec![
+                    HostOrIP::Host(domain("ns1.example.com")),
+                    HostOrIP::Host(domain("ns2.example.com"))
+                ],
+                name: qdomain.clone(),
+            },
+            candidate_nameservers(
+                &[],
+                &local_zone(),
+                &cache_with_nameservers(&["com"]),
+                &qdomain
+            )
+        );
+    }
+
+    #[test]
+    fn candidate_nameservers_returns_longest_match() {
+        assert_eq!(
+            Nameservers {
+                hostnames: vec![
+                    HostOrIP::Host(domain("ns1.example.com")),
+                    HostOrIP::Host(domain("ns2.example.com"))
+                ],
+                name: domain("example.com"),
+            },
+            candidate_nameservers(
+                &[],
+                &local_zone(),
+                &cache_with_nameservers(&["example.com", "com"]),
+                &domain("www.example.com")
+            )
+        );
+    }
+
+    #[test]
+    fn candidate_nameservers_returns_root_hints_on_failure() {
+        let root_hints = vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)];
+
+        assert_eq!(
+            Nameservers {
+                hostnames: root_hints.iter().copied().map(HostOrIP::IP).collect(),
+                name: DomainName::root_domain(),
+            },
+            candidate_nameservers(
+                &root_hints,
+                &local_zone(),
+                &cache_with_nameservers(&["com"]),
+                &domain("net")
+            )
+        );
+    }
+
+    fn cache_with_nameservers(names: &[&str]) -> SharedCache {
+        let cache = SharedCache::new();
+
+        for name in names {
+            cache.insert(&ResourceRecord {
+                name: domain(name),
+                rtype_with_data: RecordTypeWithData::Named {
+                    rtype: RecordType::NS,
+                    name: domain("ns1.example.com"),
+                },
+                rclass: RecordClass::IN,
+                ttl: 172800,
+            });
+            cache.insert(&ResourceRecord {
+                name: domain(name),
+                rtype_with_data: RecordTypeWithData::Named {
+                    rtype: RecordType::NS,
+                    name: domain("ns2.example.com"),
+                },
+                rclass: RecordClass::IN,
+                ttl: 172800,
+            });
+        }
+
+        cache
     }
 
     fn local_zone() -> Settings {
