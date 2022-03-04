@@ -21,3 +21,7 @@ criterion = "0.3.5"
 [[bench]]
 name = "cache"
 harness = false
+
+[[bench]]
+name = "serialise_deserialise"
+harness = false
