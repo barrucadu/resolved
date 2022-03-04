@@ -43,9 +43,6 @@ async fn resolve_and_build_response(
         }
     }
 
-    response.questions = query.questions;
-    response.header.qdcount = query.header.qdcount;
-
     // TODO: remove use of unwrap
     response.header.qdcount = response.questions.len().try_into().unwrap();
     response.header.ancount = response.answers.len().try_into().unwrap();
