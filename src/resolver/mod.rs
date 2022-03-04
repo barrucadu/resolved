@@ -241,7 +241,7 @@ async fn resolve_recursive_notimeout(
 /// the response message, and resolution repeated for the CNAME.  This
 /// may build up a chain of `CNAME`s for some names.
 ///
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ResolvedRecord {
     Authoritative {
         rrs: Vec<ResourceRecord>,
@@ -698,7 +698,7 @@ pub fn validate_nameserver_response(
 }
 
 /// A set of nameservers for a domain
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Nameservers {
     /// Guaranteed to be non-empty.
     ///
@@ -714,14 +714,14 @@ impl Nameservers {
 }
 
 /// A hostname or an IP
-#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum HostOrIP {
     Host(DomainName),
     IP(Ipv4Addr),
 }
 
 /// A response from a remote nameserver
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum NameserverResponse {
     Answer {
         rrs: Vec<ResourceRecord>,
@@ -980,6 +980,281 @@ mod tests {
         );
     }
 
+    #[test]
+    fn validate_nameserver_response_accepts() {
+        let (request, response) = matching_nameserver_response();
+
+        assert!(validate_nameserver_response(&request, response, 0).is_some());
+    }
+
+    #[test]
+    fn validate_nameserver_response_checks_id() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.id += 1;
+
+        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+    }
+
+    #[test]
+    fn validate_nameserver_response_checks_qr() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.is_response = false;
+
+        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+    }
+
+    #[test]
+    fn validate_nameserver_response_checks_opcode() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.opcode = Opcode::Status;
+
+        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+    }
+
+    #[test]
+    fn validate_nameserver_response_does_not_check_aa() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.is_authoritative = !response.header.is_authoritative;
+
+        assert!(validate_nameserver_response(&request, response, 0).is_some());
+    }
+
+    #[test]
+    fn validate_nameserver_response_checks_tc() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.is_truncated = true;
+
+        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+    }
+
+    #[test]
+    fn validate_nameserver_response_does_not_check_rd() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.recursion_desired = !response.header.recursion_desired;
+
+        assert!(validate_nameserver_response(&request, response, 0).is_some());
+    }
+
+    #[test]
+    fn validate_nameserver_response_does_not_check_ra() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.recursion_available = !response.header.recursion_available;
+
+        assert!(validate_nameserver_response(&request, response, 0).is_some());
+    }
+
+    #[test]
+    fn validate_nameserver_response_checks_rcode() {
+        let (request, mut response) = matching_nameserver_response();
+        response.header.rcode = Rcode::ServerFailure;
+
+        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+    }
+
+    #[test]
+    fn validate_nameserver_response_returns_answer() {
+        let (request, response) = nameserver_response(
+            "www.example.com",
+            &[a_record("www.example.com", vec![127, 0, 0, 1])],
+            &[],
+            &[],
+        );
+
+        assert_eq!(
+            Some(NameserverResponse::Answer {
+                rrs: vec![a_record("www.example.com", vec![127, 0, 0, 1])],
+                authority: None,
+            }),
+            validate_nameserver_response(&request, response, 0)
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_follows_cnames() {
+        let (request, response) = nameserver_response(
+            "www.example.com",
+            &[
+                cname_record("www.example.com", "cname-target.example.com"),
+                a_record("cname-target.example.com", vec![127, 0, 0, 1]),
+            ],
+            &[],
+            &[],
+        );
+
+        assert_eq!(
+            Some(NameserverResponse::Answer {
+                rrs: vec![
+                    cname_record("www.example.com", "cname-target.example.com"),
+                    a_record("cname-target.example.com", vec![127, 0, 0, 1])
+                ],
+                authority: None,
+            }),
+            validate_nameserver_response(&request, response, 0)
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_returns_partial_answer() {
+        let (request, response) = nameserver_response(
+            "www.example.com",
+            &[cname_record("www.example.com", "cname-target.example.com")],
+            &[],
+            &[],
+        );
+
+        assert_eq!(
+            Some(NameserverResponse::CNAME {
+                rrs: vec![cname_record("www.example.com", "cname-target.example.com")],
+                cname: domain("cname-target.example.com"),
+            }),
+            validate_nameserver_response(&request, response, 0)
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_gets_ns_from_answers_and_authority_but_not_additional() {
+        let (request, response) = nameserver_response(
+            "www.example.com",
+            &[ns_record("example.com", "ns-an.example.net")],
+            &[ns_record("example.com", "ns-ns.example.net")],
+            &[ns_record("example.com", "ns-ar.example.net")],
+        );
+
+        match validate_nameserver_response(&request, response, 0) {
+            Some(NameserverResponse::Delegation {
+                rrs: mut actual_rrs,
+                delegation: mut actual_delegation,
+            }) => {
+                let mut expected_rrs = vec![
+                    ns_record("example.com", "ns-an.example.net"),
+                    ns_record("example.com", "ns-ns.example.net"),
+                ];
+
+                expected_rrs.sort();
+                actual_rrs.sort();
+
+                assert_eq!(expected_rrs, actual_rrs);
+
+                let mut expected_delegation = Nameservers {
+                    hostnames: vec![
+                        HostOrIP::Host(domain("ns-an.example.net")),
+                        HostOrIP::Host(domain("ns-ns.example.net")),
+                    ],
+                    name: domain("example.com"),
+                };
+
+                expected_delegation.hostnames.sort();
+                actual_delegation.hostnames.sort();
+
+                assert_eq!(expected_delegation, actual_delegation);
+            }
+            actual => panic!("Expected delegation, got {:?}", actual),
+        }
+    }
+
+    #[test]
+    fn validate_nameserver_response_only_returns_better_ns() {
+        let (request, response) = nameserver_response(
+            "long.subdomain.example.com",
+            &[ns_record("example.com", "ns.example.net")],
+            &[],
+            &[],
+        );
+
+        assert_eq!(
+            None,
+            validate_nameserver_response(
+                &request,
+                response,
+                domain("subdomain.example.com").labels.len()
+            )
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_prefers_best_ns() {
+        let (request, response1) = nameserver_response(
+            "long.subdomain.example.com",
+            &[ns_record("subdomain.example.com", "ns-better.example.net")],
+            &[ns_record("example.com", "ns-worse.example.net")],
+            &[],
+        );
+        let (_, response2) = nameserver_response(
+            "long.subdomain.example.com",
+            &[ns_record("example.com", "ns-worse.example.net")],
+            &[ns_record("subdomain.example.com", "ns-better.example.net")],
+            &[],
+        );
+
+        assert_eq!(
+            Some(NameserverResponse::Delegation {
+                rrs: vec![ns_record("subdomain.example.com", "ns-better.example.net"),],
+                delegation: Nameservers {
+                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net")),],
+                    name: domain("subdomain.example.com"),
+                },
+            }),
+            validate_nameserver_response(&request, response1, 0)
+        );
+
+        assert_eq!(
+            Some(NameserverResponse::Delegation {
+                rrs: vec![ns_record("subdomain.example.com", "ns-better.example.net"),],
+                delegation: Nameservers {
+                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net")),],
+                    name: domain("subdomain.example.com"),
+                },
+            }),
+            validate_nameserver_response(&request, response2, 0)
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_gets_ns_a_from_answers_and_additional_but_not_authority() {
+        let (request, response) = nameserver_response(
+            "www.example.com",
+            &[
+                ns_record("example.com", "ns-an.example.net"),
+                a_record("ns-an.example.net", vec![1, 1, 1, 1]),
+                a_record("ns-ns.example.net", vec![1, 1, 1, 1]),
+            ],
+            &[
+                ns_record("example.com", "ns-ns.example.net"),
+                a_record("ns-an.example.net", vec![2, 2, 2, 2]),
+                a_record("ns-ns.example.net", vec![2, 2, 2, 2]),
+            ],
+            &[
+                a_record("ns-an.example.net", vec![3, 3, 3, 3]),
+                a_record("ns-ns.example.net", vec![3, 3, 3, 3]),
+            ],
+        );
+
+        match validate_nameserver_response(&request, response, 0) {
+            Some(NameserverResponse::Delegation {
+                rrs: mut actual_rrs,
+                delegation: _,
+            }) => {
+                let mut expected_rrs = vec![
+                    ns_record("example.com", "ns-an.example.net"),
+                    ns_record("example.com", "ns-ns.example.net"),
+                    a_record("ns-an.example.net", vec![1, 1, 1, 1]),
+                    a_record("ns-ns.example.net", vec![1, 1, 1, 1]),
+                    a_record("ns-an.example.net", vec![3, 3, 3, 3]),
+                    a_record("ns-ns.example.net", vec![3, 3, 3, 3]),
+                ];
+
+                expected_rrs.sort();
+                actual_rrs.sort();
+
+                assert_eq!(expected_rrs, actual_rrs);
+            }
+            actual => panic!("Expected delegation, got {:?}", actual),
+        }
+    }
+
+    #[test]
+    fn validate_nameserver_response_returns_none_if_no_matching_records() {}
+
     fn cache_with_nameservers(names: &[&str]) -> SharedCache {
         let cache = SharedCache::new();
 
@@ -1017,5 +1292,42 @@ mod tests {
                 },
             ],
         }
+    }
+
+    fn matching_nameserver_response() -> (Message, Message) {
+        nameserver_response(
+            "www.example.com",
+            &[a_record("www.example.com", vec![1, 1, 1, 1])],
+            &[],
+            &[],
+        )
+    }
+
+    fn nameserver_response(
+        name: &str,
+        answers: &[ResourceRecord],
+        authority: &[ResourceRecord],
+        additional: &[ResourceRecord],
+    ) -> (Message, Message) {
+        let request = Message::from_question(
+            1234,
+            Question {
+                name: domain(name),
+                qtype: QueryType::Record(RecordType::A),
+                qclass: QueryClass::Record(RecordClass::IN),
+            },
+        );
+
+        let mut response = request.make_response();
+
+        response.header.ancount = answers.len().try_into().unwrap();
+        response.header.nscount = authority.len().try_into().unwrap();
+        response.header.arcount = additional.len().try_into().unwrap();
+
+        response.answers = answers.into();
+        response.authority = authority.into();
+        response.additional = additional.into();
+
+        (request, response)
     }
 }
