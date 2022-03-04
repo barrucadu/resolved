@@ -758,17 +758,170 @@ mod tests {
     use crate::settings::*;
 
     #[test]
-    fn authoritative_from_zone_finds_record() {
+    fn resolve_nonrecursive_is_authoritative_for_local_zone() {
+        let rr = ResourceRecord {
+            name: domain("a.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![1, 1, 1, 1],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
         assert_eq!(
-            Some(ResourceRecord {
+            Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
+            resolve_nonrecursive(
+                &local_zone(),
+                &SharedCache::new(),
+                &Question {
+                    name: domain("a.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard,
+                }
+            )
+        )
+    }
+
+    #[test]
+    fn resolve_nonrecursive_is_nonauthoritative_for_cache() {
+        let rr = ResourceRecord {
+            name: domain("cached.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![1, 1, 1, 1],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let cache = SharedCache::new();
+        cache.insert(&rr);
+
+        if let Some(ResolvedRecord::NonAuthoritative {
+            rrs,
+            authority: None,
+        }) = resolve_nonrecursive(
+            &local_zone(),
+            &cache,
+            &Question {
+                name: domain("cached.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Wildcard,
+            },
+        ) {
+            assert_rr(&rr, rrs);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn resolve_nonrecursive_prefers_local_zone() {
+        let rr = ResourceRecord {
+            name: domain("a.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![1, 1, 1, 1],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let cache = SharedCache::new();
+        cache.insert(&ResourceRecord {
+            name: domain("a.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![8, 8, 8, 8],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        });
+
+        assert_eq!(
+            Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
+            resolve_nonrecursive(
+                &local_zone(),
+                &cache,
+                &Question {
+                    name: domain("a.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard,
+                }
+            )
+        )
+    }
+
+    #[test]
+    fn resolve_nonrecursive_expands_cnames() {
+        let cname_rr1 = ResourceRecord {
+            name: domain("cname-1.example.com"),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::CNAME,
+                name: domain("cname-2.example.com"),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+        let cname_rr2 = ResourceRecord {
+            name: domain("cname-2.example.com"),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::CNAME,
                 name: domain("a.example.com"),
-                rtype_with_data: RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets: vec![1, 1, 1, 1]
-                },
-                rclass: RecordClass::IN,
-                ttl: 300
-            }),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+        let a_rr = ResourceRecord {
+            name: domain("a.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![1, 1, 1, 1],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let cache = SharedCache::new();
+        cache.insert(&cname_rr1);
+        cache.insert(&cname_rr2);
+
+        if let Some(ResolvedRecord::NonAuthoritative {
+            rrs,
+            authority: None,
+        }) = resolve_nonrecursive(
+            &local_zone(),
+            &cache,
+            &Question {
+                name: domain("cname-1.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Wildcard,
+            },
+        ) {
+            assert_eq!(3, rrs.len());
+            assert_rr(&cname_rr1, vec![rrs[0].clone()]);
+            assert_rr(&cname_rr2, vec![rrs[1].clone()]);
+            assert_rr(&a_rr, vec![rrs[2].clone()]);
+        } else {
+            assert!(false);
+        }
+    }
+
+    #[test]
+    fn authoritative_from_zone_finds_record() {
+        let rr = ResourceRecord {
+            name: domain("a.example.com"),
+            rtype_with_data: RecordTypeWithData::Uninterpreted {
+                rtype: RecordType::A,
+                octets: vec![1, 1, 1, 1],
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        assert_eq!(
+            Some(rr),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -782,16 +935,18 @@ mod tests {
 
     #[test]
     fn authoritative_from_zone_prefers_cname() {
+        let rr = ResourceRecord {
+            name: domain("cname-and-a.example.com"),
+            rtype_with_data: RecordTypeWithData::Named {
+                rtype: RecordType::CNAME,
+                name: domain("cname-target.example.com"),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
         assert_eq!(
-            Some(ResourceRecord {
-                name: domain("cname-and-a.example.com"),
-                rtype_with_data: RecordTypeWithData::Named {
-                    rtype: RecordType::CNAME,
-                    name: domain("cname-target.example.com"),
-                },
-                rclass: RecordClass::IN,
-                ttl: 300
-            }),
+            Some(rr),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
