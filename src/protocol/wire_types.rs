@@ -348,10 +348,18 @@ impl From<Rcode> for u8 {
 ///
 /// A label must be 63 octets or shorter.  A name must be 255 octets
 /// or shorter in total, including both length and label octets.
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DomainName {
     pub octets: Vec<u8>,
     pub labels: Vec<Vec<u8>>,
+}
+
+impl std::fmt::Debug for DomainName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DomainName")
+            .field("to_dotted_string()", &self.to_dotted_string())
+            .finish()
+    }
 }
 
 /// Query types are a superset of record types.
