@@ -18,7 +18,6 @@ async fn resolve_and_build_response(
     query: Message,
 ) -> Message {
     let mut response = query.make_response();
-    response.header.recursion_available = true;
     response.header.is_authoritative = true;
 
     for question in &query.questions {
@@ -43,9 +42,6 @@ async fn resolve_and_build_response(
             }
         }
     }
-
-    response.questions = query.questions;
-    response.header.qdcount = query.header.qdcount;
 
     // TODO: remove use of unwrap
     response.header.qdcount = response.questions.len().try_into().unwrap();
