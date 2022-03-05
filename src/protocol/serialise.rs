@@ -11,7 +11,16 @@ impl Message {
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        self.header.serialise(buffer);
+        // TODO: remove use of unwrap
+        WireHeader {
+            header: self.header,
+            qdcount: self.questions.len().try_into().unwrap(),
+            ancount: self.answers.len().try_into().unwrap(),
+            nscount: self.authority.len().try_into().unwrap(),
+            arcount: self.additional.len().try_into().unwrap(),
+        }
+        .serialise(buffer);
+
         for question in self.questions {
             question.serialise(buffer);
         }
@@ -27,24 +36,35 @@ impl Message {
     }
 }
 
-impl Header {
+impl WireHeader {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        let flags1 = (if self.is_response { 0b10000000 } else { 0 })
-            | (0b01111000 & (u8::from(self.opcode) << 3))
-            | (if self.is_authoritative { 0b00000100 } else { 0 })
-            | (if self.is_truncated { 0b00000010 } else { 0 })
-            | (if self.recursion_desired {
+        let flags1 = (if self.header.is_response {
+            0b10000000
+        } else {
+            0
+        }) | (0b01111000 & (u8::from(self.header.opcode) << 3))
+            | (if self.header.is_authoritative {
+                0b00000100
+            } else {
+                0
+            })
+            | (if self.header.is_truncated {
+                0b00000010
+            } else {
+                0
+            })
+            | (if self.header.recursion_desired {
                 0b00000001
             } else {
                 0
             });
-        let flags2 = (if self.recursion_available {
+        let flags2 = (if self.header.recursion_available {
             0b10000000
         } else {
             0
-        }) | (0b00001111 & u8::from(self.rcode));
+        }) | (0b00001111 & u8::from(self.header.rcode));
 
-        buffer.write_u16(self.id);
+        buffer.write_u16(self.header.id);
         buffer.write_u8(flags1);
         buffer.write_u8(flags2);
         buffer.write_u16(self.qdcount);
@@ -65,31 +85,11 @@ impl Question {
 impl ResourceRecord {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         let (rtype, rdata) = match self.rtype_with_data {
-            RecordTypeWithData::Uninterpreted { rtype, octets } => (rtype, octets),
-            RecordTypeWithData::Named { rtype, name } => (rtype, name.octets),
-            RecordTypeWithData::MINFO { rmailbx, emailbx } => {
-                let mut octets = Vec::with_capacity(rmailbx.octets.len() + emailbx.octets.len());
-                for octet in rmailbx.octets {
-                    octets.push(octet)
-                }
-                for octet in emailbx.octets {
-                    octets.push(octet)
-                }
-                (RecordType::MINFO, octets)
-            }
-            RecordTypeWithData::MX {
-                preference,
-                exchange,
-            } => {
-                let mut octets = Vec::with_capacity(2 + exchange.octets.len());
-                for octet in preference.to_be_bytes() {
-                    octets.push(octet)
-                }
-                for octet in exchange.octets {
-                    octets.push(octet)
-                }
-                (RecordType::MX, octets)
-            }
+            RecordTypeWithData::A { address } => (RecordType::A, Vec::from(address.octets())),
+            RecordTypeWithData::NS { nsdname } => (RecordType::NS, nsdname.octets),
+            RecordTypeWithData::MD { madname } => (RecordType::MD, madname.octets),
+            RecordTypeWithData::MF { madname } => (RecordType::MF, madname.octets),
+            RecordTypeWithData::CNAME { cname } => (RecordType::CNAME, cname.octets),
             RecordTypeWithData::SOA {
                 mname,
                 rname,
@@ -124,6 +124,38 @@ impl ResourceRecord {
                 }
                 (RecordType::SOA, octets)
             }
+            RecordTypeWithData::MB { madname } => (RecordType::MB, madname.octets),
+            RecordTypeWithData::MG { mdmname } => (RecordType::MG, mdmname.octets),
+            RecordTypeWithData::MR { newname } => (RecordType::MR, newname.octets),
+            RecordTypeWithData::NULL { octets } => (RecordType::NULL, octets),
+            RecordTypeWithData::WKS { octets } => (RecordType::WKS, octets),
+            RecordTypeWithData::PTR { ptrdname } => (RecordType::PTR, ptrdname.octets),
+            RecordTypeWithData::HINFO { octets } => (RecordType::HINFO, octets),
+            RecordTypeWithData::MINFO { rmailbx, emailbx } => {
+                let mut octets = Vec::with_capacity(rmailbx.octets.len() + emailbx.octets.len());
+                for octet in rmailbx.octets {
+                    octets.push(octet)
+                }
+                for octet in emailbx.octets {
+                    octets.push(octet)
+                }
+                (RecordType::MINFO, octets)
+            }
+            RecordTypeWithData::MX {
+                preference,
+                exchange,
+            } => {
+                let mut octets = Vec::with_capacity(2 + exchange.octets.len());
+                for octet in preference.to_be_bytes() {
+                    octets.push(octet)
+                }
+                for octet in exchange.octets {
+                    octets.push(octet)
+                }
+                (RecordType::MX, octets)
+            }
+            RecordTypeWithData::TXT { octets } => (RecordType::TXT, octets),
+            RecordTypeWithData::Unknown { tag, octets } => (RecordType::Unknown(tag), octets),
         };
 
         self.name.serialise(buffer);

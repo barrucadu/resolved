@@ -43,12 +43,6 @@ async fn resolve_and_build_response(
         }
     }
 
-    // TODO: remove use of unwrap
-    response.header.qdcount = response.questions.len().try_into().unwrap();
-    response.header.ancount = response.answers.len().try_into().unwrap();
-    response.header.nscount = response.authority.len().try_into().unwrap();
-    response.header.arcount = response.additional.len().try_into().unwrap();
-
     // I'm not sure if this is right, but it's what pi-hole does for
     // queries which it can't answer.
     //

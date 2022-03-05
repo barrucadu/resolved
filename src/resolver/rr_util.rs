@@ -23,12 +23,8 @@ pub fn follow_cnames(
         if &rr.name == target && rr.rclass.matches(qclass) && rr.rtype_with_data.matches(qtype) {
             got_match = true;
         }
-        if let RecordTypeWithData::Named {
-            rtype: RecordType::CNAME,
-            name,
-        } = &rr.rtype_with_data
-        {
-            cname_map.insert(rr.name.clone(), name.clone());
+        if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+            cname_map.insert(rr.name.clone(), cname.clone());
         }
     }
 
@@ -62,11 +58,7 @@ pub fn get_better_ns_names(
     let mut match_name = None;
 
     for rr in rrs {
-        if let RecordTypeWithData::Named {
-            rtype: RecordType::NS,
-            name,
-        } = &rr.rtype_with_data
-        {
+        if let RecordTypeWithData::NS { nsdname } = &rr.rtype_with_data {
             if target.is_subdomain_of(&rr.name) {
                 match rr.name.labels.len().cmp(&match_count) {
                     Ordering::Greater => {
@@ -74,10 +66,10 @@ pub fn get_better_ns_names(
                         match_name = Some(rr.name.clone());
 
                         ns_names.clear();
-                        ns_names.insert(name.clone());
+                        ns_names.insert(nsdname.clone());
                     }
                     Ordering::Equal => {
-                        ns_names.insert(name.clone());
+                        ns_names.insert(nsdname.clone());
                     }
                     Ordering::Less => (),
                 }
@@ -100,13 +92,8 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
     ) {
         for rr in rrs {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets,
-                } if rr.name == final_name => {
-                    if let &[a, b, c, d] = octets.as_slice() {
-                        return Some(Ipv4Addr::new(a, b, c, d));
-                    }
+                RecordTypeWithData::A { address } if rr.name == final_name => {
+                    return Some(*address);
                 }
                 _ => (),
             }
@@ -139,7 +126,7 @@ mod tests {
         assert_eq!(
             None,
             follow_cnames(
-                &[a_record("www.example.net", vec![1, 1, 1, 1])],
+                &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com"),
                 &QueryClass::Wildcard,
                 &QueryType::Wildcard
@@ -152,7 +139,7 @@ mod tests {
         assert_eq!(
             None,
             follow_cnames(
-                &[a_record("www.example.net", vec![1, 1, 1, 1])],
+                &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com"),
                 &QueryClass::Record(RecordClass::CH),
                 &QueryType::Wildcard
@@ -165,7 +152,7 @@ mod tests {
         assert_eq!(
             None,
             follow_cnames(
-                &[a_record("www.example.net", vec![1, 1, 1, 1])],
+                &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com"),
                 &QueryClass::Wildcard,
                 &QueryType::Record(RecordType::NS)
@@ -175,7 +162,7 @@ mod tests {
 
     #[test]
     fn follow_cnames_no_cname() {
-        let rr_a = a_record("www.example.com", vec![127, 0, 0, 1]);
+        let rr_a = a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(
             Some((domain("www.example.com"), HashMap::new())),
             follow_cnames(
@@ -191,7 +178,7 @@ mod tests {
     fn follow_cnames_chain() {
         let rr_cname1 = cname_record("www.example.com", "www2.example.com");
         let rr_cname2 = cname_record("www2.example.com", "www3.example.com");
-        let rr_a = a_record("www3.example.com", vec![127, 0, 0, 1]);
+        let rr_a = a_record("www3.example.com", Ipv4Addr::new(127, 0, 0, 1));
 
         let mut expected_map = HashMap::new();
         expected_map.insert(domain("www.example.com"), domain("www2.example.com"));
@@ -272,13 +259,13 @@ mod tests {
 
     #[test]
     fn get_ip_no_match() {
-        let a_rr = a_record("www.example.net", vec![127, 0, 0, 1]);
+        let a_rr = a_record("www.example.net", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(None, get_ip(&[a_rr], &domain("www.example.com")));
     }
 
     #[test]
     fn get_ip_direct_match() {
-        let a_rr = a_record("www.example.com", vec![127, 0, 0, 1]);
+        let a_rr = a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(
             Some(Ipv4Addr::new(127, 0, 0, 1)),
             get_ip(&[a_rr], &domain("www.example.com"))
@@ -288,7 +275,7 @@ mod tests {
     #[test]
     fn get_ip_cname_match() {
         let cname_rr = cname_record("www.example.com", "www.example.net");
-        let a_rr = a_record("www.example.net", vec![127, 0, 0, 1]);
+        let a_rr = a_record("www.example.net", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(
             Some(Ipv4Addr::new(127, 0, 0, 1)),
             get_ip(&[cname_rr, a_rr], &domain("www.example.com"))

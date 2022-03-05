@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+arbitrary = { version = "1", optional = true, features = ["derive"] }
 async-recursion = "1"
 bytes = "1"
 config = { version = "0.12", features = ["yaml"] }
@@ -15,8 +16,9 @@ serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "sync", "fs", "time"] }
 
 [dev-dependencies]
-fake = "2"
+arbitrary = { version = "1", features = ["derive"] }
 criterion = "0.3.5"
+fake = "2"
 
 [[bench]]
 name = "cache"

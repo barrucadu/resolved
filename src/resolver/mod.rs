@@ -94,16 +94,12 @@ pub fn resolve_nonrecursive(
 
             if question.qtype != QueryType::Record(RecordType::CNAME) {
                 for rr in &new_rrs {
-                    if let RecordTypeWithData::Named {
-                        rtype: RecordType::CNAME,
-                        name,
-                    } = &rr.rtype_with_data
-                    {
-                        if !cnames_followed.contains(name) {
+                    if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+                        if !cnames_followed.contains(cname) {
                             let mut new_question = question.clone();
-                            new_question.name = name.clone();
+                            new_question.name = cname.clone();
                             new_questions.push(new_question);
-                            cnames_followed.insert(name.clone());
+                            cnames_followed.insert(cname.clone());
                         }
                     }
                 }
@@ -292,16 +288,12 @@ pub fn authoritative_from_zone(
     for static_record in &local_zone.static_records {
         if static_record.domain.matches(&question.name) {
             if let Some(name) = &static_record.record_cname {
-                return Some(make_rr(RecordTypeWithData::Named {
-                    rtype: RecordType::CNAME,
-                    name: name.domain.clone(),
+                return Some(make_rr(RecordTypeWithData::CNAME {
+                    cname: name.domain.clone(),
                 }));
             } else if RecordType::A.matches(&question.qtype) {
                 if let Some(address) = static_record.record_a {
-                    return Some(make_rr(RecordTypeWithData::Uninterpreted {
-                        rtype: RecordType::A,
-                        octets: Vec::from(address.octets()),
-                    }));
+                    return Some(make_rr(RecordTypeWithData::A { address }));
                 }
             }
         }
@@ -312,9 +304,8 @@ pub fn authoritative_from_zone(
         if blocked_domain.matches(&question.name) {
             // Return an A record pointing to 0.0.0.0 - copied from
             // what pi hole does.
-            return Some(make_rr(RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets: vec![0, 0, 0, 0],
+            return Some(make_rr(RecordTypeWithData::A {
+                address: Ipv4Addr::new(0, 0, 0, 0),
             }));
         }
     }
@@ -367,12 +358,8 @@ pub fn candidate_nameservers(
 
             if let Some(resolved) = resolve_nonrecursive(local_zone, cache, &ns_q) {
                 for ns_rr in resolved.rrs() {
-                    if let RecordTypeWithData::Named {
-                        rtype: RecordType::NS,
-                        name,
-                    } = &ns_rr.rtype_with_data
-                    {
-                        hostnames.push(HostOrIP::Host(name.clone()));
+                    if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
+                        hostnames.push(HostOrIP::Host(nsdname.clone()));
                     }
                 }
             }
@@ -577,9 +564,6 @@ pub fn validate_nameserver_response(
     if response.header.rcode != Rcode::NoError {
         return None;
     }
-    if request.header.qdcount != response.header.qdcount {
-        return None;
-    }
     if request.questions != response.questions {
         return None;
     }
@@ -593,8 +577,7 @@ pub fn validate_nameserver_response(
         // step 2.1: get RRs matching the query name or the names it
         // `CNAME`s to
 
-        let mut rrs_for_query =
-            Vec::<ResourceRecord>::with_capacity(response.header.ancount as usize);
+        let mut rrs_for_query = Vec::<ResourceRecord>::with_capacity(response.answers.len());
         let mut seen_final_record = false;
         for an in &response.answers {
             if an.rclass.matches(&question.qclass) {
@@ -656,32 +639,28 @@ pub fn validate_nameserver_response(
         let mut nameserver_rrs = Vec::<ResourceRecord>::with_capacity(ns_names.len() * 2);
         for rr in &response.answers {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Named {
-                    rtype: RecordType::NS,
-                    name,
-                } if ns_names.contains(name) => nameserver_rrs.push(rr.clone()),
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets: _,
-                } if ns_names.contains(&rr.name) => nameserver_rrs.push(rr.clone()),
+                RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
+                    nameserver_rrs.push(rr.clone())
+                }
+                RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
+                    nameserver_rrs.push(rr.clone())
+                }
                 _ => (),
             }
         }
         for rr in &response.authority {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Named {
-                    rtype: RecordType::NS,
-                    name,
-                } if ns_names.contains(name) => nameserver_rrs.push(rr.clone()),
+                RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
+                    nameserver_rrs.push(rr.clone())
+                }
                 _ => (),
             }
         }
         for rr in &response.additional {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets: _,
-                } if ns_names.contains(&rr.name) => nameserver_rrs.push(rr.clone()),
+                RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
+                    nameserver_rrs.push(rr.clone())
+                }
                 _ => (),
             }
         }
@@ -748,7 +727,7 @@ mod tests {
     fn resolve_nonrecursive_is_authoritative_for_local_zone() {
         assert_eq!(
             Some(ResolvedRecord::Authoritative {
-                rrs: vec![a_record("a.example.com", vec![1, 1, 1, 1])]
+                rrs: vec![a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))]
             }),
             resolve_nonrecursive(
                 &local_zone(),
@@ -764,7 +743,7 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_is_nonauthoritative_for_cache() {
-        let rr = a_record("cached.example.com", vec![1, 1, 1, 1]);
+        let rr = a_record("cached.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -789,10 +768,10 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_prefers_local_zone() {
-        let rr = a_record("a.example.com", vec![1, 1, 1, 1]);
+        let rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
-        cache.insert(&a_record("a.example.com", vec![8, 8, 8, 8]));
+        cache.insert(&a_record("a.example.com", Ipv4Addr::new(8, 8, 8, 8)));
 
         assert_eq!(
             Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
@@ -812,7 +791,7 @@ mod tests {
     fn resolve_nonrecursive_expands_cnames() {
         let cname_rr1 = cname_record("cname-1.example.com", "cname-2.example.com");
         let cname_rr2 = cname_record("cname-2.example.com", "a.example.com");
-        let a_rr = a_record("a.example.com", vec![1, 1, 1, 1]);
+        let a_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&cname_rr1);
@@ -842,7 +821,7 @@ mod tests {
     #[test]
     fn authoritative_from_zone_finds_record() {
         assert_eq!(
-            Some(a_record("a.example.com", vec![1, 1, 1, 1])),
+            Some(a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -875,7 +854,7 @@ mod tests {
     #[test]
     fn authoritative_from_zone_blocklists_to_a0000() {
         assert_eq!(
-            Some(a_record("blocked.example.com", vec![0, 0, 0, 0])),
+            Some(a_record("blocked.example.com", Ipv4Addr::new(0, 0, 0, 0))),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -889,7 +868,7 @@ mod tests {
 
     #[test]
     fn nonauthoritative_from_cache_finds_record() {
-        let rr = a_record("www.example.com", vec![1, 1, 1, 1]);
+        let rr = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -1055,14 +1034,14 @@ mod tests {
     fn validate_nameserver_response_returns_answer() {
         let (request, response) = nameserver_response(
             "www.example.com",
-            &[a_record("www.example.com", vec![127, 0, 0, 1])],
+            &[a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
             &[],
             &[],
         );
 
         assert_eq!(
             Some(NameserverResponse::Answer {
-                rrs: vec![a_record("www.example.com", vec![127, 0, 0, 1])],
+                rrs: vec![a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
                 authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
@@ -1075,7 +1054,7 @@ mod tests {
             "www.example.com",
             &[
                 cname_record("www.example.com", "cname-target.example.com"),
-                a_record("cname-target.example.com", vec![127, 0, 0, 1]),
+                a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1)),
             ],
             &[],
             &[],
@@ -1085,7 +1064,7 @@ mod tests {
             Some(NameserverResponse::Answer {
                 rrs: vec![
                     cname_record("www.example.com", "cname-target.example.com"),
-                    a_record("cname-target.example.com", vec![127, 0, 0, 1])
+                    a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1))
                 ],
                 authority: None,
             }),
@@ -1215,17 +1194,17 @@ mod tests {
             "www.example.com",
             &[
                 ns_record("example.com", "ns-an.example.net"),
-                a_record("ns-an.example.net", vec![1, 1, 1, 1]),
-                a_record("ns-ns.example.net", vec![1, 1, 1, 1]),
+                a_record("ns-an.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                a_record("ns-ns.example.net", Ipv4Addr::new(1, 1, 1, 1)),
             ],
             &[
                 ns_record("example.com", "ns-ns.example.net"),
-                a_record("ns-an.example.net", vec![2, 2, 2, 2]),
-                a_record("ns-ns.example.net", vec![2, 2, 2, 2]),
+                a_record("ns-an.example.net", Ipv4Addr::new(2, 2, 2, 2)),
+                a_record("ns-ns.example.net", Ipv4Addr::new(2, 2, 2, 2)),
             ],
             &[
-                a_record("ns-an.example.net", vec![3, 3, 3, 3]),
-                a_record("ns-ns.example.net", vec![3, 3, 3, 3]),
+                a_record("ns-an.example.net", Ipv4Addr::new(3, 3, 3, 3)),
+                a_record("ns-ns.example.net", Ipv4Addr::new(3, 3, 3, 3)),
             ],
         );
 
@@ -1237,10 +1216,10 @@ mod tests {
                 let mut expected_rrs = vec![
                     ns_record("example.com", "ns-an.example.net"),
                     ns_record("example.com", "ns-ns.example.net"),
-                    a_record("ns-an.example.net", vec![1, 1, 1, 1]),
-                    a_record("ns-ns.example.net", vec![1, 1, 1, 1]),
-                    a_record("ns-an.example.net", vec![3, 3, 3, 3]),
-                    a_record("ns-ns.example.net", vec![3, 3, 3, 3]),
+                    a_record("ns-an.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                    a_record("ns-ns.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                    a_record("ns-an.example.net", Ipv4Addr::new(3, 3, 3, 3)),
+                    a_record("ns-ns.example.net", Ipv4Addr::new(3, 3, 3, 3)),
                 ];
 
                 expected_rrs.sort();
@@ -1297,7 +1276,7 @@ mod tests {
     fn matching_nameserver_response() -> (Message, Message) {
         nameserver_response(
             "www.example.com",
-            &[a_record("www.example.com", vec![1, 1, 1, 1])],
+            &[a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
             &[],
             &[],
         )
@@ -1319,11 +1298,6 @@ mod tests {
         );
 
         let mut response = request.make_response();
-
-        response.header.ancount = answers.len().try_into().unwrap();
-        response.header.nscount = authority.len().try_into().unwrap();
-        response.header.arcount = additional.len().try_into().unwrap();
-
         response.answers = answers.into();
         response.authority = authority.into();
         response.additional = additional.into();

@@ -361,7 +361,6 @@ impl Cache {
                         let len = tuples.len();
                         tuples.retain(|(_, _, expiry)| expiry > &now);
                         pruned += len - tuples.len();
-                        entry.size -= pruned;
                         for (_, _, expiry) in tuples {
                             match next_expiry {
                                 None => next_expiry = Some(*expiry),
@@ -371,6 +370,8 @@ impl Cache {
                         }
                     }
                 }
+
+                entry.size -= pruned;
 
                 if let Some(ne) = next_expiry {
                     entry.next_expiry = ne;
@@ -440,15 +441,14 @@ fn to_rrs(
 
 #[cfg(test)]
 mod tests {
-    use fake::{Fake, Faker};
-
     use super::test_util::*;
     use super::*;
+    use crate::protocol::wire_types::test_util::*;
 
     #[test]
     fn cache_put_can_get() {
-        let mut cache = Cache::new();
         for _ in 0..100 {
+            let mut cache = Cache::new();
             let rr = arbitrary_resourcerecord();
             cache.insert(&rr);
 
@@ -563,9 +563,7 @@ mod tests {
 
         for i in 0..100 {
             let mut rr = arbitrary_resourcerecord();
-            if i > 0 && i % 2 == 0 {
-                rr.ttl = 0;
-            }
+            rr.ttl = if i > 0 && i % 2 == 0 { 0 } else { 300 };
             cache.insert(&rr);
         }
 
@@ -580,9 +578,7 @@ mod tests {
 
         for i in 0..100 {
             let mut rr = arbitrary_resourcerecord();
-            if i > 0 && i % 2 == 0 {
-                rr.ttl = 0;
-            }
+            rr.ttl = if i > 0 && i % 2 == 0 { 0 } else { 300 };
             cache.insert(&rr);
         }
 
@@ -630,57 +626,6 @@ mod tests {
 
         assert_eq!(cache.access_priority, access_priority);
         assert_eq!(cache.expiry_priority, expiry_priority);
-    }
-
-    // This generates invalid records - they're all
-    // `RecordTypeWithData::Named`, regardless of the type.  This
-    // doesn't matter for these tests, since the cache doesn't
-    // interpret the records it holds.
-    fn arbitrary_resourcerecord() -> ResourceRecord {
-        ResourceRecord {
-            name: arbitrary_domainname(),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: arbitrary_recordtype(),
-                name: arbitrary_domainname(),
-            },
-            rclass: arbitrary_recordclass(),
-            ttl: 300,
-        }
-    }
-
-    // TODO: reduce duplication with integration tests and wire format
-    // unit tests
-    fn arbitrary_domainname() -> DomainName {
-        let num_labels = (1..5).fake::<usize>();
-        let mut labels = Vec::<Vec<u8>>::new();
-        let mut octets = Vec::<u8>::new();
-
-        for _ in 0..num_labels {
-            let label_len = (1..63).fake();
-            let mut label = Vec::with_capacity(label_len as usize);
-            octets.push(label_len);
-
-            for _ in 0..label_len {
-                let octet = Faker.fake::<u8>().to_ascii_lowercase();
-                label.push(octet);
-                octets.push(octet);
-            }
-
-            labels.push(label);
-        }
-
-        labels.push(Vec::new());
-        octets.push(0);
-
-        DomainName { labels, octets }
-    }
-
-    fn arbitrary_recordtype() -> RecordType {
-        Faker.fake::<u16>().into()
-    }
-
-    fn arbitrary_recordclass() -> RecordClass {
-        Faker.fake::<u16>().into()
     }
 }
 

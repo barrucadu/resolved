@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 /// Basic DNS message format, used for both queries and responses.
 ///
 /// ```text
@@ -16,6 +18,7 @@
 ///
 /// See section 4.1 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -46,6 +49,7 @@ pub struct Message {
 ///
 /// See section 4.1.1 of RFC 1035.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Header {
     /// A 16 bit identifier assigned by the program that generates any
     /// kind of query.  This identifier is copied the corresponding
@@ -123,6 +127,18 @@ pub struct Header {
     ///
     /// - `6-15` Reserved for future use.
     pub rcode: Rcode,
+}
+
+/// A `Header` as it appears on the network.  This type is used for
+/// serialisation and deserialisation only: including the count fields
+/// in the normal `Header` type would require ensuring those values
+/// are correct.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
+pub struct WireHeader {
+    /// The header that will be persisted to / is taken from the
+    /// `Message`.
+    pub header: Header,
 
     /// an unsigned 16 bit integer specifying the number of entries in
     /// the question section.
@@ -161,6 +177,7 @@ pub struct Header {
 ///
 /// See section 4.1.2 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// a domain name represented as a sequence of labels, where each
     /// label consists of a length octet followed by that number of
@@ -209,6 +226,7 @@ pub struct Question {
 ///
 /// See section 4.1.3 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
     pub name: DomainName,
@@ -228,26 +246,113 @@ pub struct ResourceRecord {
     pub ttl: u32,
 }
 
-/// A record type with its associated data.  This is so any pointers
-/// in domain names will be expanded before further processing.
+/// A record type with its associated, deserialised, data.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordTypeWithData {
-    Uninterpreted {
-        rtype: RecordType,
-        octets: Vec<u8>,
-    },
-    Named {
-        rtype: RecordType,
-        name: DomainName,
-    },
-    MINFO {
-        rmailbx: DomainName,
-        emailbx: DomainName,
-    },
-    MX {
-        preference: u16,
-        exchange: DomainName,
-    },
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    ADDRESS                    |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `ADDRESS` is a 32 bit Internet address.
+    A { address: Ipv4Addr },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   NSDNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `NSDNAME` is a domain name which specifies a host which
+    /// should be authoritative for the specified class and domain.
+    NS { nsdname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MADNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MADNAME` is a domain name which specifies a host which
+    /// has a mail agent for the domain which should be able to
+    /// deliver mail for the domain.
+    MD { madname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MADNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MADNAME` is a domain name which specifies a host which
+    /// has a mail agent for the domain which will accept mail for
+    /// forwarding to the domain.
+    MF { madname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                     CNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `CNAME` is a domain name which specifies the canonical
+    /// or primary name for the owner.  The owner name is an alias.
+    CNAME { cname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                     MNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                     RNAME                     /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    SERIAL                     |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    REFRESH                    |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                     RETRY                     |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    EXPIRE                     |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    MINIMUM                    |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MNAME` is the domain name of the name server that was
+    /// the original or primary source of data for this zone.
+    ///
+    /// Where `RNAME` is a domain name which specifies the mailbox of
+    /// the person responsible for this zone.
+    ///
+    /// Where `SERIAL` is the unsigned 32 bit version number of the
+    /// original copy of the zone.  Zone transfers preserve this
+    /// value.  This value wraps and should be compared using sequence
+    /// space arithmetic.
+    ///
+    /// Where `REFRESH` is a 32 bit time interval before the zone
+    /// should be refreshed.
+    ///
+    /// Where `RETRY` is a 32 bit time interval that should elapse
+    /// before a failed refresh should be retried.
+    ///
+    /// Where `EXPIRE` is a 32 bit time value that specifies an upper
+    /// limit on the time interval that can elapse before the zone is
+    /// no longer authoritative.
+    ///
+    /// Where `MINIMUM` is the unsigned 32 bit minimum TTL field that
+    /// should be exported with any RR from this zone.
+    ///
+    /// All times are in units of seconds.
     SOA {
         mname: DomainName,
         rname: DomainName,
@@ -257,6 +362,190 @@ pub enum RecordTypeWithData {
         expire: u32,
         minimum: u32,
     },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MADNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MADNAME` is a domain name which specifies a host which
+    /// has the specified mailbox.
+    MB { madname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MGMNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MGMNAME` is a domain name which specifies a mailbox
+    /// which is a member of the mail group specified by the domain
+    /// name.
+    MG { mdmname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   NEWNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `NEWNAME` is a domain name which specifies a mailbox
+    /// which is the proper rename of the specifies mailbox.
+    MR { newname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                  <anything>                   /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Anything at all may be in the RDATA field so long as it is
+    /// 65535 octets or less.
+    NULL { octets: Vec<u8> },
+
+    /// This application does not interpret `WKS` records.
+    WKS { octets: Vec<u8> },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   PTRDNAME                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `PTRDNAME` is a domain name which points to some
+    /// location in the domain name space.
+    PTR { ptrdname: DomainName },
+
+    /// This application does not interpret `HINFO` records.
+    HINFO { octets: Vec<u8> },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                    RMAILBX                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                    EMAILBX                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `RMAILBX` is a domain name which specifies a mailbox
+    /// which is responsible for the mailing list or mailbox.  If this
+    /// domain name names the root, the owner of the `MINFO` RR is
+    /// responsible for itself.
+    ///
+    /// Where `EMAILBX` is a domain name which specifies a mailbox
+    /// which is to receive error messages related to the mailing list
+    /// or mailbox specified by the owner of the `MINFO` RR (similar
+    /// to the `ERRORS-TO`: field which has been proposed).  If this
+    /// domain name names the root, errors should be returned to the
+    /// sender of the message.
+    MINFO {
+        rmailbx: DomainName,
+        emailbx: DomainName,
+    },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                  PREFERENCE                   |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   EXCHANGE                    /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `PREFERENCE` is a 16 bit integer which specifies the
+    /// preference given to this RR among others at the same owner.
+    /// Lower values are preferred.
+    ///
+    /// Where `EXCHANGE` is a domain name which specifies a host
+    /// willing to act as a mail exchange for the owner name.
+    MX {
+        preference: u16,
+        exchange: DomainName,
+    },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   TXT-DATA                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `TXT-DATA` is one or more character strings.
+    TXT { octets: Vec<u8> },
+
+    /// Any other record.
+    Unknown {
+        tag: RecordTypeUnknown,
+        octets: Vec<u8>,
+    },
+}
+
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
+    // this is pretty verbose but it feels like a better way to
+    // guarantee the max size of the `Vec<u8>`s than adding a wrapper
+    // type
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let len = u.int_in_range(0..=128)?;
+        let octets = Vec::from(u.bytes(len)?);
+
+        let rtype_with_data = match u.arbitrary::<RecordType>()? {
+            RecordType::A => RecordTypeWithData::A {
+                address: u.arbitrary()?,
+            },
+            RecordType::NS => RecordTypeWithData::NS {
+                nsdname: u.arbitrary()?,
+            },
+            RecordType::MD => RecordTypeWithData::MD {
+                madname: u.arbitrary()?,
+            },
+            RecordType::MF => RecordTypeWithData::MF {
+                madname: u.arbitrary()?,
+            },
+            RecordType::CNAME => RecordTypeWithData::CNAME {
+                cname: u.arbitrary()?,
+            },
+            RecordType::SOA => RecordTypeWithData::SOA {
+                mname: u.arbitrary()?,
+                rname: u.arbitrary()?,
+                serial: u.arbitrary()?,
+                refresh: u.arbitrary()?,
+                retry: u.arbitrary()?,
+                expire: u.arbitrary()?,
+                minimum: u.arbitrary()?,
+            },
+            RecordType::MB => RecordTypeWithData::MB {
+                madname: u.arbitrary()?,
+            },
+            RecordType::MG => RecordTypeWithData::MG {
+                mdmname: u.arbitrary()?,
+            },
+            RecordType::MR => RecordTypeWithData::MR {
+                newname: u.arbitrary()?,
+            },
+            RecordType::NULL => RecordTypeWithData::NULL { octets },
+            RecordType::WKS => RecordTypeWithData::WKS { octets },
+            RecordType::PTR => RecordTypeWithData::PTR {
+                ptrdname: u.arbitrary()?,
+            },
+            RecordType::HINFO => RecordTypeWithData::HINFO { octets },
+            RecordType::MINFO => RecordTypeWithData::MINFO {
+                rmailbx: u.arbitrary()?,
+                emailbx: u.arbitrary()?,
+            },
+            RecordType::MX => RecordTypeWithData::MX {
+                preference: u.arbitrary()?,
+                exchange: u.arbitrary()?,
+            },
+            RecordType::TXT => RecordTypeWithData::TXT { octets },
+            RecordType::Unknown(tag) => RecordTypeWithData::Unknown { tag, octets },
+        };
+        Ok(rtype_with_data)
+    }
 }
 
 /// What sort of query this is.
@@ -275,11 +564,11 @@ pub struct OpcodeReserved(u8);
 
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
-        match octet {
+        match octet & 0b00001111 {
             0 => Opcode::Standard,
             1 => Opcode::Inverse,
             2 => Opcode::Status,
-            _ => Opcode::Reserved(OpcodeReserved(octet)),
+            other => Opcode::Reserved(OpcodeReserved(other)),
         }
     }
 }
@@ -292,6 +581,13 @@ impl From<Opcode> for u8 {
             Opcode::Status => 2,
             Opcode::Reserved(OpcodeReserved(octet)) => octet,
         }
+    }
+}
+
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for Opcode {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u8>()?))
     }
 }
 
@@ -314,14 +610,14 @@ pub struct RcodeReserved(u8);
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
-        match octet {
+        match octet & 0b00001111 {
             0 => Rcode::NoError,
             1 => Rcode::FormatError,
             2 => Rcode::ServerFailure,
             3 => Rcode::NameError,
             4 => Rcode::NotImplemented,
             5 => Rcode::Refused,
-            _ => Rcode::Reserved(RcodeReserved(octet)),
+            other => Rcode::Reserved(RcodeReserved(other)),
         }
     }
 }
@@ -337,6 +633,13 @@ impl From<Rcode> for u8 {
             Rcode::Refused => 5,
             Rcode::Reserved(RcodeReserved(octet)) => octet,
         }
+    }
+}
+
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for Rcode {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u8>()?))
     }
 }
 
@@ -359,6 +662,29 @@ impl std::fmt::Debug for DomainName {
         f.debug_struct("DomainName")
             .field("to_dotted_string()", &self.to_dotted_string())
             .finish()
+    }
+}
+
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for DomainName {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let num_labels = u.int_in_range::<usize>(0..=10)?;
+        let mut octets = Vec::new();
+        let mut labels = Vec::new();
+        for _ in 0..num_labels {
+            let label_len = u.int_in_range::<u8>(1..=20)?;
+            let mut label = Vec::new();
+            octets.push(label_len);
+            let os = u.bytes(label_len.into())?;
+            for o in os {
+                label.push(o.to_ascii_lowercase());
+                octets.push(o.to_ascii_lowercase());
+            }
+            labels.push(label);
+        }
+        octets.push(0);
+        labels.push(Vec::new());
+        Ok(Self { octets, labels })
     }
 }
 
@@ -395,6 +721,12 @@ impl From<QueryType> for u16 {
         }
     }
 }
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for QueryType {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
+    }
+}
 
 /// Query classes are a superset of record classes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -418,6 +750,13 @@ impl From<QueryClass> for u16 {
             QueryClass::Wildcard => 255,
             QueryClass::Record(rclass) => rclass.into(),
         }
+    }
+}
+
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for QueryClass {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
     }
 }
 
@@ -496,6 +835,13 @@ impl From<RecordType> for u16 {
     }
 }
 
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for RecordType {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
+    }
+}
+
 /// Record classes are used by resource records and by queries.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordClass {
@@ -535,20 +881,27 @@ impl From<RecordClass> for u16 {
     }
 }
 
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for RecordClass {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn u8_opcode_roundtrip() {
-        for i in 0..100 {
+        for i in 0..15 {
             assert_eq!(u8::from(Opcode::from(i)), i);
         }
     }
 
     #[test]
     fn u8_rcode_roundtrip() {
-        for i in 0..100 {
+        for i in 0..15 {
             assert_eq!(u8::from(Rcode::from(i)), i);
         }
     }
@@ -586,17 +939,32 @@ mod tests {
 pub mod test_util {
     use super::*;
 
+    use arbitrary::{Arbitrary, Unstructured};
+    use fake::{Fake, Faker};
+
+    pub fn arbitrary_resourcerecord() -> ResourceRecord {
+        for size in [128, 256, 512, 1024, 2048, 4096] {
+            let mut buf = Vec::new();
+            for _ in 0..size {
+                buf.push(Faker.fake());
+            }
+
+            if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf)) {
+                return rr;
+            }
+        }
+
+        panic!("could not generate arbitrary value!");
+    }
+
     pub fn domain(name: &str) -> DomainName {
         DomainName::from_dotted_string(name).unwrap()
     }
 
-    pub fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
+    pub fn a_record(name: &str, address: Ipv4Addr) -> ResourceRecord {
         ResourceRecord {
             name: domain(name),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets,
-            },
+            rtype_with_data: RecordTypeWithData::A { address },
             rclass: RecordClass::IN,
             ttl: 300,
         }
@@ -605,9 +973,8 @@ pub mod test_util {
     pub fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
         ResourceRecord {
             name: domain(name),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain(target_name),
+            rtype_with_data: RecordTypeWithData::CNAME {
+                cname: domain(target_name),
             },
             rclass: RecordClass::IN,
             ttl: 300,
@@ -617,9 +984,8 @@ pub mod test_util {
     pub fn ns_record(superdomain_name: &str, nameserver_name: &str) -> ResourceRecord {
         ResourceRecord {
             name: domain(superdomain_name),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::NS,
-                name: domain(nameserver_name),
+            rtype_with_data: RecordTypeWithData::NS {
+                nsdname: domain(nameserver_name),
             },
             rclass: RecordClass::IN,
             ttl: 300,
