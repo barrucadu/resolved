@@ -16,7 +16,7 @@
 ///
 /// See section 4.1 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -47,7 +47,7 @@ pub struct Message {
 ///
 /// See section 4.1.1 of RFC 1035.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Header {
     /// A 16 bit identifier assigned by the program that generates any
     /// kind of query.  This identifier is copied the corresponding
@@ -132,7 +132,7 @@ pub struct Header {
 /// in the normal `Header` type would require ensuring those values
 /// are correct.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct WireHeader {
     /// The header that will be persisted to / is taken from the
     /// `Message`.
@@ -175,7 +175,7 @@ pub struct WireHeader {
 ///
 /// See section 4.1.2 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// a domain name represented as a sequence of labels, where each
     /// label consists of a length octet followed by that number of
@@ -224,7 +224,7 @@ pub struct Question {
 ///
 /// See section 4.1.3 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
     pub name: DomainName,
@@ -482,7 +482,7 @@ pub enum RecordTypeWithData {
     },
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
     // this is pretty verbose but it feels like a better way to
     // guarantee the max size of the `Vec<u8>`s than adding a wrapper
@@ -580,7 +580,7 @@ impl From<Opcode> for u8 {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for Opcode {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u8>()?))
@@ -632,7 +632,7 @@ impl From<Rcode> for u8 {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for Rcode {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u8>()?))
@@ -661,7 +661,7 @@ impl std::fmt::Debug for DomainName {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for DomainName {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let num_labels = u.int_in_range::<usize>(0..=10)?;
@@ -717,7 +717,7 @@ impl From<QueryType> for u16 {
         }
     }
 }
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for QueryType {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -749,7 +749,7 @@ impl From<QueryClass> for u16 {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for QueryClass {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -831,7 +831,7 @@ impl From<RecordType> for u16 {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for RecordType {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -877,7 +877,7 @@ impl From<RecordClass> for u16 {
     }
 }
 
-#[cfg(feature = "arbitrary")]
+#[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for RecordClass {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -934,6 +934,24 @@ mod tests {
 #[cfg(test)]
 pub mod test_util {
     use super::*;
+
+    use arbitrary::{Arbitrary, Unstructured};
+    use fake::{Fake, Faker};
+
+    pub fn arbitrary_resourcerecord() -> ResourceRecord {
+        for size in [128, 256, 512, 1024, 2048, 4096] {
+            let mut buf = Vec::new();
+            for _ in 0..size {
+                buf.push(Faker.fake());
+            }
+
+            if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf)) {
+                return rr;
+            }
+        }
+
+        panic!("could not generate arbitrary value!");
+    }
 
     pub fn domain(name: &str) -> DomainName {
         DomainName::from_dotted_string(name).unwrap()
