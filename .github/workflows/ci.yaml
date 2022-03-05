@@ -37,6 +37,9 @@ jobs:
       - name: Run tests
         run: cargo test
 
+      - name: Check benchmarks compile
+        run: cargo bench --no-run
+
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
 
