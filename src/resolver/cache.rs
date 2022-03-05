@@ -16,7 +16,9 @@ pub struct SharedCache {
     cache: Arc<Mutex<Cache>>,
 }
 
-// TODO: evaluate use of unwrap in these methods
+const MUTEX_POISON_MESSAGE: &str =
+    "[INTERNAL ERROR] cache mutex poisoned, cannot recover from this - aborting";
+
 impl SharedCache {
     /// Make a new, empty, shared cache.
     pub fn new() -> Self {
@@ -57,7 +59,7 @@ impl SharedCache {
     ) -> Vec<ResourceRecord> {
         self.cache
             .lock()
-            .unwrap()
+            .expect(MUTEX_POISON_MESSAGE)
             .get_without_checking_expiration(name, qtype, qclass)
     }
 
@@ -66,7 +68,7 @@ impl SharedCache {
     /// It is not inserted if its TTL is zero.
     pub fn insert(&self, record: &ResourceRecord) {
         if record.ttl > 0 {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
             cache.insert(record);
             if cache.current_size > cache.desired_size {
                 cache.prune();
@@ -78,7 +80,10 @@ impl SharedCache {
     ///
     /// Returns the number of records deleted.
     pub fn remove_expired(&self) -> usize {
-        self.cache.lock().unwrap().remove_expired()
+        self.cache
+            .lock()
+            .expect(MUTEX_POISON_MESSAGE)
+            .remove_expired()
     }
 
     /// Delete all expired records, and then enough
@@ -87,7 +92,7 @@ impl SharedCache {
     ///
     /// Returns the number of records deleted.
     pub fn prune(&self) -> usize {
-        self.cache.lock().unwrap().prune()
+        self.cache.lock().expect(MUTEX_POISON_MESSAGE).prune()
     }
 }
 
