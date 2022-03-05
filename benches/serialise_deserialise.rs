@@ -1,4 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use std::net::Ipv4Addr;
 
 use resolved::protocol::wire_types::*;
 
@@ -39,8 +40,7 @@ fn bench__answer__small(c: &mut Criterion) {
     )
     .make_response();
 
-    message.header.ancount = 1;
-    message.answers = vec![a_record("www.example.com", vec![1, 1, 1, 1])];
+    message.answers = vec![a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))];
 
     c.bench_function("serialise/answer/small", |b| {
         b.iter_batched(
@@ -70,10 +70,6 @@ fn bench__answer__big(c: &mut Criterion) {
 
     let count = 128;
 
-    message.header.ancount = count;
-    message.header.nscount = count;
-    message.header.arcount = count;
-
     for i in 0..count {
         message.answers.push(cname_record(
             "www.example.com",
@@ -89,7 +85,7 @@ fn bench__answer__big(c: &mut Criterion) {
     for i in 0..count {
         message.additional.push(a_record(
             &format!("ns-{:?}.example.com", i),
-            vec![1, 1, 1, 1],
+            Ipv4Addr::new(1, 1, 1, 1),
         ));
     }
 
@@ -112,13 +108,10 @@ fn domain(name: &str) -> DomainName {
     DomainName::from_dotted_string(name).unwrap()
 }
 
-fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
+fn a_record(name: &str, address: Ipv4Addr) -> ResourceRecord {
     ResourceRecord {
         name: domain(name),
-        rtype_with_data: RecordTypeWithData::Uninterpreted {
-            rtype: RecordType::A,
-            octets,
-        },
+        rtype_with_data: RecordTypeWithData::A { address },
         rclass: RecordClass::IN,
         ttl: 300,
     }
@@ -127,9 +120,8 @@ fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
 fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
     ResourceRecord {
         name: domain(name),
-        rtype_with_data: RecordTypeWithData::Named {
-            rtype: RecordType::CNAME,
-            name: domain(target_name),
+        rtype_with_data: RecordTypeWithData::CNAME {
+            cname: domain(target_name),
         },
         rclass: RecordClass::IN,
         ttl: 300,
@@ -139,9 +131,8 @@ fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
 fn ns_record(superdomain_name: &str, nameserver_name: &str) -> ResourceRecord {
     ResourceRecord {
         name: domain(superdomain_name),
-        rtype_with_data: RecordTypeWithData::Named {
-            rtype: RecordType::NS,
-            name: domain(nameserver_name),
+        rtype_with_data: RecordTypeWithData::NS {
+            nsdname: domain(nameserver_name),
         },
         rclass: RecordClass::IN,
         ttl: 300,
