@@ -94,16 +94,12 @@ pub fn resolve_nonrecursive(
 
             if question.qtype != QueryType::Record(RecordType::CNAME) {
                 for rr in &new_rrs {
-                    if let RecordTypeWithData::Named {
-                        rtype: RecordType::CNAME,
-                        name,
-                    } = &rr.rtype_with_data
-                    {
-                        if !cnames_followed.contains(name) {
+                    if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+                        if !cnames_followed.contains(cname) {
                             let mut new_question = question.clone();
-                            new_question.name = name.clone();
+                            new_question.name = cname.clone();
                             new_questions.push(new_question);
-                            cnames_followed.insert(name.clone());
+                            cnames_followed.insert(cname.clone());
                         }
                     }
                 }
@@ -292,14 +288,12 @@ pub fn authoritative_from_zone(
     for static_record in &local_zone.static_records {
         if static_record.domain.matches(&question.name) {
             if let Some(name) = &static_record.record_cname {
-                return Some(make_rr(RecordTypeWithData::Named {
-                    rtype: RecordType::CNAME,
-                    name: name.domain.clone(),
+                return Some(make_rr(RecordTypeWithData::CNAME {
+                    cname: name.domain.clone(),
                 }));
             } else if RecordType::A.matches(&question.qtype) {
                 if let Some(address) = static_record.record_a {
-                    return Some(make_rr(RecordTypeWithData::Uninterpreted {
-                        rtype: RecordType::A,
+                    return Some(make_rr(RecordTypeWithData::A {
                         octets: Vec::from(address.octets()),
                     }));
                 }
@@ -312,8 +306,7 @@ pub fn authoritative_from_zone(
         if blocked_domain.matches(&question.name) {
             // Return an A record pointing to 0.0.0.0 - copied from
             // what pi hole does.
-            return Some(make_rr(RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
+            return Some(make_rr(RecordTypeWithData::A {
                 octets: vec![0, 0, 0, 0],
             }));
         }
@@ -367,12 +360,8 @@ pub fn candidate_nameservers(
 
             if let Some(resolved) = resolve_nonrecursive(local_zone, cache, &ns_q) {
                 for ns_rr in resolved.rrs() {
-                    if let RecordTypeWithData::Named {
-                        rtype: RecordType::NS,
-                        name,
-                    } = &ns_rr.rtype_with_data
-                    {
-                        hostnames.push(HostOrIP::Host(name.clone()));
+                    if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
+                        hostnames.push(HostOrIP::Host(nsdname.clone()));
                     }
                 }
             }
@@ -656,32 +645,28 @@ pub fn validate_nameserver_response(
         let mut nameserver_rrs = Vec::<ResourceRecord>::with_capacity(ns_names.len() * 2);
         for rr in &response.answers {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Named {
-                    rtype: RecordType::NS,
-                    name,
-                } if ns_names.contains(name) => nameserver_rrs.push(rr.clone()),
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets: _,
-                } if ns_names.contains(&rr.name) => nameserver_rrs.push(rr.clone()),
+                RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
+                    nameserver_rrs.push(rr.clone())
+                }
+                RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
+                    nameserver_rrs.push(rr.clone())
+                }
                 _ => (),
             }
         }
         for rr in &response.authority {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Named {
-                    rtype: RecordType::NS,
-                    name,
-                } if ns_names.contains(name) => nameserver_rrs.push(rr.clone()),
+                RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
+                    nameserver_rrs.push(rr.clone())
+                }
                 _ => (),
             }
         }
         for rr in &response.additional {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets: _,
-                } if ns_names.contains(&rr.name) => nameserver_rrs.push(rr.clone()),
+                RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
+                    nameserver_rrs.push(rr.clone())
+                }
                 _ => (),
             }
         }

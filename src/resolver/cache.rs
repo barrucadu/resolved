@@ -632,17 +632,10 @@ mod tests {
         assert_eq!(cache.expiry_priority, expiry_priority);
     }
 
-    // This generates invalid records - they're all
-    // `RecordTypeWithData::Named`, regardless of the type.  This
-    // doesn't matter for these tests, since the cache doesn't
-    // interpret the records it holds.
     fn arbitrary_resourcerecord() -> ResourceRecord {
         ResourceRecord {
             name: arbitrary_domainname(),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: arbitrary_recordtype(),
-                name: arbitrary_domainname(),
-            },
+            rtype_with_data: arbitrary_recordtypewithdata(),
             rclass: arbitrary_recordclass(),
             ttl: 300,
         }
@@ -650,6 +643,71 @@ mod tests {
 
     // TODO: reduce duplication with integration tests and wire format
     // unit tests
+    fn arbitrary_recordtypewithdata() -> RecordTypeWithData {
+        // this should match the `RecordTypeWithData` deserialisation
+        match arbitrary_recordtype() {
+            RecordType::A => RecordTypeWithData::A {
+                octets: arbitrary_octets((0..64).fake()),
+            },
+            RecordType::NS => RecordTypeWithData::NS {
+                nsdname: arbitrary_domainname(),
+            },
+            RecordType::MD => RecordTypeWithData::MD {
+                madname: arbitrary_domainname(),
+            },
+            RecordType::MF => RecordTypeWithData::MF {
+                madname: arbitrary_domainname(),
+            },
+            RecordType::CNAME => RecordTypeWithData::CNAME {
+                cname: arbitrary_domainname(),
+            },
+            RecordType::SOA => RecordTypeWithData::SOA {
+                mname: arbitrary_domainname(),
+                rname: arbitrary_domainname(),
+                serial: Faker.fake(),
+                refresh: Faker.fake(),
+                retry: Faker.fake(),
+                expire: Faker.fake(),
+                minimum: Faker.fake(),
+            },
+            RecordType::MB => RecordTypeWithData::MB {
+                madname: arbitrary_domainname(),
+            },
+            RecordType::MG => RecordTypeWithData::MG {
+                mdmname: arbitrary_domainname(),
+            },
+            RecordType::MR => RecordTypeWithData::MR {
+                newname: arbitrary_domainname(),
+            },
+            RecordType::NULL => RecordTypeWithData::NULL {
+                octets: arbitrary_octets((0..64).fake()),
+            },
+            RecordType::WKS => RecordTypeWithData::WKS {
+                octets: arbitrary_octets((0..64).fake()),
+            },
+            RecordType::PTR => RecordTypeWithData::PTR {
+                ptrdname: arbitrary_domainname(),
+            },
+            RecordType::HINFO => RecordTypeWithData::HINFO {
+                octets: arbitrary_octets((0..64).fake()),
+            },
+            RecordType::MINFO => RecordTypeWithData::MINFO {
+                rmailbx: arbitrary_domainname(),
+                emailbx: arbitrary_domainname(),
+            },
+            RecordType::MX => RecordTypeWithData::MX {
+                preference: Faker.fake(),
+                exchange: arbitrary_domainname(),
+            },
+            RecordType::TXT => RecordTypeWithData::TXT {
+                octets: arbitrary_octets((0..64).fake()),
+            },
+            RecordType::Unknown(tag) => RecordTypeWithData::Unknown {
+                tag,
+                octets: arbitrary_octets((0..64).fake()),
+            },
+        }
+    }
     fn arbitrary_domainname() -> DomainName {
         let num_labels = (1..5).fake::<usize>();
         let mut labels = Vec::<Vec<u8>>::new();
@@ -681,6 +739,14 @@ mod tests {
 
     fn arbitrary_recordclass() -> RecordClass {
         Faker.fake::<u16>().into()
+    }
+
+    fn arbitrary_octets(len: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(len);
+        for _ in 0..len {
+            out.push(Faker.fake());
+        }
+        out
     }
 }
 

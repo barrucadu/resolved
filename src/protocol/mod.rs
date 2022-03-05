@@ -78,25 +78,23 @@ impl Message {
 impl RecordTypeWithData {
     pub fn rtype(&self) -> RecordType {
         match self {
-            RecordTypeWithData::Uninterpreted { rtype, octets: _ } => *rtype,
-            RecordTypeWithData::Named { rtype, name: _ } => *rtype,
-            RecordTypeWithData::MINFO {
-                rmailbx: _,
-                emailbx: _,
-            } => RecordType::MINFO,
-            RecordTypeWithData::MX {
-                preference: _,
-                exchange: _,
-            } => RecordType::MX,
-            RecordTypeWithData::SOA {
-                mname: _,
-                rname: _,
-                serial: _,
-                refresh: _,
-                retry: _,
-                expire: _,
-                minimum: _,
-            } => RecordType::SOA,
+            RecordTypeWithData::A { .. } => RecordType::A,
+            RecordTypeWithData::NS { .. } => RecordType::NS,
+            RecordTypeWithData::MD { .. } => RecordType::MD,
+            RecordTypeWithData::MF { .. } => RecordType::MF,
+            RecordTypeWithData::CNAME { .. } => RecordType::CNAME,
+            RecordTypeWithData::SOA { .. } => RecordType::SOA,
+            RecordTypeWithData::MB { .. } => RecordType::MB,
+            RecordTypeWithData::MG { .. } => RecordType::MG,
+            RecordTypeWithData::MR { .. } => RecordType::MR,
+            RecordTypeWithData::NULL { .. } => RecordType::NULL,
+            RecordTypeWithData::WKS { .. } => RecordType::WKS,
+            RecordTypeWithData::PTR { .. } => RecordType::PTR,
+            RecordTypeWithData::HINFO { .. } => RecordType::HINFO,
+            RecordTypeWithData::MINFO { .. } => RecordType::MINFO,
+            RecordTypeWithData::MX { .. } => RecordType::MX,
+            RecordTypeWithData::TXT { .. } => RecordType::TXT,
+            RecordTypeWithData::Unknown { tag, .. } => RecordType::Unknown(*tag),
         }
     }
 

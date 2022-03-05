@@ -228,26 +228,113 @@ pub struct ResourceRecord {
     pub ttl: u32,
 }
 
-/// A record type with its associated data.  This is so any pointers
-/// in domain names will be expanded before further processing.
+/// A record type with its associated, deserialised, data.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordTypeWithData {
-    Uninterpreted {
-        rtype: RecordType,
-        octets: Vec<u8>,
-    },
-    Named {
-        rtype: RecordType,
-        name: DomainName,
-    },
-    MINFO {
-        rmailbx: DomainName,
-        emailbx: DomainName,
-    },
-    MX {
-        preference: u16,
-        exchange: DomainName,
-    },
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    ADDRESS                    |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `ADDRESS` is a 32 bit Internet address.
+    A { octets: Vec<u8> },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   NSDNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `NSDNAME` is a domain name which specifies a host which
+    /// should be authoritative for the specified class and domain.
+    NS { nsdname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MADNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MADNAME` is a domain name which specifies a host which
+    /// has a mail agent for the domain which should be able to
+    /// deliver mail for the domain.
+    MD { madname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MADNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MADNAME` is a domain name which specifies a host which
+    /// has a mail agent for the domain which will accept mail for
+    /// forwarding to the domain.
+    MF { madname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                     CNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `CNAME` is a domain name which specifies the canonical
+    /// or primary name for the owner.  The owner name is an alias.
+    CNAME { cname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                     MNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                     RNAME                     /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    SERIAL                     |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    REFRESH                    |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                     RETRY                     |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    EXPIRE                     |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    MINIMUM                    |
+    ///     |                                               |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MNAME` is the domain name of the name server that was
+    /// the original or primary source of data for this zone.
+    ///
+    /// Where `RNAME` is a domain name which specifies the mailbox of
+    /// the person responsible for this zone.
+    ///
+    /// Where `SERIAL` is the unsigned 32 bit version number of the
+    /// original copy of the zone.  Zone transfers preserve this
+    /// value.  This value wraps and should be compared using sequence
+    /// space arithmetic.
+    ///
+    /// Where `REFRESH` is a 32 bit time interval before the zone
+    /// should be refreshed.
+    ///
+    /// Where `RETRY` is a 32 bit time interval that should elapse
+    /// before a failed refresh should be retried.
+    ///
+    /// Where `EXPIRE` is a 32 bit time value that specifies an upper
+    /// limit on the time interval that can elapse before the zone is
+    /// no longer authoritative.
+    ///
+    /// Where `MINIMUM` is the unsigned 32 bit minimum TTL field that
+    /// should be exported with any RR from this zone.
+    ///
+    /// All times are in units of seconds.
     SOA {
         mname: DomainName,
         rname: DomainName,
@@ -256,6 +343,126 @@ pub enum RecordTypeWithData {
         retry: u32,
         expire: u32,
         minimum: u32,
+    },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MADNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MADNAME` is a domain name which specifies a host which
+    /// has the specified mailbox.
+    MB { madname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   MGMNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `MGMNAME` is a domain name which specifies a mailbox
+    /// which is a member of the mail group specified by the domain
+    /// name.
+    MG { mdmname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   NEWNAME                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `NEWNAME` is a domain name which specifies a mailbox
+    /// which is the proper rename of the specifies mailbox.
+    MR { newname: DomainName },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                  <anything>                   /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Anything at all may be in the RDATA field so long as it is
+    /// 65535 octets or less.
+    NULL { octets: Vec<u8> },
+
+    /// This application does not interpret `WKS` records.
+    WKS { octets: Vec<u8> },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   PTRDNAME                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `PTRDNAME` is a domain name which points to some
+    /// location in the domain name space.
+    PTR { ptrdname: DomainName },
+
+    /// This application does not interpret `HINFO` records.
+    HINFO { octets: Vec<u8> },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                    RMAILBX                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                    EMAILBX                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `RMAILBX` is a domain name which specifies a mailbox
+    /// which is responsible for the mailing list or mailbox.  If this
+    /// domain name names the root, the owner of the `MINFO` RR is
+    /// responsible for itself.
+    ///
+    /// Where `EMAILBX` is a domain name which specifies a mailbox
+    /// which is to receive error messages related to the mailing list
+    /// or mailbox specified by the owner of the `MINFO` RR (similar
+    /// to the `ERRORS-TO`: field which has been proposed).  If this
+    /// domain name names the root, errors should be returned to the
+    /// sender of the message.
+    MINFO {
+        rmailbx: DomainName,
+        emailbx: DomainName,
+    },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                  PREFERENCE                   |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   EXCHANGE                    /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `PREFERENCE` is a 16 bit integer which specifies the
+    /// preference given to this RR among others at the same owner.
+    /// Lower values are preferred.
+    ///
+    /// Where `EXCHANGE` is a domain name which specifies a host
+    /// willing to act as a mail exchange for the owner name.
+    MX {
+        preference: u16,
+        exchange: DomainName,
+    },
+
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                   TXT-DATA                    /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `TXT-DATA` is one or more character strings.
+    TXT { octets: Vec<u8> },
+
+    /// Any other record.
+    Unknown {
+        tag: RecordTypeUnknown,
+        octets: Vec<u8>,
     },
 }
 
@@ -593,10 +800,7 @@ pub mod test_util {
     pub fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
         ResourceRecord {
             name: domain(name),
-            rtype_with_data: RecordTypeWithData::Uninterpreted {
-                rtype: RecordType::A,
-                octets,
-            },
+            rtype_with_data: RecordTypeWithData::A { octets },
             rclass: RecordClass::IN,
             ttl: 300,
         }
@@ -605,9 +809,8 @@ pub mod test_util {
     pub fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
         ResourceRecord {
             name: domain(name),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::CNAME,
-                name: domain(target_name),
+            rtype_with_data: RecordTypeWithData::CNAME {
+                cname: domain(target_name),
             },
             rclass: RecordClass::IN,
             ttl: 300,
@@ -617,9 +820,8 @@ pub mod test_util {
     pub fn ns_record(superdomain_name: &str, nameserver_name: &str) -> ResourceRecord {
         ResourceRecord {
             name: domain(superdomain_name),
-            rtype_with_data: RecordTypeWithData::Named {
-                rtype: RecordType::NS,
-                name: domain(nameserver_name),
+            rtype_with_data: RecordTypeWithData::NS {
+                nsdname: domain(nameserver_name),
             },
             rclass: RecordClass::IN,
             ttl: 300,

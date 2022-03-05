@@ -23,12 +23,8 @@ pub fn follow_cnames(
         if &rr.name == target && rr.rclass.matches(qclass) && rr.rtype_with_data.matches(qtype) {
             got_match = true;
         }
-        if let RecordTypeWithData::Named {
-            rtype: RecordType::CNAME,
-            name,
-        } = &rr.rtype_with_data
-        {
-            cname_map.insert(rr.name.clone(), name.clone());
+        if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+            cname_map.insert(rr.name.clone(), cname.clone());
         }
     }
 
@@ -62,11 +58,7 @@ pub fn get_better_ns_names(
     let mut match_name = None;
 
     for rr in rrs {
-        if let RecordTypeWithData::Named {
-            rtype: RecordType::NS,
-            name,
-        } = &rr.rtype_with_data
-        {
+        if let RecordTypeWithData::NS { nsdname } = &rr.rtype_with_data {
             if target.is_subdomain_of(&rr.name) {
                 match rr.name.labels.len().cmp(&match_count) {
                     Ordering::Greater => {
@@ -74,10 +66,10 @@ pub fn get_better_ns_names(
                         match_name = Some(rr.name.clone());
 
                         ns_names.clear();
-                        ns_names.insert(name.clone());
+                        ns_names.insert(nsdname.clone());
                     }
                     Ordering::Equal => {
-                        ns_names.insert(name.clone());
+                        ns_names.insert(nsdname.clone());
                     }
                     Ordering::Less => (),
                 }
@@ -100,10 +92,7 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
     ) {
         for rr in rrs {
             match &rr.rtype_with_data {
-                RecordTypeWithData::Uninterpreted {
-                    rtype: RecordType::A,
-                    octets,
-                } if rr.name == final_name => {
+                RecordTypeWithData::A { octets, .. } if rr.name == final_name => {
                     if let &[a, b, c, d] = octets.as_slice() {
                         return Some(Ipv4Addr::new(a, b, c, d));
                     }

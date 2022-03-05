@@ -137,31 +137,23 @@ fn arbitrary_resourcerecord() -> ResourceRecord {
 }
 
 fn arbitrary_recordtypewithdata() -> RecordTypeWithData {
-    let rtype = arbitrary_recordtype();
     // this should match the `RecordTypeWithData` deserialisation
-    match rtype {
-        RecordType::CNAME
-        | RecordType::MB
-        | RecordType::MD
-        | RecordType::MF
-        | RecordType::MG
-        | RecordType::MR
-        | RecordType::NS
-        | RecordType::PTR => RecordTypeWithData::Named {
-            rtype,
-            name: arbitrary_domainname(),
+    match arbitrary_recordtype() {
+        RecordType::A => RecordTypeWithData::A {
+            octets: arbitrary_octets((0..64).fake()),
         },
-
-        RecordType::MINFO => RecordTypeWithData::MINFO {
-            rmailbx: arbitrary_domainname(),
-            emailbx: arbitrary_domainname(),
+        RecordType::NS => RecordTypeWithData::NS {
+            nsdname: arbitrary_domainname(),
         },
-
-        RecordType::MX => RecordTypeWithData::MX {
-            preference: Faker.fake::<u16>(),
-            exchange: arbitrary_domainname(),
+        RecordType::MD => RecordTypeWithData::MD {
+            madname: arbitrary_domainname(),
         },
-
+        RecordType::MF => RecordTypeWithData::MF {
+            madname: arbitrary_domainname(),
+        },
+        RecordType::CNAME => RecordTypeWithData::CNAME {
+            cname: arbitrary_domainname(),
+        },
         RecordType::SOA => RecordTypeWithData::SOA {
             mname: arbitrary_domainname(),
             rname: arbitrary_domainname(),
@@ -171,9 +163,40 @@ fn arbitrary_recordtypewithdata() -> RecordTypeWithData {
             expire: Faker.fake(),
             minimum: Faker.fake(),
         },
-
-        _ => RecordTypeWithData::Uninterpreted {
-            rtype,
+        RecordType::MB => RecordTypeWithData::MB {
+            madname: arbitrary_domainname(),
+        },
+        RecordType::MG => RecordTypeWithData::MG {
+            mdmname: arbitrary_domainname(),
+        },
+        RecordType::MR => RecordTypeWithData::MR {
+            newname: arbitrary_domainname(),
+        },
+        RecordType::NULL => RecordTypeWithData::NULL {
+            octets: arbitrary_octets((0..64).fake()),
+        },
+        RecordType::WKS => RecordTypeWithData::WKS {
+            octets: arbitrary_octets((0..64).fake()),
+        },
+        RecordType::PTR => RecordTypeWithData::PTR {
+            ptrdname: arbitrary_domainname(),
+        },
+        RecordType::HINFO => RecordTypeWithData::HINFO {
+            octets: arbitrary_octets((0..64).fake()),
+        },
+        RecordType::MINFO => RecordTypeWithData::MINFO {
+            rmailbx: arbitrary_domainname(),
+            emailbx: arbitrary_domainname(),
+        },
+        RecordType::MX => RecordTypeWithData::MX {
+            preference: Faker.fake(),
+            exchange: arbitrary_domainname(),
+        },
+        RecordType::TXT => RecordTypeWithData::TXT {
+            octets: arbitrary_octets((0..64).fake()),
+        },
+        RecordType::Unknown(tag) => RecordTypeWithData::Unknown {
+            tag,
             octets: arbitrary_octets((0..64).fake()),
         },
     }

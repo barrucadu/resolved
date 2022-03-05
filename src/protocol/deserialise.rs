@@ -91,33 +91,32 @@ impl ResourceRecord {
             .next_u16()
             .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
 
+        let mut raw_rdata = || {
+            if let Some(octets) = buffer.take(rdlength as usize) {
+                Ok(octets.to_vec())
+            } else {
+                Err(ProtocolError::ResourceRecordTooShort(id))
+            }
+        };
+
         // for records which include domain names, deserialise them to
         // expand pointers.
         let rtype_with_data = match rtype {
-            RecordType::CNAME
-            | RecordType::MB
-            | RecordType::MD
-            | RecordType::MF
-            | RecordType::MG
-            | RecordType::MR
-            | RecordType::NS
-            | RecordType::PTR => RecordTypeWithData::Named {
-                rtype,
-                name: DomainName::deserialise(id, buffer)?,
+            RecordType::A => RecordTypeWithData::A {
+                octets: raw_rdata()?,
             },
-
-            RecordType::MINFO => RecordTypeWithData::MINFO {
-                rmailbx: DomainName::deserialise(id, buffer)?,
-                emailbx: DomainName::deserialise(id, buffer)?,
+            RecordType::NS => RecordTypeWithData::NS {
+                nsdname: DomainName::deserialise(id, buffer)?,
             },
-
-            RecordType::MX => RecordTypeWithData::MX {
-                preference: buffer
-                    .next_u16()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
-                exchange: DomainName::deserialise(id, buffer)?,
+            RecordType::MD => RecordTypeWithData::MD {
+                madname: DomainName::deserialise(id, buffer)?,
             },
-
+            RecordType::MF => RecordTypeWithData::MF {
+                madname: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::CNAME => RecordTypeWithData::CNAME {
+                cname: DomainName::deserialise(id, buffer)?,
+            },
             RecordType::SOA => RecordTypeWithData::SOA {
                 mname: DomainName::deserialise(id, buffer)?,
                 rname: DomainName::deserialise(id, buffer)?,
@@ -137,17 +136,44 @@ impl ResourceRecord {
                     .next_u32()
                     .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
             },
-
-            _ => {
-                if let Some(octets) = buffer.take(rdlength as usize) {
-                    RecordTypeWithData::Uninterpreted {
-                        rtype,
-                        octets: octets.to_vec(),
-                    }
-                } else {
-                    return Err(ProtocolError::ResourceRecordTooShort(id));
-                }
-            }
+            RecordType::MB => RecordTypeWithData::MB {
+                madname: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::MG => RecordTypeWithData::MG {
+                mdmname: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::MR => RecordTypeWithData::MR {
+                newname: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::NULL => RecordTypeWithData::NULL {
+                octets: raw_rdata()?,
+            },
+            RecordType::WKS => RecordTypeWithData::WKS {
+                octets: raw_rdata()?,
+            },
+            RecordType::PTR => RecordTypeWithData::PTR {
+                ptrdname: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::HINFO => RecordTypeWithData::HINFO {
+                octets: raw_rdata()?,
+            },
+            RecordType::MINFO => RecordTypeWithData::MINFO {
+                rmailbx: DomainName::deserialise(id, buffer)?,
+                emailbx: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::MX => RecordTypeWithData::MX {
+                preference: buffer
+                    .next_u16()
+                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
+                exchange: DomainName::deserialise(id, buffer)?,
+            },
+            RecordType::TXT => RecordTypeWithData::TXT {
+                octets: raw_rdata()?,
+            },
+            RecordType::Unknown(tag) => RecordTypeWithData::Unknown {
+                tag,
+                octets: raw_rdata()?,
+            },
         };
 
         Ok(Self {
