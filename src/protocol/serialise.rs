@@ -4,20 +4,24 @@
 use crate::protocol::wire_types::*;
 
 impl Message {
-    pub fn to_octets(self) -> Vec<u8> {
+    pub fn to_octets(self) -> Result<Vec<u8>, Error> {
         let mut buffer = WritableBuffer::default();
-        self.serialise(&mut buffer);
-        buffer.octets
+        self.serialise(&mut buffer)?;
+        Ok(buffer.octets)
     }
 
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
-        // TODO: remove use of unwrap
+    pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
+        let qdcount = usize_to_counter(self.questions.len())?;
+        let ancount = usize_to_counter(self.answers.len())?;
+        let nscount = usize_to_counter(self.authority.len())?;
+        let arcount = usize_to_counter(self.additional.len())?;
+
         WireHeader {
             header: self.header,
-            qdcount: self.questions.len().try_into().unwrap(),
-            ancount: self.answers.len().try_into().unwrap(),
-            nscount: self.authority.len().try_into().unwrap(),
-            arcount: self.additional.len().try_into().unwrap(),
+            qdcount,
+            ancount,
+            nscount,
+            arcount,
         }
         .serialise(buffer);
 
@@ -25,14 +29,16 @@ impl Message {
             question.serialise(buffer);
         }
         for rr in self.answers {
-            rr.serialise(buffer);
+            rr.serialise(buffer)?;
         }
         for rr in self.authority {
-            rr.serialise(buffer);
+            rr.serialise(buffer)?;
         }
         for rr in self.additional {
-            rr.serialise(buffer);
+            rr.serialise(buffer)?;
         }
+
+        Ok(())
     }
 }
 
@@ -83,7 +89,7 @@ impl Question {
 }
 
 impl ResourceRecord {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let (rtype, rdata) = match self.rtype_with_data {
             RecordTypeWithData::A { address } => (RecordType::A, Vec::from(address.octets())),
             RecordTypeWithData::NS { nsdname } => (RecordType::NS, nsdname.octets),
@@ -158,13 +164,16 @@ impl ResourceRecord {
             RecordTypeWithData::Unknown { tag, octets } => (RecordType::Unknown(tag), octets),
         };
 
+        let rdlength = usize_to_counter(rdata.len())?;
+
         self.name.serialise(buffer);
         rtype.serialise(buffer);
         self.rclass.serialise(buffer);
         buffer.write_u32(self.ttl);
-        // TODO: remove use of unwrap
-        buffer.write_u16(rdata.len().try_into().unwrap());
+        buffer.write_u16(rdlength);
         buffer.write_octets(rdata);
+
+        Ok(())
     }
 }
 
@@ -201,6 +210,13 @@ impl RecordClass {
     }
 }
 
+/// Errors encountered when serialising a message.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum Error {
+    /// A counter does not fit in the desired width.
+    CounterTooLarge { counter: usize },
+}
+
 /// A buffer which can be written to, for serialisation purposes.
 pub struct WritableBuffer {
     pub octets: Vec<u8>,
@@ -235,5 +251,15 @@ impl WritableBuffer {
         for octet in octets {
             self.octets.push(octet);
         }
+    }
+}
+
+/// Helper function to convert a `usize` counter into the appropriate
+/// width (or return an error)
+fn usize_to_counter<T: TryFrom<usize>>(counter: usize) -> Result<T, Error> {
+    if let Ok(t) = T::try_from(counter) {
+        Ok(t)
+    } else {
+        Err(Error::CounterTooLarge { counter })
     }
 }

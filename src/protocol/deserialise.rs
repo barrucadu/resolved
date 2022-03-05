@@ -6,11 +6,11 @@ use std::net::Ipv4Addr;
 use crate::protocol::wire_types::*;
 
 impl Message {
-    pub fn from_octets(octets: &[u8]) -> Result<Self, ProtocolError> {
+    pub fn from_octets(octets: &[u8]) -> Result<Self, Error> {
         Self::deserialise(&mut ConsumableBuffer::new(octets))
     }
 
-    pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
+    pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let wire_header = WireHeader::deserialise(buffer)?;
         let mut questions = Vec::with_capacity(wire_header.qdcount.into());
         let mut answers = Vec::with_capacity(wire_header.ancount.into());
@@ -41,14 +41,14 @@ impl Message {
 }
 
 impl WireHeader {
-    pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let id = buffer.next_u16().ok_or(ProtocolError::CompletelyBusted)?;
-        let flags1 = buffer.next_u8().ok_or(ProtocolError::HeaderTooShort(id))?;
-        let flags2 = buffer.next_u8().ok_or(ProtocolError::HeaderTooShort(id))?;
-        let qdcount = buffer.next_u16().ok_or(ProtocolError::HeaderTooShort(id))?;
-        let ancount = buffer.next_u16().ok_or(ProtocolError::HeaderTooShort(id))?;
-        let nscount = buffer.next_u16().ok_or(ProtocolError::HeaderTooShort(id))?;
-        let arcount = buffer.next_u16().ok_or(ProtocolError::HeaderTooShort(id))?;
+    pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+        let id = buffer.next_u16().ok_or(Error::CompletelyBusted)?;
+        let flags1 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
+        let flags2 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
+        let qdcount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
+        let ancount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
+        let nscount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
+        let arcount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
 
         Ok(Self {
             header: Header {
@@ -70,7 +70,7 @@ impl WireHeader {
 }
 
 impl Question {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let name = DomainName::deserialise(id, buffer)?;
         let qtype = QueryType::deserialise(id, buffer)?;
         let qclass = QueryClass::deserialise(id, buffer)?;
@@ -84,16 +84,12 @@ impl Question {
 }
 
 impl ResourceRecord {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let name = DomainName::deserialise(id, buffer)?;
         let rtype = RecordType::deserialise(id, buffer)?;
         let rclass = RecordClass::deserialise(id, buffer)?;
-        let ttl = buffer
-            .next_u32()
-            .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
-        let rdlength = buffer
-            .next_u16()
-            .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
+        let ttl = buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?;
+        let rdlength = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
 
         let rdata_start = buffer.position;
 
@@ -101,7 +97,7 @@ impl ResourceRecord {
             if let Some(octets) = buffer.take(rdlength as usize) {
                 Ok(octets.to_vec())
             } else {
-                Err(ProtocolError::ResourceRecordTooShort(id))
+                Err(Error::ResourceRecordTooShort(id))
             }
         };
 
@@ -110,9 +106,7 @@ impl ResourceRecord {
         let rtype_with_data = match rtype {
             RecordType::A => RecordTypeWithData::A {
                 address: Ipv4Addr::from(
-                    buffer
-                        .next_u32()
-                        .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
+                    buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?,
                 ),
             },
             RecordType::NS => RecordTypeWithData::NS {
@@ -130,21 +124,11 @@ impl ResourceRecord {
             RecordType::SOA => RecordTypeWithData::SOA {
                 mname: DomainName::deserialise(id, buffer)?,
                 rname: DomainName::deserialise(id, buffer)?,
-                serial: buffer
-                    .next_u32()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
-                refresh: buffer
-                    .next_u32()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
-                retry: buffer
-                    .next_u32()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
-                expire: buffer
-                    .next_u32()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
-                minimum: buffer
-                    .next_u32()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
+                serial: buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?,
+                refresh: buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?,
+                retry: buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?,
+                expire: buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?,
+                minimum: buffer.next_u32().ok_or(Error::ResourceRecordTooShort(id))?,
             },
             RecordType::MB => RecordTypeWithData::MB {
                 madname: DomainName::deserialise(id, buffer)?,
@@ -172,9 +156,7 @@ impl ResourceRecord {
                 emailbx: DomainName::deserialise(id, buffer)?,
             },
             RecordType::MX => RecordTypeWithData::MX {
-                preference: buffer
-                    .next_u16()
-                    .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
+                preference: buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
                 exchange: DomainName::deserialise(id, buffer)?,
             },
             RecordType::TXT => RecordTypeWithData::TXT {
@@ -196,19 +178,19 @@ impl ResourceRecord {
                 ttl,
             })
         } else {
-            Err(ProtocolError::ResourceRecordInvalid(id))
+            Err(Error::ResourceRecordInvalid(id))
         }
     }
 }
 
 impl DomainName {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let mut octets = Vec::<u8>::with_capacity(255);
         let mut labels = Vec::<Vec<u8>>::with_capacity(5);
         let start = buffer.position;
 
         'outer: loop {
-            let size = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
+            let size = buffer.next_u8().ok_or(Error::DomainTooShort(id))?;
 
             if size <= 63 {
                 let mut label = Vec::with_capacity(size.into());
@@ -226,7 +208,7 @@ impl DomainName {
                         label.push(lowered);
                     }
                 } else {
-                    return Err(ProtocolError::DomainTooShort(id));
+                    return Err(Error::DomainTooShort(id));
                 }
 
                 labels.push(label);
@@ -238,14 +220,14 @@ impl DomainName {
                 // this requires re-parsing the pointed-to domain -
                 // not great but works for now.
                 let hi = size & 0b00111111;
-                let lo = buffer.next_u8().ok_or(ProtocolError::DomainTooShort(id))?;
+                let lo = buffer.next_u8().ok_or(Error::DomainTooShort(id))?;
                 let ptr = u16::from_be_bytes([hi, lo]).into();
 
                 // pointer must be to an earlier record (not merely a
                 // different one: an earlier one: RFC 1035 section
                 // 4.1.4)
                 if ptr >= start {
-                    return Err(ProtocolError::DomainPointerInvalid(id));
+                    return Err(Error::DomainPointerInvalid(id));
                 }
 
                 let mut other = DomainName::deserialise(id, &mut buffer.at_offset(ptr))?;
@@ -253,50 +235,42 @@ impl DomainName {
                 labels.append(&mut other.labels);
                 break 'outer;
             } else {
-                return Err(ProtocolError::DomainLabelInvalid(id));
+                return Err(Error::DomainLabelInvalid(id));
             }
         }
 
         if octets.len() <= 255 {
             Ok(DomainName { octets, labels })
         } else {
-            Err(ProtocolError::DomainTooLong(id))
+            Err(Error::DomainTooLong(id))
         }
     }
 }
 
 impl QueryType {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let value = buffer
-            .next_u16()
-            .ok_or(ProtocolError::QuestionTooShort(id))?;
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+        let value = buffer.next_u16().ok_or(Error::QuestionTooShort(id))?;
         Ok(Self::from(value))
     }
 }
 
 impl QueryClass {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let value = buffer
-            .next_u16()
-            .ok_or(ProtocolError::QuestionTooShort(id))?;
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+        let value = buffer.next_u16().ok_or(Error::QuestionTooShort(id))?;
         Ok(Self::from(value))
     }
 }
 
 impl RecordType {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let value = buffer
-            .next_u16()
-            .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+        let value = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
         Ok(Self::from(value))
     }
 }
 
 impl RecordClass {
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let value = buffer
-            .next_u16()
-            .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
+    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+        let value = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
         Ok(Self::from(value))
     }
 }
@@ -305,7 +279,7 @@ impl RecordClass {
 /// which have a `u16` parameter, that is the ID from the header - so
 /// that an error response can be sent.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum ProtocolError {
+pub enum Error {
     /// The datagram is not even 2 octets long, so it doesn't even
     /// contain a valid ID.  An error cannot even be sent back to the
     /// client in this case as, without an ID, it cannot be linked
@@ -337,18 +311,18 @@ pub enum ProtocolError {
     DomainLabelInvalid(u16),
 }
 
-impl ProtocolError {
+impl Error {
     pub fn id(self) -> Option<u16> {
         match self {
-            ProtocolError::CompletelyBusted => None,
-            ProtocolError::HeaderTooShort(id) => Some(id),
-            ProtocolError::QuestionTooShort(id) => Some(id),
-            ProtocolError::ResourceRecordTooShort(id) => Some(id),
-            ProtocolError::ResourceRecordInvalid(id) => Some(id),
-            ProtocolError::DomainTooShort(id) => Some(id),
-            ProtocolError::DomainTooLong(id) => Some(id),
-            ProtocolError::DomainPointerInvalid(id) => Some(id),
-            ProtocolError::DomainLabelInvalid(id) => Some(id),
+            Error::CompletelyBusted => None,
+            Error::HeaderTooShort(id) => Some(id),
+            Error::QuestionTooShort(id) => Some(id),
+            Error::ResourceRecordTooShort(id) => Some(id),
+            Error::ResourceRecordInvalid(id) => Some(id),
+            Error::DomainTooShort(id) => Some(id),
+            Error::DomainTooLong(id) => Some(id),
+            Error::DomainPointerInvalid(id) => Some(id),
+            Error::DomainLabelInvalid(id) => Some(id),
         }
     }
 }

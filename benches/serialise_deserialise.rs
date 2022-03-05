@@ -22,7 +22,7 @@ fn bench__question(c: &mut Criterion) {
         )
     });
 
-    let serialised = message.clone().to_octets();
+    let serialised = message.clone().to_octets().unwrap();
     c.bench_function("deserialise/question", |b| {
         b.iter(|| Message::from_octets(black_box(&serialised)))
     });
@@ -50,7 +50,7 @@ fn bench__answer__small(c: &mut Criterion) {
         )
     });
 
-    let serialised = message.clone().to_octets();
+    let serialised = message.clone().to_octets().unwrap();
     c.bench_function("deserialise/answer/small", |b| {
         b.iter(|| Message::from_octets(black_box(&serialised)))
     });
@@ -97,7 +97,7 @@ fn bench__answer__big(c: &mut Criterion) {
         )
     });
 
-    let serialised = message.clone().to_octets();
+    let serialised = message.clone().to_octets().unwrap();
     c.bench_function("deserialise/answer/big", |b| {
         b.iter(|| Message::from_octets(black_box(&serialised)))
     });
