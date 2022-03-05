@@ -110,11 +110,20 @@ async fn listen_tcp(settings: Settings, cache: SharedCache, socket: TcpListener)
                         }
                     };
                     if let Some(message) = response {
-                        if let Err(err) =
-                            send_tcp_bytes(&mut stream, &mut message.to_octets()).await
-                        {
-                            println!("[{:?}] tcp send error \"{:?}\"", peer, err);
-                        }
+                        match message.clone().to_octets() {
+                            Ok(mut serialised) => {
+                                if let Err(err) = send_tcp_bytes(&mut stream, &mut serialised).await
+                                {
+                                    println!("[{:?}] tcp send error \"{:?}\"", peer, err);
+                                }
+                            }
+                            Err(err) => {
+                                println!(
+                                    "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
+                                    message, err
+                                );
+                            }
+                        };
                     };
                 });
             }
@@ -145,9 +154,17 @@ async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
                 });
             }
 
-            Some((response_message, peer)) = rx.recv() => if let Err(err) = send_udp_bytes_to(&socket, peer, &mut response_message.to_octets()).await
-            {
-                println!("[{:?}] udp send error \"{:?}\"", peer, err);
+            Some((message, peer)) = rx.recv() => match message.clone().to_octets() {
+                Ok(mut serialised) =>  if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
+                {
+                    println!("[{:?}] udp send error \"{:?}\"", peer, err);
+                }
+                Err(err) => {
+                    println!(
+                        "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
+                        message, err
+                    );
+                }
             }
         }
     }

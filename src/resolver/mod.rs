@@ -391,7 +391,6 @@ pub async fn query_nameserver(
     current_match_count: usize,
 ) -> Option<NameserverResponse> {
     let request = Message::from_question(rand::thread_rng().gen(), question.clone());
-    let mut serialised_request = request.clone().to_octets();
 
     println!(
         "[DEBUG] query remote nameserver {:?} for {:?} {:?} {:?}",
@@ -401,15 +400,28 @@ pub async fn query_nameserver(
         question.qtype
     );
 
-    let udp_response = query_nameserver_udp(address, &mut serialised_request)
-        .await
-        .and_then(|res| validate_nameserver_response(&request, res, current_match_count));
-    if udp_response.is_some() {
-        udp_response
-    } else {
-        query_nameserver_tcp(address, &mut serialised_request)
-            .await
-            .and_then(|res| validate_nameserver_response(&request, res, current_match_count))
+    match request.clone().to_octets() {
+        Ok(mut serialised_request) => {
+            let udp_response = query_nameserver_udp(address, &mut serialised_request)
+                .await
+                .and_then(|res| validate_nameserver_response(&request, res, current_match_count));
+            if udp_response.is_some() {
+                udp_response
+            } else {
+                query_nameserver_tcp(address, &mut serialised_request)
+                    .await
+                    .and_then(|res| {
+                        validate_nameserver_response(&request, res, current_match_count)
+                    })
+            }
+        }
+        Err(err) => {
+            println!(
+                "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
+                request, err
+            );
+            None
+        }
     }
 }
 
