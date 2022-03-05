@@ -14,6 +14,7 @@ libfuzzer-sys = "0.4"
 
 [dependencies.resolved]
 path = ".."
+features = ["arbitrary"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -22,5 +23,11 @@ members = ["."]
 [[bin]]
 name = "wire_deserialise_round_trip"
 path = "fuzz_targets/wire_deserialise_round_trip.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "wire_serialise_round_trip"
+path = "fuzz_targets/wire_serialise_round_trip.rs"
 test = false
 doc = false

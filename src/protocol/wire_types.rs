@@ -16,6 +16,7 @@
 ///
 /// See section 4.1 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -46,6 +47,7 @@ pub struct Message {
 ///
 /// See section 4.1.1 of RFC 1035.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Header {
     /// A 16 bit identifier assigned by the program that generates any
     /// kind of query.  This identifier is copied the corresponding
@@ -130,6 +132,7 @@ pub struct Header {
 /// in the normal `Header` type would require ensuring those values
 /// are correct.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct WireHeader {
     /// The header that will be persisted to / is taken from the
     /// `Message`.
@@ -172,6 +175,7 @@ pub struct WireHeader {
 ///
 /// See section 4.1.2 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// a domain name represented as a sequence of labels, where each
     /// label consists of a length octet followed by that number of
@@ -220,6 +224,7 @@ pub struct Question {
 ///
 /// See section 4.1.3 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
     pub name: DomainName,
@@ -477,6 +482,68 @@ pub enum RecordTypeWithData {
     },
 }
 
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
+    // this is pretty verbose but it feels like a better way to
+    // guarantee the max size of the `Vec<u8>`s than adding a wrapper
+    // type
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let len = u.int_in_range(0..=128)?;
+        let octets = Vec::from(u.bytes(len)?);
+
+        let rtype_with_data = match u.arbitrary::<RecordType>()? {
+            RecordType::A => RecordTypeWithData::A { octets },
+            RecordType::NS => RecordTypeWithData::NS {
+                nsdname: u.arbitrary()?,
+            },
+            RecordType::MD => RecordTypeWithData::MD {
+                madname: u.arbitrary()?,
+            },
+            RecordType::MF => RecordTypeWithData::MF {
+                madname: u.arbitrary()?,
+            },
+            RecordType::CNAME => RecordTypeWithData::CNAME {
+                cname: u.arbitrary()?,
+            },
+            RecordType::SOA => RecordTypeWithData::SOA {
+                mname: u.arbitrary()?,
+                rname: u.arbitrary()?,
+                serial: u.arbitrary()?,
+                refresh: u.arbitrary()?,
+                retry: u.arbitrary()?,
+                expire: u.arbitrary()?,
+                minimum: u.arbitrary()?,
+            },
+            RecordType::MB => RecordTypeWithData::MB {
+                madname: u.arbitrary()?,
+            },
+            RecordType::MG => RecordTypeWithData::MG {
+                mdmname: u.arbitrary()?,
+            },
+            RecordType::MR => RecordTypeWithData::MR {
+                newname: u.arbitrary()?,
+            },
+            RecordType::NULL => RecordTypeWithData::NULL { octets },
+            RecordType::WKS => RecordTypeWithData::WKS { octets },
+            RecordType::PTR => RecordTypeWithData::PTR {
+                ptrdname: u.arbitrary()?,
+            },
+            RecordType::HINFO => RecordTypeWithData::HINFO { octets },
+            RecordType::MINFO => RecordTypeWithData::MINFO {
+                rmailbx: u.arbitrary()?,
+                emailbx: u.arbitrary()?,
+            },
+            RecordType::MX => RecordTypeWithData::MX {
+                preference: u.arbitrary()?,
+                exchange: u.arbitrary()?,
+            },
+            RecordType::TXT => RecordTypeWithData::TXT { octets },
+            RecordType::Unknown(tag) => RecordTypeWithData::Unknown { tag, octets },
+        };
+        Ok(rtype_with_data)
+    }
+}
+
 /// What sort of query this is.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Opcode {
@@ -493,11 +560,11 @@ pub struct OpcodeReserved(u8);
 
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
-        match octet {
+        match octet & 0b00001111 {
             0 => Opcode::Standard,
             1 => Opcode::Inverse,
             2 => Opcode::Status,
-            _ => Opcode::Reserved(OpcodeReserved(octet)),
+            other => Opcode::Reserved(OpcodeReserved(other)),
         }
     }
 }
@@ -510,6 +577,13 @@ impl From<Opcode> for u8 {
             Opcode::Status => 2,
             Opcode::Reserved(OpcodeReserved(octet)) => octet,
         }
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for Opcode {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u8>()?))
     }
 }
 
@@ -532,14 +606,14 @@ pub struct RcodeReserved(u8);
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
-        match octet {
+        match octet & 0b00001111 {
             0 => Rcode::NoError,
             1 => Rcode::FormatError,
             2 => Rcode::ServerFailure,
             3 => Rcode::NameError,
             4 => Rcode::NotImplemented,
             5 => Rcode::Refused,
-            _ => Rcode::Reserved(RcodeReserved(octet)),
+            other => Rcode::Reserved(RcodeReserved(other)),
         }
     }
 }
@@ -555,6 +629,13 @@ impl From<Rcode> for u8 {
             Rcode::Refused => 5,
             Rcode::Reserved(RcodeReserved(octet)) => octet,
         }
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for Rcode {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u8>()?))
     }
 }
 
@@ -577,6 +658,29 @@ impl std::fmt::Debug for DomainName {
         f.debug_struct("DomainName")
             .field("to_dotted_string()", &self.to_dotted_string())
             .finish()
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for DomainName {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let num_labels = u.int_in_range::<usize>(0..=10)?;
+        let mut octets = Vec::new();
+        let mut labels = Vec::new();
+        for _ in 0..num_labels {
+            let label_len = u.int_in_range::<u8>(1..=20)?;
+            let mut label = Vec::new();
+            octets.push(label_len);
+            let os = u.bytes(label_len.into())?;
+            for o in os {
+                label.push(o.to_ascii_lowercase());
+                octets.push(o.to_ascii_lowercase());
+            }
+            labels.push(label);
+        }
+        octets.push(0);
+        labels.push(Vec::new());
+        Ok(Self { octets, labels })
     }
 }
 
@@ -613,6 +717,12 @@ impl From<QueryType> for u16 {
         }
     }
 }
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for QueryType {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
+    }
+}
 
 /// Query classes are a superset of record classes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
@@ -636,6 +746,13 @@ impl From<QueryClass> for u16 {
             QueryClass::Wildcard => 255,
             QueryClass::Record(rclass) => rclass.into(),
         }
+    }
+}
+
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for QueryClass {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
     }
 }
 
@@ -714,6 +831,13 @@ impl From<RecordType> for u16 {
     }
 }
 
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for RecordType {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
+    }
+}
+
 /// Record classes are used by resource records and by queries.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordClass {
@@ -753,20 +877,27 @@ impl From<RecordClass> for u16 {
     }
 }
 
+#[cfg(feature = "arbitrary")]
+impl<'a> arbitrary::Arbitrary<'a> for RecordClass {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        Ok(Self::from(u.arbitrary::<u16>()?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn u8_opcode_roundtrip() {
-        for i in 0..100 {
+        for i in 0..15 {
             assert_eq!(u8::from(Opcode::from(i)), i);
         }
     }
 
     #[test]
     fn u8_rcode_roundtrip() {
-        for i in 0..100 {
+        for i in 0..15 {
             assert_eq!(u8::from(Rcode::from(i)), i);
         }
     }
