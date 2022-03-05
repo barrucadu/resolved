@@ -9,27 +9,27 @@ impl Message {
     }
 
     pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
-        let header = Header::deserialise(buffer)?;
-        let mut questions = Vec::with_capacity(header.qdcount.into());
-        let mut answers = Vec::with_capacity(header.ancount.into());
-        let mut authority = Vec::with_capacity(header.nscount.into());
-        let mut additional = Vec::with_capacity(header.arcount.into());
+        let wire_header = WireHeader::deserialise(buffer)?;
+        let mut questions = Vec::with_capacity(wire_header.qdcount.into());
+        let mut answers = Vec::with_capacity(wire_header.ancount.into());
+        let mut authority = Vec::with_capacity(wire_header.nscount.into());
+        let mut additional = Vec::with_capacity(wire_header.arcount.into());
 
-        for _ in 0..header.qdcount {
-            questions.push(Question::deserialise(header.id, buffer)?);
+        for _ in 0..wire_header.qdcount {
+            questions.push(Question::deserialise(wire_header.header.id, buffer)?);
         }
-        for _ in 0..header.ancount {
-            answers.push(ResourceRecord::deserialise(header.id, buffer)?);
+        for _ in 0..wire_header.ancount {
+            answers.push(ResourceRecord::deserialise(wire_header.header.id, buffer)?);
         }
-        for _ in 0..header.nscount {
-            authority.push(ResourceRecord::deserialise(header.id, buffer)?);
+        for _ in 0..wire_header.nscount {
+            authority.push(ResourceRecord::deserialise(wire_header.header.id, buffer)?);
         }
-        for _ in 0..header.arcount {
-            additional.push(ResourceRecord::deserialise(header.id, buffer)?);
+        for _ in 0..wire_header.arcount {
+            additional.push(ResourceRecord::deserialise(wire_header.header.id, buffer)?);
         }
 
         Ok(Self {
-            header,
+            header: wire_header.header,
             questions,
             answers,
             authority,
@@ -38,7 +38,7 @@ impl Message {
     }
 }
 
-impl Header {
+impl WireHeader {
     pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, ProtocolError> {
         let id = buffer.next_u16().ok_or(ProtocolError::CompletelyBusted)?;
         let flags1 = buffer.next_u8().ok_or(ProtocolError::HeaderTooShort(id))?;
@@ -49,14 +49,16 @@ impl Header {
         let arcount = buffer.next_u16().ok_or(ProtocolError::HeaderTooShort(id))?;
 
         Ok(Self {
-            id,
-            is_response: flags1 & 0b10000000 != 0,
-            opcode: Opcode::from((flags1 & 0b01111000) >> 3),
-            is_authoritative: flags1 & 0b00000100 != 0,
-            is_truncated: flags1 & 0b00000010 != 0,
-            recursion_desired: flags1 & 0b00000001 != 0,
-            recursion_available: flags2 & 0b10000000 != 0,
-            rcode: Rcode::from(flags2 & 0b00001111),
+            header: Header {
+                id,
+                is_response: flags1 & 0b10000000 != 0,
+                opcode: Opcode::from((flags1 & 0b01111000) >> 3),
+                is_authoritative: flags1 & 0b00000100 != 0,
+                is_truncated: flags1 & 0b00000010 != 0,
+                recursion_desired: flags1 & 0b00000001 != 0,
+                recursion_available: flags2 & 0b10000000 != 0,
+                rcode: Rcode::from(flags2 & 0b00001111),
+            },
             qdcount,
             ancount,
             nscount,

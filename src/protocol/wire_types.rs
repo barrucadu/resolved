@@ -123,6 +123,17 @@ pub struct Header {
     ///
     /// - `6-15` Reserved for future use.
     pub rcode: Rcode,
+}
+
+/// A `Header` as it appears on the network.  This type is used for
+/// serialisation and deserialisation only: including the count fields
+/// in the normal `Header` type would require ensuring those values
+/// are correct.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct WireHeader {
+    /// The header that will be persisted to / is taken from the
+    /// `Message`.
+    pub header: Header,
 
     /// an unsigned 16 bit integer specifying the number of entries in
     /// the question section.

@@ -11,7 +11,16 @@ impl Message {
     }
 
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        self.header.serialise(buffer);
+        // TODO: remove use of unwrap
+        WireHeader {
+            header: self.header,
+            qdcount: self.questions.len().try_into().unwrap(),
+            ancount: self.answers.len().try_into().unwrap(),
+            nscount: self.authority.len().try_into().unwrap(),
+            arcount: self.additional.len().try_into().unwrap(),
+        }
+        .serialise(buffer);
+
         for question in self.questions {
             question.serialise(buffer);
         }
@@ -27,24 +36,35 @@ impl Message {
     }
 }
 
-impl Header {
+impl WireHeader {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        let flags1 = (if self.is_response { 0b10000000 } else { 0 })
-            | (0b01111000 & (u8::from(self.opcode) << 3))
-            | (if self.is_authoritative { 0b00000100 } else { 0 })
-            | (if self.is_truncated { 0b00000010 } else { 0 })
-            | (if self.recursion_desired {
+        let flags1 = (if self.header.is_response {
+            0b10000000
+        } else {
+            0
+        }) | (0b01111000 & (u8::from(self.header.opcode) << 3))
+            | (if self.header.is_authoritative {
+                0b00000100
+            } else {
+                0
+            })
+            | (if self.header.is_truncated {
+                0b00000010
+            } else {
+                0
+            })
+            | (if self.header.recursion_desired {
                 0b00000001
             } else {
                 0
             });
-        let flags2 = (if self.recursion_available {
+        let flags2 = (if self.header.recursion_available {
             0b10000000
         } else {
             0
-        }) | (0b00001111 & u8::from(self.rcode));
+        }) | (0b00001111 & u8::from(self.header.rcode));
 
-        buffer.write_u16(self.id);
+        buffer.write_u16(self.header.id);
         buffer.write_u8(flags1);
         buffer.write_u8(flags2);
         buffer.write_u16(self.qdcount);

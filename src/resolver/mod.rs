@@ -566,9 +566,6 @@ pub fn validate_nameserver_response(
     if response.header.rcode != Rcode::NoError {
         return None;
     }
-    if request.header.qdcount != response.header.qdcount {
-        return None;
-    }
     if request.questions != response.questions {
         return None;
     }
@@ -582,8 +579,7 @@ pub fn validate_nameserver_response(
         // step 2.1: get RRs matching the query name or the names it
         // `CNAME`s to
 
-        let mut rrs_for_query =
-            Vec::<ResourceRecord>::with_capacity(response.header.ancount as usize);
+        let mut rrs_for_query = Vec::<ResourceRecord>::with_capacity(response.answers.len());
         let mut seen_final_record = false;
         for an in &response.answers {
             if an.rclass.matches(&question.qclass) {
@@ -1304,11 +1300,6 @@ mod tests {
         );
 
         let mut response = request.make_response();
-
-        response.header.ancount = answers.len().try_into().unwrap();
-        response.header.nscount = authority.len().try_into().unwrap();
-        response.header.arcount = additional.len().try_into().unwrap();
-
         response.answers = answers.into();
         response.authority = authority.into();
         response.additional = additional.into();

@@ -15,13 +15,13 @@ fn roundtrip_message() {
 }
 
 #[test]
-fn roundtrip_header() {
+fn roundtrip_wire_header() {
     for _ in 0..100 {
-        let original = arbitrary_header();
+        let original = arbitrary_wire_header();
 
         let mut buffer = WritableBuffer::default();
         original.clone().serialise(&mut buffer);
-        let deserialised = Header::deserialise(&mut ConsumableBuffer::new(&buffer.octets));
+        let deserialised = WireHeader::deserialise(&mut ConsumableBuffer::new(&buffer.octets));
 
         assert_eq!(Ok(original), deserialised);
     }
@@ -68,28 +68,29 @@ fn roundtrip_domainname() {
 }
 
 fn arbitrary_message() -> Message {
-    let mut header = arbitrary_header();
+    let header = arbitrary_header();
+
     // keep runtime sane
-    header.qdcount = (0..10).fake();
-    header.ancount = (0..10).fake();
-    header.nscount = (0..10).fake();
-    header.arcount = (0..10).fake();
+    let qdcount = (0..10).fake();
+    let ancount = (0..10).fake();
+    let nscount = (0..10).fake();
+    let arcount = (0..10).fake();
 
-    let mut questions = Vec::with_capacity(header.qdcount as usize);
-    let mut answers = Vec::with_capacity(header.ancount as usize);
-    let mut authority = Vec::with_capacity(header.nscount as usize);
-    let mut additional = Vec::with_capacity(header.arcount as usize);
+    let mut questions = Vec::with_capacity(qdcount);
+    let mut answers = Vec::with_capacity(ancount);
+    let mut authority = Vec::with_capacity(nscount);
+    let mut additional = Vec::with_capacity(arcount);
 
-    for _ in 0..header.qdcount {
+    for _ in 0..qdcount {
         questions.push(arbitrary_question());
     }
-    for _ in 0..header.ancount {
+    for _ in 0..ancount {
         answers.push(arbitrary_resourcerecord());
     }
-    for _ in 0..header.nscount {
+    for _ in 0..nscount {
         authority.push(arbitrary_resourcerecord());
     }
-    for _ in 0..header.arcount {
+    for _ in 0..arcount {
         additional.push(arbitrary_resourcerecord());
     }
 
@@ -99,6 +100,16 @@ fn arbitrary_message() -> Message {
         answers,
         authority,
         additional,
+    }
+}
+
+fn arbitrary_wire_header() -> WireHeader {
+    WireHeader {
+        header: arbitrary_header(),
+        qdcount: Faker.fake(),
+        ancount: Faker.fake(),
+        nscount: Faker.fake(),
+        arcount: Faker.fake(),
     }
 }
 
@@ -112,10 +123,6 @@ fn arbitrary_header() -> Header {
         recursion_desired: Faker.fake(),
         recursion_available: Faker.fake(),
         rcode: arbitrary_rcode(),
-        qdcount: Faker.fake(),
-        ancount: Faker.fake(),
-        nscount: Faker.fake(),
-        arcount: Faker.fake(),
     }
 }
 
