@@ -95,6 +95,8 @@ impl ResourceRecord {
             .next_u16()
             .ok_or(ProtocolError::ResourceRecordTooShort(id))?;
 
+        let rdata_start = buffer.position;
+
         let mut raw_rdata = || {
             if let Some(octets) = buffer.take(rdlength as usize) {
                 Ok(octets.to_vec())
@@ -184,12 +186,18 @@ impl ResourceRecord {
             },
         };
 
-        Ok(Self {
-            name,
-            rtype_with_data,
-            rclass,
-            ttl,
-        })
+        let rdata_stop = buffer.position;
+
+        if rdata_stop == rdata_start + (rdlength as usize) {
+            Ok(Self {
+                name,
+                rtype_with_data,
+                rclass,
+                ttl,
+            })
+        } else {
+            Err(ProtocolError::ResourceRecordInvalid(id))
+        }
     }
 }
 
@@ -313,6 +321,9 @@ pub enum ProtocolError {
     /// A resource record ends with an incomplete field.
     ResourceRecordTooShort(u16),
 
+    /// A resource record is the wrong format.
+    ResourceRecordInvalid(u16),
+
     /// A domain is incomplete.
     DomainTooShort(u16),
 
@@ -333,6 +344,7 @@ impl ProtocolError {
             ProtocolError::HeaderTooShort(id) => Some(id),
             ProtocolError::QuestionTooShort(id) => Some(id),
             ProtocolError::ResourceRecordTooShort(id) => Some(id),
+            ProtocolError::ResourceRecordInvalid(id) => Some(id),
             ProtocolError::DomainTooShort(id) => Some(id),
             ProtocolError::DomainTooLong(id) => Some(id),
             ProtocolError::DomainPointerInvalid(id) => Some(id),
