@@ -26,10 +26,7 @@ fn bench__insert__duplicate(c: &mut Criterion) {
             let name2 = DomainName::from_dotted_string("www.target.example.com").unwrap();
             let rr = ResourceRecord {
                 name: name1,
-                rtype_with_data: RecordTypeWithData::Named {
-                    rtype: RecordType::CNAME,
-                    name: name2,
-                },
+                rtype_with_data: RecordTypeWithData::CNAME { cname: name2 },
                 rclass: RecordClass::IN,
                 ttl: 300,
             };
@@ -148,18 +145,24 @@ fn make_rrs(size: usize, ttl: u32) -> (Vec<ResourceRecord>, Vec<(DomainName, Rec
             DomainName::from_dotted_string(&format!("www-{:?}.source.example.com", i / 2)).unwrap();
         let name2 =
             DomainName::from_dotted_string(&format!("www-{:?}.target.example.com", i / 2)).unwrap();
-        let rtype = if i % 2 == 0 {
-            RecordType::CNAME
+
+        if i % 2 == 0 {
+            queries.push((name1.clone(), RecordType::CNAME));
+            rrs.push(ResourceRecord {
+                name: name1,
+                rtype_with_data: RecordTypeWithData::CNAME { cname: name2 },
+                rclass: RecordClass::IN,
+                ttl,
+            });
         } else {
-            RecordType::NS
+            queries.push((name1.clone(), RecordType::NS));
+            rrs.push(ResourceRecord {
+                name: name1,
+                rtype_with_data: RecordTypeWithData::NS { nsdname: name2 },
+                rclass: RecordClass::IN,
+                ttl,
+            });
         };
-        queries.push((name1.clone(), rtype));
-        rrs.push(ResourceRecord {
-            name: name1,
-            rtype_with_data: RecordTypeWithData::Named { rtype, name: name2 },
-            rclass: RecordClass::IN,
-            ttl,
-        });
     }
 
     (rrs, queries)
