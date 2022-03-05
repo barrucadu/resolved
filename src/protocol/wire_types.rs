@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 /// Basic DNS message format, used for both queries and responses.
 ///
 /// ```text
@@ -254,7 +256,7 @@ pub enum RecordTypeWithData {
     /// ```
     ///
     /// Where `ADDRESS` is a 32 bit Internet address.
-    A { octets: Vec<u8> },
+    A { address: Ipv4Addr },
 
     /// ```text
     ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -492,7 +494,9 @@ impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
         let octets = Vec::from(u.bytes(len)?);
 
         let rtype_with_data = match u.arbitrary::<RecordType>()? {
-            RecordType::A => RecordTypeWithData::A { octets },
+            RecordType::A => RecordTypeWithData::A {
+                address: u.arbitrary()?,
+            },
             RecordType::NS => RecordTypeWithData::NS {
                 nsdname: u.arbitrary()?,
             },
@@ -957,10 +961,10 @@ pub mod test_util {
         DomainName::from_dotted_string(name).unwrap()
     }
 
-    pub fn a_record(name: &str, octets: Vec<u8>) -> ResourceRecord {
+    pub fn a_record(name: &str, address: Ipv4Addr) -> ResourceRecord {
         ResourceRecord {
             name: domain(name),
-            rtype_with_data: RecordTypeWithData::A { octets },
+            rtype_with_data: RecordTypeWithData::A { address },
             rclass: RecordClass::IN,
             ttl: 300,
         }

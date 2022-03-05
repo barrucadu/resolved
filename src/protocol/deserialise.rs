@@ -1,6 +1,8 @@
 //! Deserialisation of DNS messages from the network.  See the
 //! `wire_types` module for details of the format.
 
+use std::net::Ipv4Addr;
+
 use crate::protocol::wire_types::*;
 
 impl Message {
@@ -105,7 +107,11 @@ impl ResourceRecord {
         // expand pointers.
         let rtype_with_data = match rtype {
             RecordType::A => RecordTypeWithData::A {
-                octets: raw_rdata()?,
+                address: Ipv4Addr::from(
+                    buffer
+                        .next_u32()
+                        .ok_or(ProtocolError::ResourceRecordTooShort(id))?,
+                ),
             },
             RecordType::NS => RecordTypeWithData::NS {
                 nsdname: DomainName::deserialise(id, buffer)?,

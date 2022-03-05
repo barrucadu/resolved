@@ -85,7 +85,7 @@ impl Question {
 impl ResourceRecord {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         let (rtype, rdata) = match self.rtype_with_data {
-            RecordTypeWithData::A { octets } => (RecordType::A, octets),
+            RecordTypeWithData::A { address } => (RecordType::A, Vec::from(address.octets())),
             RecordTypeWithData::NS { nsdname } => (RecordType::NS, nsdname.octets),
             RecordTypeWithData::MD { madname } => (RecordType::MD, madname.octets),
             RecordTypeWithData::MF { madname } => (RecordType::MF, madname.octets),

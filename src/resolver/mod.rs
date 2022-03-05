@@ -293,9 +293,7 @@ pub fn authoritative_from_zone(
                 }));
             } else if RecordType::A.matches(&question.qtype) {
                 if let Some(address) = static_record.record_a {
-                    return Some(make_rr(RecordTypeWithData::A {
-                        octets: Vec::from(address.octets()),
-                    }));
+                    return Some(make_rr(RecordTypeWithData::A { address }));
                 }
             }
         }
@@ -307,7 +305,7 @@ pub fn authoritative_from_zone(
             // Return an A record pointing to 0.0.0.0 - copied from
             // what pi hole does.
             return Some(make_rr(RecordTypeWithData::A {
-                octets: vec![0, 0, 0, 0],
+                address: Ipv4Addr::new(0, 0, 0, 0),
             }));
         }
     }
@@ -729,7 +727,7 @@ mod tests {
     fn resolve_nonrecursive_is_authoritative_for_local_zone() {
         assert_eq!(
             Some(ResolvedRecord::Authoritative {
-                rrs: vec![a_record("a.example.com", vec![1, 1, 1, 1])]
+                rrs: vec![a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))]
             }),
             resolve_nonrecursive(
                 &local_zone(),
@@ -745,7 +743,7 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_is_nonauthoritative_for_cache() {
-        let rr = a_record("cached.example.com", vec![1, 1, 1, 1]);
+        let rr = a_record("cached.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -770,10 +768,10 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_prefers_local_zone() {
-        let rr = a_record("a.example.com", vec![1, 1, 1, 1]);
+        let rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
-        cache.insert(&a_record("a.example.com", vec![8, 8, 8, 8]));
+        cache.insert(&a_record("a.example.com", Ipv4Addr::new(8, 8, 8, 8)));
 
         assert_eq!(
             Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
@@ -793,7 +791,7 @@ mod tests {
     fn resolve_nonrecursive_expands_cnames() {
         let cname_rr1 = cname_record("cname-1.example.com", "cname-2.example.com");
         let cname_rr2 = cname_record("cname-2.example.com", "a.example.com");
-        let a_rr = a_record("a.example.com", vec![1, 1, 1, 1]);
+        let a_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&cname_rr1);
@@ -823,7 +821,7 @@ mod tests {
     #[test]
     fn authoritative_from_zone_finds_record() {
         assert_eq!(
-            Some(a_record("a.example.com", vec![1, 1, 1, 1])),
+            Some(a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -856,7 +854,7 @@ mod tests {
     #[test]
     fn authoritative_from_zone_blocklists_to_a0000() {
         assert_eq!(
-            Some(a_record("blocked.example.com", vec![0, 0, 0, 0])),
+            Some(a_record("blocked.example.com", Ipv4Addr::new(0, 0, 0, 0))),
             authoritative_from_zone(
                 &local_zone(),
                 &Question {
@@ -870,7 +868,7 @@ mod tests {
 
     #[test]
     fn nonauthoritative_from_cache_finds_record() {
-        let rr = a_record("www.example.com", vec![1, 1, 1, 1]);
+        let rr = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -1036,14 +1034,14 @@ mod tests {
     fn validate_nameserver_response_returns_answer() {
         let (request, response) = nameserver_response(
             "www.example.com",
-            &[a_record("www.example.com", vec![127, 0, 0, 1])],
+            &[a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
             &[],
             &[],
         );
 
         assert_eq!(
             Some(NameserverResponse::Answer {
-                rrs: vec![a_record("www.example.com", vec![127, 0, 0, 1])],
+                rrs: vec![a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
                 authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
@@ -1056,7 +1054,7 @@ mod tests {
             "www.example.com",
             &[
                 cname_record("www.example.com", "cname-target.example.com"),
-                a_record("cname-target.example.com", vec![127, 0, 0, 1]),
+                a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1)),
             ],
             &[],
             &[],
@@ -1066,7 +1064,7 @@ mod tests {
             Some(NameserverResponse::Answer {
                 rrs: vec![
                     cname_record("www.example.com", "cname-target.example.com"),
-                    a_record("cname-target.example.com", vec![127, 0, 0, 1])
+                    a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1))
                 ],
                 authority: None,
             }),
@@ -1196,17 +1194,17 @@ mod tests {
             "www.example.com",
             &[
                 ns_record("example.com", "ns-an.example.net"),
-                a_record("ns-an.example.net", vec![1, 1, 1, 1]),
-                a_record("ns-ns.example.net", vec![1, 1, 1, 1]),
+                a_record("ns-an.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                a_record("ns-ns.example.net", Ipv4Addr::new(1, 1, 1, 1)),
             ],
             &[
                 ns_record("example.com", "ns-ns.example.net"),
-                a_record("ns-an.example.net", vec![2, 2, 2, 2]),
-                a_record("ns-ns.example.net", vec![2, 2, 2, 2]),
+                a_record("ns-an.example.net", Ipv4Addr::new(2, 2, 2, 2)),
+                a_record("ns-ns.example.net", Ipv4Addr::new(2, 2, 2, 2)),
             ],
             &[
-                a_record("ns-an.example.net", vec![3, 3, 3, 3]),
-                a_record("ns-ns.example.net", vec![3, 3, 3, 3]),
+                a_record("ns-an.example.net", Ipv4Addr::new(3, 3, 3, 3)),
+                a_record("ns-ns.example.net", Ipv4Addr::new(3, 3, 3, 3)),
             ],
         );
 
@@ -1218,10 +1216,10 @@ mod tests {
                 let mut expected_rrs = vec![
                     ns_record("example.com", "ns-an.example.net"),
                     ns_record("example.com", "ns-ns.example.net"),
-                    a_record("ns-an.example.net", vec![1, 1, 1, 1]),
-                    a_record("ns-ns.example.net", vec![1, 1, 1, 1]),
-                    a_record("ns-an.example.net", vec![3, 3, 3, 3]),
-                    a_record("ns-ns.example.net", vec![3, 3, 3, 3]),
+                    a_record("ns-an.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                    a_record("ns-ns.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                    a_record("ns-an.example.net", Ipv4Addr::new(3, 3, 3, 3)),
+                    a_record("ns-ns.example.net", Ipv4Addr::new(3, 3, 3, 3)),
                 ];
 
                 expected_rrs.sort();
@@ -1278,7 +1276,7 @@ mod tests {
     fn matching_nameserver_response() -> (Message, Message) {
         nameserver_response(
             "www.example.com",
-            &[a_record("www.example.com", vec![1, 1, 1, 1])],
+            &[a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
             &[],
             &[],
         )
