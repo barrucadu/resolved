@@ -291,7 +291,6 @@ mod tests {
     fn local_zone(records: &[(DomainName, Ipv4Addr)]) -> Settings {
         Settings {
             root_hints: Vec::new(),
-            blocked_domains: Vec::new(),
             hosts_files: Vec::new(),
             static_records: records
                 .iter()

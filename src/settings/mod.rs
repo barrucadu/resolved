@@ -11,8 +11,6 @@ pub struct Settings {
     #[serde(default)]
     pub root_hints: Vec<Ipv4Addr>,
     #[serde(default)]
-    pub blocked_domains: Vec<DomainWithOptionalSubdomains>,
-    #[serde(default)]
     pub static_records: Vec<Record>,
     #[serde(default)]
     pub hosts_files: Vec<String>,

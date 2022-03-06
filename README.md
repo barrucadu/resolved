@@ -30,7 +30,7 @@ maybe even exploits.**
 
 ```
 cargo build --release
-sudo ./target/release/resolved ./example-config.yaml
+sudo ./target/release/resolved ./example/config.yaml
 ```
 
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
