@@ -22,6 +22,13 @@ async fn resolve_and_build_response(
     let mut response = query.make_response();
     response.header.is_authoritative = true;
 
+    if query.questions.iter().any(|q| q.is_unknown()) {
+        response.header.rcode = Rcode::Refused;
+        response.header.is_authoritative = false;
+        println!(".");
+        return response;
+    }
+
     for question in &query.questions {
         if let Some(rr) = resolve(
             query.header.recursion_desired,

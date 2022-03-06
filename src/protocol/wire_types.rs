@@ -197,6 +197,12 @@ pub struct Question {
     pub qclass: QueryClass,
 }
 
+impl Question {
+    pub fn is_unknown(&self) -> bool {
+        self.qtype.is_unknown() || self.qclass.is_unknown()
+    }
+}
+
 /// The answer, authority, and additional sections are all the same
 /// format: a variable number of resource records.  This is the
 /// structure for a single resource record.
@@ -244,6 +250,16 @@ pub struct ResourceRecord {
     /// the RR can only be used for the transaction in progress, and
     /// should not be cached.
     pub ttl: u32,
+}
+
+impl ResourceRecord {
+    pub fn is_unknown(&self) -> bool {
+        self.rtype_with_data.is_unknown() || self.rclass.is_unknown()
+    }
+
+    pub fn matches(&self, question: &Question) -> bool {
+        self.rtype_with_data.matches(&question.qtype) && self.rclass.matches(&question.qclass)
+    }
 }
 
 /// A record type with its associated, deserialised, data.
@@ -484,6 +500,38 @@ pub enum RecordTypeWithData {
     },
 }
 
+impl RecordTypeWithData {
+    pub fn is_unknown(&self) -> bool {
+        self.rtype().is_unknown()
+    }
+
+    pub fn matches(&self, qtype: &QueryType) -> bool {
+        self.rtype().matches(qtype)
+    }
+
+    pub fn rtype(&self) -> RecordType {
+        match self {
+            RecordTypeWithData::A { .. } => RecordType::A,
+            RecordTypeWithData::NS { .. } => RecordType::NS,
+            RecordTypeWithData::MD { .. } => RecordType::MD,
+            RecordTypeWithData::MF { .. } => RecordType::MF,
+            RecordTypeWithData::CNAME { .. } => RecordType::CNAME,
+            RecordTypeWithData::SOA { .. } => RecordType::SOA,
+            RecordTypeWithData::MB { .. } => RecordType::MB,
+            RecordTypeWithData::MG { .. } => RecordType::MG,
+            RecordTypeWithData::MR { .. } => RecordType::MR,
+            RecordTypeWithData::NULL { .. } => RecordType::NULL,
+            RecordTypeWithData::WKS { .. } => RecordType::WKS,
+            RecordTypeWithData::PTR { .. } => RecordType::PTR,
+            RecordTypeWithData::HINFO { .. } => RecordType::HINFO,
+            RecordTypeWithData::MINFO { .. } => RecordType::MINFO,
+            RecordTypeWithData::MX { .. } => RecordType::MX,
+            RecordTypeWithData::TXT { .. } => RecordType::TXT,
+            RecordTypeWithData::Unknown { tag, .. } => RecordType::Unknown(*tag),
+        }
+    }
+}
+
 #[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
     // this is pretty verbose but it feels like a better way to
@@ -562,6 +610,12 @@ pub enum Opcode {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct OpcodeReserved(u8);
 
+impl Opcode {
+    pub fn is_reserved(&self) -> bool {
+        matches!(self, Opcode::Reserved(_))
+    }
+}
+
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
         match octet & 0b00001111 {
@@ -607,6 +661,12 @@ pub enum Rcode {
 /// cannot be created.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RcodeReserved(u8);
+
+impl Rcode {
+    pub fn is_reserved(&self) -> bool {
+        matches!(self, Rcode::Reserved(_))
+    }
+}
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
@@ -657,6 +717,19 @@ pub struct DomainName {
     pub labels: Vec<Vec<u8>>,
 }
 
+impl DomainName {
+    pub fn root_domain() -> Self {
+        DomainName {
+            octets: vec![0],
+            labels: vec![vec![]],
+        }
+    }
+
+    pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
+        self.labels.ends_with(&other.labels)
+    }
+}
+
 impl std::fmt::Debug for DomainName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DomainName")
@@ -698,6 +771,15 @@ pub enum QueryType {
     Wildcard,
 }
 
+impl QueryType {
+    pub fn is_unknown(&self) -> bool {
+        match self {
+            QueryType::Record(rtype) => rtype.is_unknown(),
+            _ => false,
+        }
+    }
+}
+
 impl From<u16> for QueryType {
     fn from(value: u16) -> Self {
         match value {
@@ -733,6 +815,15 @@ impl<'a> arbitrary::Arbitrary<'a> for QueryType {
 pub enum QueryClass {
     Record(RecordClass),
     Wildcard,
+}
+
+impl QueryClass {
+    pub fn is_unknown(&self) -> bool {
+        match self {
+            QueryClass::Record(rclass) => rclass.is_unknown(),
+            _ => false,
+        }
+    }
 }
 
 impl From<u16> for QueryClass {
@@ -786,6 +877,20 @@ pub enum RecordType {
 /// cannot be created.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RecordTypeUnknown(u16);
+
+impl RecordType {
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, RecordType::Unknown(_))
+    }
+
+    pub fn matches(&self, qtype: &QueryType) -> bool {
+        match qtype {
+            QueryType::Wildcard => true,
+            QueryType::Record(rtype) => rtype == self,
+            _ => false,
+        }
+    }
+}
 
 impl From<u16> for RecordType {
     fn from(value: u16) -> Self {
@@ -856,6 +961,19 @@ pub enum RecordClass {
 /// `RecordClass`es cannot be created.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RecordClassUnknown(u16);
+
+impl RecordClass {
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, RecordClass::Unknown(_))
+    }
+
+    pub fn matches(&self, qclass: &QueryClass) -> bool {
+        match qclass {
+            QueryClass::Wildcard => true,
+            QueryClass::Record(rclass) => rclass == self,
+        }
+    }
+}
 
 impl From<u16> for RecordClass {
     fn from(value: u16) -> Self {
@@ -928,9 +1046,27 @@ mod tests {
     }
 
     #[test]
+    fn recordtype_unknown_implies_querytype_unknown() {
+        for i in 0..100 {
+            if RecordType::from(i).is_unknown() {
+                assert!(QueryType::from(i).is_unknown());
+            }
+        }
+    }
+
+    #[test]
     fn u16_recordclass_roundtrip() {
         for i in 0..100 {
             assert_eq!(u16::from(RecordClass::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn recordclass_unknown_implies_queryclass_unknown() {
+        for i in 0..100 {
+            if RecordClass::from(i).is_unknown() {
+                assert!(QueryClass::from(i).is_unknown());
+            }
         }
     }
 }
@@ -986,6 +1122,18 @@ pub mod test_util {
             name: domain(superdomain_name),
             rtype_with_data: RecordTypeWithData::NS {
                 nsdname: domain(nameserver_name),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+
+    pub fn unknown_record(name: &str, octets: &[u8]) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(name),
+            rtype_with_data: RecordTypeWithData::Unknown {
+                tag: RecordTypeUnknown(100),
+                octets: octets.into(),
             },
             rclass: RecordClass::IN,
             ttl: 300,

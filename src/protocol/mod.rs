@@ -63,42 +63,7 @@ impl Message {
     }
 }
 
-impl RecordTypeWithData {
-    pub fn rtype(&self) -> RecordType {
-        match self {
-            RecordTypeWithData::A { .. } => RecordType::A,
-            RecordTypeWithData::NS { .. } => RecordType::NS,
-            RecordTypeWithData::MD { .. } => RecordType::MD,
-            RecordTypeWithData::MF { .. } => RecordType::MF,
-            RecordTypeWithData::CNAME { .. } => RecordType::CNAME,
-            RecordTypeWithData::SOA { .. } => RecordType::SOA,
-            RecordTypeWithData::MB { .. } => RecordType::MB,
-            RecordTypeWithData::MG { .. } => RecordType::MG,
-            RecordTypeWithData::MR { .. } => RecordType::MR,
-            RecordTypeWithData::NULL { .. } => RecordType::NULL,
-            RecordTypeWithData::WKS { .. } => RecordType::WKS,
-            RecordTypeWithData::PTR { .. } => RecordType::PTR,
-            RecordTypeWithData::HINFO { .. } => RecordType::HINFO,
-            RecordTypeWithData::MINFO { .. } => RecordType::MINFO,
-            RecordTypeWithData::MX { .. } => RecordType::MX,
-            RecordTypeWithData::TXT { .. } => RecordType::TXT,
-            RecordTypeWithData::Unknown { tag, .. } => RecordType::Unknown(*tag),
-        }
-    }
-
-    pub fn matches(&self, qtype: &QueryType) -> bool {
-        self.rtype().matches(qtype)
-    }
-}
-
 impl DomainName {
-    pub fn root_domain() -> Self {
-        DomainName {
-            octets: vec![0],
-            labels: vec![vec![]],
-        }
-    }
-
     pub fn to_dotted_string(&self) -> String {
         let mut out = String::with_capacity(self.octets.len());
         let mut dot = false;
@@ -174,29 +139,6 @@ impl DomainName {
             Some(Self { octets, labels })
         } else {
             None
-        }
-    }
-
-    pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
-        self.labels.ends_with(&other.labels)
-    }
-}
-
-impl RecordType {
-    pub fn matches(&self, qtype: &QueryType) -> bool {
-        match qtype {
-            QueryType::Wildcard => true,
-            QueryType::Record(rtype) => rtype == self,
-            _ => false,
-        }
-    }
-}
-
-impl RecordClass {
-    pub fn matches(&self, qclass: &QueryClass) -> bool {
-        match qclass {
-            QueryClass::Wildcard => true,
-            QueryClass::Record(rclass) => rclass == self,
         }
     }
 }
