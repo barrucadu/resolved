@@ -1312,6 +1312,7 @@ mod tests {
         };
 
         Settings {
+            interface: None,
             root_hints: Vec::new(),
             static_records: vec![
                 Record {
