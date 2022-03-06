@@ -13,11 +13,6 @@ root_hints:
   - "199.7.83.42"    # l.root-servers.net
   - "202.12.27.33"   # m.root-servers.net
 
-blocked_domains:
-  - name: "block.test.barrucadu.co.uk"
-  - name: "block-subdomains.test.barrucadu.co.uk"
-    include_subdomains: true
-
 static_records:
   - domain:
       name: "a.static.test.barrucadu.co.uk"
@@ -35,3 +30,7 @@ static_records:
   - domain:
       name: "cname-3.static.test.barrucadu.co.uk"
     cname: "target.a.static-subdomains.test.barrucadu.co.uk"
+
+hosts_files:
+  - "/etc/hosts"
+  - "hosts-file"

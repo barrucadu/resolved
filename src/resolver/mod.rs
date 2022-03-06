@@ -299,17 +299,6 @@ pub fn authoritative_from_zone(
         }
     }
 
-    // TODO: use a more efficient data structure (like a trie)
-    for blocked_domain in &local_zone.blocked_domains {
-        if blocked_domain.matches(&question.name) {
-            // Return an A record pointing to 0.0.0.0 - copied from
-            // what pi hole does.
-            return Some(make_rr(RecordTypeWithData::A {
-                address: Ipv4Addr::new(0, 0, 0, 0),
-            }));
-        }
-    }
-
     None
 }
 
@@ -1267,8 +1256,12 @@ mod tests {
 
         Settings {
             root_hints: Vec::new(),
-            blocked_domains: vec![to_domain("blocked.example.com")],
             static_records: vec![
+                Record {
+                    domain: to_domain("blocked.example.com"),
+                    record_a: Some(Ipv4Addr::new(0, 0, 0, 0)),
+                    record_cname: None,
+                },
                 Record {
                     domain: to_domain("cname-and-a.example.com"),
                     record_a: Some(Ipv4Addr::new(1, 1, 1, 1)),
@@ -1282,6 +1275,7 @@ mod tests {
                     record_cname: None,
                 },
             ],
+            hosts_files: Vec::new(),
         }
     }
 
