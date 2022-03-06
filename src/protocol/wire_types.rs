@@ -246,6 +246,12 @@ pub struct ResourceRecord {
     pub ttl: u32,
 }
 
+impl ResourceRecord {
+    pub fn matches(&self, question: &Question) -> bool {
+        self.rtype_with_data.matches(&question.qtype) && self.rclass.matches(&question.qclass)
+    }
+}
+
 /// A record type with its associated, deserialised, data.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordTypeWithData {
@@ -484,6 +490,34 @@ pub enum RecordTypeWithData {
     },
 }
 
+impl RecordTypeWithData {
+    pub fn matches(&self, qtype: &QueryType) -> bool {
+        self.rtype().matches(qtype)
+    }
+
+    pub fn rtype(&self) -> RecordType {
+        match self {
+            RecordTypeWithData::A { .. } => RecordType::A,
+            RecordTypeWithData::NS { .. } => RecordType::NS,
+            RecordTypeWithData::MD { .. } => RecordType::MD,
+            RecordTypeWithData::MF { .. } => RecordType::MF,
+            RecordTypeWithData::CNAME { .. } => RecordType::CNAME,
+            RecordTypeWithData::SOA { .. } => RecordType::SOA,
+            RecordTypeWithData::MB { .. } => RecordType::MB,
+            RecordTypeWithData::MG { .. } => RecordType::MG,
+            RecordTypeWithData::MR { .. } => RecordType::MR,
+            RecordTypeWithData::NULL { .. } => RecordType::NULL,
+            RecordTypeWithData::WKS { .. } => RecordType::WKS,
+            RecordTypeWithData::PTR { .. } => RecordType::PTR,
+            RecordTypeWithData::HINFO { .. } => RecordType::HINFO,
+            RecordTypeWithData::MINFO { .. } => RecordType::MINFO,
+            RecordTypeWithData::MX { .. } => RecordType::MX,
+            RecordTypeWithData::TXT { .. } => RecordType::TXT,
+            RecordTypeWithData::Unknown { tag, .. } => RecordType::Unknown(*tag),
+        }
+    }
+}
+
 #[cfg(any(feature = "arbitrary", test))]
 impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
     // this is pretty verbose but it feels like a better way to
@@ -657,6 +691,19 @@ pub struct DomainName {
     pub labels: Vec<Vec<u8>>,
 }
 
+impl DomainName {
+    pub fn root_domain() -> Self {
+        DomainName {
+            octets: vec![0],
+            labels: vec![vec![]],
+        }
+    }
+
+    pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
+        self.labels.ends_with(&other.labels)
+    }
+}
+
 impl std::fmt::Debug for DomainName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("DomainName")
@@ -787,6 +834,16 @@ pub enum RecordType {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RecordTypeUnknown(u16);
 
+impl RecordType {
+    pub fn matches(&self, qtype: &QueryType) -> bool {
+        match qtype {
+            QueryType::Wildcard => true,
+            QueryType::Record(rtype) => rtype == self,
+            _ => false,
+        }
+    }
+}
+
 impl From<u16> for RecordType {
     fn from(value: u16) -> Self {
         match value {
@@ -856,6 +913,15 @@ pub enum RecordClass {
 /// `RecordClass`es cannot be created.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RecordClassUnknown(u16);
+
+impl RecordClass {
+    pub fn matches(&self, qclass: &QueryClass) -> bool {
+        match qclass {
+            QueryClass::Wildcard => true,
+            QueryClass::Record(rclass) => rclass == self,
+        }
+    }
+}
 
 impl From<u16> for RecordClass {
     fn from(value: u16) -> Self {
