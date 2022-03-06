@@ -1,5 +1,6 @@
 use bytes::BytesMut;
 use std::env;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::process;
 use std::time::Duration;
@@ -238,7 +239,10 @@ async fn main() {
         }
     }
 
-    let udp = match UdpSocket::bind("127.0.0.1:53").await {
+    let interface = settings.interface.unwrap_or(Ipv4Addr::UNSPECIFIED);
+    println!("binding to {:?}", interface);
+
+    let udp = match UdpSocket::bind((interface, 53)).await {
         Ok(s) => s,
         Err(err) => {
             eprintln!("error binding bind UDP socket: {:?}", err);
@@ -246,7 +250,7 @@ async fn main() {
         }
     };
 
-    let tcp = match TcpListener::bind("127.0.0.1:53").await {
+    let tcp = match TcpListener::bind((interface, 53)).await {
         Ok(s) => s,
         Err(err) => {
             eprintln!("error binding bind TCP socket: {:?}", err);

@@ -290,6 +290,7 @@ mod tests {
 
     fn local_zone(records: &[(DomainName, Ipv4Addr)]) -> Settings {
         Settings {
+            interface: None,
             root_hints: Vec::new(),
             hosts_files: Vec::new(),
             static_records: records
