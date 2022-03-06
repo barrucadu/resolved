@@ -197,6 +197,12 @@ pub struct Question {
     pub qclass: QueryClass,
 }
 
+impl Question {
+    pub fn is_unknown(&self) -> bool {
+        self.qtype.is_unknown() || self.qclass.is_unknown()
+    }
+}
+
 /// The answer, authority, and additional sections are all the same
 /// format: a variable number of resource records.  This is the
 /// structure for a single resource record.
@@ -247,6 +253,10 @@ pub struct ResourceRecord {
 }
 
 impl ResourceRecord {
+    pub fn is_unknown(&self) -> bool {
+        self.rtype_with_data.is_unknown() || self.rclass.is_unknown()
+    }
+
     pub fn matches(&self, question: &Question) -> bool {
         self.rtype_with_data.matches(&question.qtype) && self.rclass.matches(&question.qclass)
     }
@@ -491,6 +501,10 @@ pub enum RecordTypeWithData {
 }
 
 impl RecordTypeWithData {
+    pub fn is_unknown(&self) -> bool {
+        self.rtype().is_unknown()
+    }
+
     pub fn matches(&self, qtype: &QueryType) -> bool {
         self.rtype().matches(qtype)
     }
@@ -596,6 +610,12 @@ pub enum Opcode {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct OpcodeReserved(u8);
 
+impl Opcode {
+    pub fn is_reserved(&self) -> bool {
+        matches!(self, Opcode::Reserved(_))
+    }
+}
+
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
         match octet & 0b00001111 {
@@ -641,6 +661,12 @@ pub enum Rcode {
 /// cannot be created.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RcodeReserved(u8);
+
+impl Rcode {
+    pub fn is_reserved(&self) -> bool {
+        matches!(self, Rcode::Reserved(_))
+    }
+}
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
@@ -745,6 +771,15 @@ pub enum QueryType {
     Wildcard,
 }
 
+impl QueryType {
+    pub fn is_unknown(&self) -> bool {
+        match self {
+            QueryType::Record(rtype) => rtype.is_unknown(),
+            _ => false,
+        }
+    }
+}
+
 impl From<u16> for QueryType {
     fn from(value: u16) -> Self {
         match value {
@@ -780,6 +815,15 @@ impl<'a> arbitrary::Arbitrary<'a> for QueryType {
 pub enum QueryClass {
     Record(RecordClass),
     Wildcard,
+}
+
+impl QueryClass {
+    pub fn is_unknown(&self) -> bool {
+        match self {
+            QueryClass::Record(rclass) => rclass.is_unknown(),
+            _ => false,
+        }
+    }
 }
 
 impl From<u16> for QueryClass {
@@ -835,6 +879,10 @@ pub enum RecordType {
 pub struct RecordTypeUnknown(u16);
 
 impl RecordType {
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, RecordType::Unknown(_))
+    }
+
     pub fn matches(&self, qtype: &QueryType) -> bool {
         match qtype {
             QueryType::Wildcard => true,
@@ -915,6 +963,10 @@ pub enum RecordClass {
 pub struct RecordClassUnknown(u16);
 
 impl RecordClass {
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, RecordClass::Unknown(_))
+    }
+
     pub fn matches(&self, qclass: &QueryClass) -> bool {
         match qclass {
             QueryClass::Wildcard => true,
@@ -994,9 +1046,27 @@ mod tests {
     }
 
     #[test]
+    fn recordtype_unknown_implies_querytype_unknown() {
+        for i in 0..100 {
+            if RecordType::from(i).is_unknown() {
+                assert!(QueryType::from(i).is_unknown());
+            }
+        }
+    }
+
+    #[test]
     fn u16_recordclass_roundtrip() {
         for i in 0..100 {
             assert_eq!(u16::from(RecordClass::from(i)), i);
+        }
+    }
+
+    #[test]
+    fn recordclass_unknown_implies_queryclass_unknown() {
+        for i in 0..100 {
+            if RecordClass::from(i).is_unknown() {
+                assert!(QueryClass::from(i).is_unknown());
+            }
         }
     }
 }
