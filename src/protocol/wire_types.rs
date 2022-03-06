@@ -1127,4 +1127,16 @@ pub mod test_util {
             ttl: 300,
         }
     }
+
+    pub fn unknown_record(name: &str, octets: &[u8]) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(name),
+            rtype_with_data: RecordTypeWithData::Unknown {
+                tag: RecordTypeUnknown(100),
+                octets: octets.into(),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
 }

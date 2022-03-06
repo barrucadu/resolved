@@ -580,9 +580,16 @@ pub fn validate_nameserver_response(
 
         let mut rrs_for_query = Vec::<ResourceRecord>::with_capacity(response.answers.len());
         let mut seen_final_record = false;
+        let mut all_unknown = true;
         for an in &response.answers {
+            if an.is_unknown() {
+                continue;
+            }
+
             if an.rclass.matches(&question.qclass) {
                 let rtype = an.rtype_with_data.rtype();
+                all_unknown = false;
+
                 if rtype.matches(&question.qtype) && an.name == final_name {
                     rrs_for_query.push(an.clone());
                     seen_final_record = true;
@@ -592,7 +599,9 @@ pub fn validate_nameserver_response(
             }
         }
 
-        if rrs_for_query.is_empty() {
+        if all_unknown {
+            None
+        } else if rrs_for_query.is_empty() {
             panic!("[ERROR] validate_nameserver_response: there should at least be CNAME RRs here")
         } else {
             // step 3.1 & 3.2: what sort of answer is this?
@@ -1047,6 +1056,54 @@ mod tests {
             }),
             validate_nameserver_response(&request, response, 0)
         );
+    }
+
+    #[test]
+    fn validate_nameserver_response_drops_unknown_rrs() {
+        let request = Message::from_question(
+            1234,
+            Question {
+                name: domain("www.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Record(RecordClass::IN),
+            },
+        );
+
+        let mut response = request.make_response();
+        response.answers = [
+            unknown_record("www.example.com", &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1)),
+        ]
+        .into();
+
+        assert_eq!(
+            Some(NameserverResponse::Answer {
+                rrs: vec![a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
+                authority: None,
+            }),
+            validate_nameserver_response(&request, response, 0)
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_returns_none_if_all_rrs_unknown() {
+        let request = Message::from_question(
+            1234,
+            Question {
+                name: domain("www.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Record(RecordClass::IN),
+            },
+        );
+
+        let mut response = request.make_response();
+        response.answers = [unknown_record(
+            "www.example.com",
+            &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+        )]
+        .into();
+
+        assert_eq!(None, validate_nameserver_response(&request, response, 0));
     }
 
     #[test]
