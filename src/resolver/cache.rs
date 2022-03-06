@@ -113,14 +113,14 @@ pub struct Cache {
     /// labels, would be better here.
     entries: HashMap<DomainName, CachedDomainRecords>,
 
-    /// Priority queue of domain names ordered by access counts.
+    /// Priority queue of domain names ordered by access times.
     ///
     /// When the cache is full and there are no expired records to
     /// prune, domains will instead be pruned in LRU order.
     ///
     /// INVARIANT: the domains in here are exactly the domains in
     /// `entries`.
-    access_priority: PriorityQueue<DomainName, Reverse<usize>>,
+    access_priority: PriorityQueue<DomainName, Reverse<Instant>>,
 
     /// Priority queue of domain names ordered by expiry time.
     ///
@@ -143,8 +143,8 @@ pub struct Cache {
 /// The cached records for a domain.
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct CachedDomainRecords {
-    /// The number of times this record has been read from.
-    access_count: usize,
+    /// The time this record was last read at.
+    last_read: Instant,
 
     /// When the next RR expires.
     ///
@@ -230,9 +230,9 @@ impl Cache {
                 _ => (),
             }
             if !rrs.is_empty() {
-                entry.access_count += 1;
+                entry.last_read = now;
                 self.access_priority
-                    .change_priority(name, Reverse(entry.access_count));
+                    .change_priority(name, Reverse(entry.last_read));
             }
             rrs
         } else {
@@ -242,6 +242,7 @@ impl Cache {
 
     /// Insert an entry into the cache.
     pub fn insert(&mut self, record: &ResourceRecord) {
+        let now = Instant::now();
         let rtype = record.rtype_with_data.rtype();
         let expiry = Instant::now() + Duration::from_secs(record.ttl.into());
         let tuple = (record.rtype_with_data.clone(), record.rclass, expiry);
@@ -278,10 +279,10 @@ impl Cache {
             } else {
                 entry.records.insert(rtype, vec![tuple]);
             }
-            entry.access_count += 1;
+            entry.last_read = now;
             entry.size += 1;
             self.access_priority
-                .change_priority(&record.name, Reverse(entry.access_count));
+                .change_priority(&record.name, Reverse(entry.last_read));
             if expiry < entry.next_expiry {
                 entry.next_expiry = expiry;
                 self.expiry_priority
@@ -291,13 +292,13 @@ impl Cache {
             let mut records = HashMap::new();
             records.insert(rtype, vec![tuple]);
             let entry = CachedDomainRecords {
-                access_count: 1,
+                last_read: now,
                 next_expiry: expiry,
                 size: 1,
                 records,
             };
             self.access_priority
-                .push(record.name.clone(), Reverse(entry.access_count));
+                .push(record.name.clone(), Reverse(entry.last_read));
             self.expiry_priority
                 .push(record.name.clone(), Reverse(entry.next_expiry));
             self.entries.insert(record.name.clone(), entry);
@@ -520,7 +521,6 @@ mod tests {
     fn cache_put_then_get_maintains_invariants() {
         let mut cache = Cache::new();
         let mut queries = Vec::new();
-        let mut accesses = HashMap::<DomainName, usize>::new();
 
         for _ in 0..100 {
             let rr = arbitrary_resourcerecord();
@@ -530,21 +530,9 @@ mod tests {
                 QueryType::Record(rr.rtype_with_data.rtype()),
                 QueryClass::Record(rr.rclass),
             ));
-            accesses.insert(
-                rr.name.clone(),
-                1 + accesses.get(&rr.name).cloned().unwrap_or(0),
-            );
         }
         for (name, qtype, qclass) in queries {
             cache.get_without_checking_expiration(&name, &qtype, &qclass);
-            accesses.insert(name.clone(), 1 + accesses.get(&name).cloned().unwrap_or(0));
-        }
-
-        for (name, count) in accesses.iter() {
-            assert_eq!(
-                Some(*count),
-                cache.entries.get(name).map(|e| e.access_count)
-            );
         }
 
         assert_invariants(&cache);
@@ -626,7 +614,7 @@ mod tests {
 
             assert_eq!(Some(entry.next_expiry), min_expires);
 
-            access_priority.push(name.clone(), Reverse(entry.access_count));
+            access_priority.push(name.clone(), Reverse(entry.last_read));
             expiry_priority.push(name.clone(), Reverse(entry.next_expiry));
         }
 
