@@ -6,7 +6,7 @@ use std::net::Ipv4Addr;
 
 use crate::protocol::wire_types::DomainName;
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize, Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize, Default)]
 pub struct Settings {
     #[serde(default)]
     pub root_hints: Vec<Ipv4Addr>,
@@ -14,9 +14,11 @@ pub struct Settings {
     pub blocked_domains: Vec<DomainWithOptionalSubdomains>,
     #[serde(default)]
     pub static_records: Vec<Record>,
+    #[serde(default)]
+    pub hosts_files: Vec<String>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
 pub struct Record {
     pub domain: DomainWithOptionalSubdomains,
     #[serde(rename = "a")]
@@ -25,7 +27,7 @@ pub struct Record {
     pub record_cname: Option<Name>,
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
 pub struct DomainWithOptionalSubdomains {
     pub name: Name,
     #[serde(default)]
@@ -42,7 +44,7 @@ impl DomainWithOptionalSubdomains {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Name {
     pub domain: DomainName,
 }

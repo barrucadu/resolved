@@ -1282,6 +1282,7 @@ mod tests {
                     record_cname: None,
                 },
             ],
+            hosts_files: Vec::new(),
         }
     }
 

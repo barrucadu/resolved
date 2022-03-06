@@ -1,11 +1,13 @@
 use bytes::BytesMut;
 use std::env;
+use std::path::Path;
 use std::process;
 use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
+use resolved::hosts::update_static_zone_from_hosts_file;
 use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
 use resolved::protocol::wire_types::{Message, Opcode, Rcode};
 use resolved::resolver::cache::SharedCache;
@@ -190,11 +192,16 @@ async fn prune_cache_task(cache: SharedCache) {
 
 #[tokio::main]
 async fn main() {
-    let settings = if let Some(fname) = env::args().nth(1) {
+    let (mut settings, settings_path) = if let Some(fname) = env::args().nth(1) {
         match Settings::new(&fname) {
             Ok(s) => {
+                let mut path = Path::new(&fname)
+                    .canonicalize()
+                    .expect("could not get absolute path to configuration file");
+                path.pop();
+
                 println!("read config file");
-                s
+                (s, path)
             }
             Err(err) => {
                 eprintln!("error reading config file: {:?}", err);
@@ -203,8 +210,26 @@ async fn main() {
         }
     } else {
         println!("starting with default config");
-        Settings::default()
+        let path = std::env::current_dir().expect("could not get current working directory");
+        (Settings::default(), path)
     };
+
+    for path_str in &settings.hosts_files.clone() {
+        let path = Path::new(path_str);
+        let absolute_path = if path.is_relative() {
+            Path::new(&settings_path).join(path)
+        } else {
+            path.to_path_buf()
+        };
+
+        match update_static_zone_from_hosts_file(&mut settings, absolute_path).await {
+            Ok(()) => (),
+            Err(err) => {
+                eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
+                process::exit(1);
+            }
+        }
+    }
 
     let udp = match UdpSocket::bind("127.0.0.1:53").await {
         Ok(s) => s,

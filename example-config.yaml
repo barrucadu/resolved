@@ -35,3 +35,6 @@ static_records:
   - domain:
       name: "cname-3.static.test.barrucadu.co.uk"
     cname: "target.a.static-subdomains.test.barrucadu.co.uk"
+
+hosts_files:
+  - "/etc/hosts"

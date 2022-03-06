@@ -8,6 +8,7 @@ server for home networks.  To that end, it supports:
 - Caching
 - Custom records
 - Domain blocking (by spoofing A records)
+- Hosts files
 
 It does *not* support:
 
@@ -42,10 +43,9 @@ Development
 The project structure should hopefully be fairly straightforward.  The
 modules are:
 
-- `net_util` - shared utilities used by both the `main.rs` file and
-  the `resolver` module
-- `protocol` - the DNS message types and serialisation /
-  deserialisation logic
+- `hosts`    - the parser for hosts files
+- `net_util` - shared utilities used by both the `main.rs` file and the `resolver` module
+- `protocol` - the DNS message types and serialisation / deserialisation logic
 - `resolver` - the resolution and caching logic
 - `settings` - the configuration data type & parser
 
@@ -85,3 +85,7 @@ Supported standards
 
   Defines the wire format and discusses implementation concerns of the
   algorithms from RFC 1034.
+
+- [hosts(5)](https://man7.org/linux/man-pages/man5/hosts.5.html)
+
+  Defines the Linux hosts file format.
