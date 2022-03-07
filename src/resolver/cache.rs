@@ -543,11 +543,16 @@ mod tests {
         let mut cache = Cache::with_desired_size(25);
 
         for _ in 0..100 {
-            cache.insert(&arbitrary_resourcerecord());
+            let mut rr = arbitrary_resourcerecord();
+            rr.ttl = 300; // this case isn't testing expiration
+            cache.insert(&rr);
         }
 
-        assert_eq!(75, cache.prune());
-        assert_eq!(25, cache.current_size);
+        // might be more than 75 because the size is measured in
+        // records, but pruning is done on whole domains
+        let pruned = cache.prune();
+        assert!(pruned >= 75);
+        assert!(cache.current_size <= 25);
         assert_invariants(&cache);
     }
 
