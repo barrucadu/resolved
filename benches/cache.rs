@@ -1,16 +1,18 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
+use std::time::{Duration, Instant};
 
+use resolved::collections::namespaced_cache::NamespacedCache;
 use resolved::protocol::wire_types::*;
-use resolved::resolver::cache::Cache;
 
 #[allow(non_snake_case)]
 fn bench__insert__unique(c: &mut Criterion) {
+    let now = Instant::now();
     let mut group = c.benchmark_group("insert/unique");
     for size in [1, 100, 1000] {
         let (rrs, _) = make_rrs(size, 300);
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
-            b.iter(|| build_cache(size, rrs));
+            b.iter(|| build_cache(now, size, rrs));
         });
     }
     group.finish();
@@ -18,6 +20,7 @@ fn bench__insert__unique(c: &mut Criterion) {
 
 #[allow(non_snake_case)]
 fn bench__insert__duplicate(c: &mut Criterion) {
+    let now = Instant::now();
     let mut group = c.benchmark_group("insert/duplicate");
     for size in [1, 100, 1000] {
         let rrs = {
@@ -38,7 +41,7 @@ fn bench__insert__duplicate(c: &mut Criterion) {
 
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
-            b.iter(|| build_cache(size, rrs));
+            b.iter(|| build_cache(now, size, rrs));
         });
     }
     group.finish();
@@ -46,20 +49,17 @@ fn bench__insert__duplicate(c: &mut Criterion) {
 
 #[allow(non_snake_case)]
 fn bench__get_without_checking_expiration__hit(c: &mut Criterion) {
+    let now = Instant::now();
     let mut group = c.benchmark_group("get_without_checking_expiration/hit");
     for size in [1, 100, 1000] {
         let (rrs, queries) = make_rrs(size, 0);
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
             b.iter_batched(
-                || build_cache(size, rrs),
+                || build_cache(now, size, rrs),
                 |mut cache| {
                     for (name, rtype) in &queries {
-                        cache.get_without_checking_expiration(
-                            name,
-                            &QueryType::Record(*rtype),
-                            &QueryClass::Record(RecordClass::IN),
-                        );
+                        cache.get_without_checking_expiration(now, name, rtype);
                     }
                 },
                 BatchSize::SmallInput,
@@ -71,20 +71,17 @@ fn bench__get_without_checking_expiration__hit(c: &mut Criterion) {
 
 #[allow(non_snake_case)]
 fn bench__get_without_checking_expiration__miss(c: &mut Criterion) {
+    let now = Instant::now();
     let mut group = c.benchmark_group("get_without_checking_expiration/miss");
     for size in [1, 100, 1000] {
         let (rrs, queries) = make_rrs(size, 0);
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
             b.iter_batched(
-                || build_cache(size, rrs),
+                || build_cache(now, size, rrs),
                 |mut cache| {
-                    for (name, rtype) in &queries {
-                        cache.get_without_checking_expiration(
-                            name,
-                            &QueryType::Record(*rtype),
-                            &QueryClass::Record(RecordClass::CH),
-                        );
+                    for (name, _) in &queries {
+                        cache.get_without_checking_expiration(now, name, &RecordType::HINFO);
                     }
                 },
                 BatchSize::SmallInput,
@@ -96,14 +93,15 @@ fn bench__get_without_checking_expiration__miss(c: &mut Criterion) {
 
 #[allow(non_snake_case)]
 fn bench__remove_expired(c: &mut Criterion) {
+    let now = Instant::now();
     let mut group = c.benchmark_group("remove_expired");
     for size in [1, 100, 1000] {
         let (rrs, _) = make_rrs(size, 0);
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
             b.iter_batched(
-                || build_cache(size, rrs),
-                |mut cache| cache.remove_expired(),
+                || build_cache(now, size, rrs),
+                |mut cache| cache.remove_expired(now),
                 BatchSize::SmallInput,
             );
         });
@@ -113,14 +111,15 @@ fn bench__remove_expired(c: &mut Criterion) {
 
 #[allow(non_snake_case)]
 fn bench__prune(c: &mut Criterion) {
+    let now = Instant::now();
     let mut group = c.benchmark_group("prune");
     for size in [1, 100, 1000] {
         let (rrs, _) = make_rrs(size + 1, 300);
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
             b.iter_batched(
-                || build_cache(1, rrs),
-                |mut cache| cache.prune(),
+                || build_cache(now, 1, rrs),
+                |mut cache| cache.prune(now),
                 BatchSize::SmallInput,
             );
         });
@@ -128,10 +127,20 @@ fn bench__prune(c: &mut Criterion) {
     group.finish();
 }
 
-fn build_cache(size: usize, rrs: &[ResourceRecord]) -> Cache {
-    let mut cache = Cache::with_desired_size(size);
+fn build_cache(
+    now: Instant,
+    size: usize,
+    rrs: &[ResourceRecord],
+) -> NamespacedCache<DomainName, RecordType, (RecordTypeWithData, RecordClass)> {
+    let mut cache = NamespacedCache::with_desired_size(size);
     for rr in rrs {
-        cache.insert(rr);
+        cache.insert(
+            now,
+            rr.name.clone(),
+            rr.rtype_with_data.rtype(),
+            (rr.rtype_with_data.clone(), rr.rclass),
+            now + Duration::from_secs(rr.ttl as u64),
+        );
     }
     cache
 }
