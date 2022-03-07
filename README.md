@@ -48,6 +48,7 @@ modules are:
 - `protocol` - the DNS message types and serialisation / deserialisation logic
 - `resolver` - the resolution and caching logic
 - `settings` - the configuration data type & parser
+- `zones`    - authoritative and non-authoritative zones
 
 ### Testing
 

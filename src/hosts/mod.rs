@@ -4,88 +4,43 @@ use std::path::Path;
 use std::str::FromStr;
 use tokio::fs::read_to_string;
 
-use crate::protocol::wire_types::DomainName;
-use crate::settings::*;
+use crate::protocol::wire_types::*;
+use crate::zones::Zone;
 
 /// Read a hosts file, for example /etc/hosts, and add all the entries
-/// to the local zone.
+/// to the root zone.
 ///
-/// Prior entries, including those already in the local zone, take
-/// precedence over later entries.
-pub async fn update_static_zone_from_hosts_file<P: AsRef<Path>>(
-    local_zone: &mut Settings,
+/// It is an error to call this function with any zone other than the
+/// root.
+pub async fn update_root_zone_from_hosts_file<P: AsRef<Path>>(
+    zone: &mut Zone,
     path: P,
 ) -> Result<(), Error> {
     match read_to_string(path).await {
-        Ok(data) => update_static_zone_from_hosts_data(local_zone, &data),
+        Ok(data) => update_root_zone_from_hosts_data(zone, &data),
         Err(error) => Err(Error::IO { error }),
     }
 }
 
-/// Like `update_static_zone_from_hosts_file` but also takes a set of
-/// names the local zone currently defines, to avoid the need to
-/// re-examine it.  This also mutates the names set to add any
-/// newly-defined names.
-///
-/// Prior entries, including those in the names set but NOT including
-/// those in the local zone, take precedence over later entries: if a
-/// name is in the local zone but NOT in the name set, and it occurs
-/// in the hosts file, it WILL be replaced!
-pub async fn update_static_zone_from_hosts_file_excluding_precedent_names<P: AsRef<Path>>(
-    local_zone: &mut Settings,
-    names: &mut HashSet<DomainName>,
-    path: P,
-) -> Result<(), Error> {
-    match read_to_string(path).await {
-        Ok(data) => {
-            update_static_zone_from_hosts_data_excluding_precedent_names(local_zone, names, &data)
-        }
-        Err(error) => Err(Error::IO { error }),
-    }
-}
-
-/// Parse a string of hosts data and add all the entries to the local
+/// Parse a string of hosts data and add all the entries to the root
 /// zone.
 ///
-/// Prior entries, including those already in the local zone, take
-/// precedence over later entries.
-pub fn update_static_zone_from_hosts_data(
-    local_zone: &mut Settings,
-    data: &str,
-) -> Result<(), Error> {
-    update_static_zone_from_hosts_data_excluding_precedent_names(
-        local_zone,
-        &mut get_names_from_local_zone(local_zone),
-        data,
-    )
-}
+/// It is an error to call this function with any zone other than the
+/// root.
+pub fn update_root_zone_from_hosts_data(zone: &mut Zone, data: &str) -> Result<(), Error> {
+    if zone.get_apex() != &DomainName::root_domain() {
+        return Err(Error::ExpectedRootZone);
+    }
 
-/// Like `update_static_zone_from_hosts_data` but also takes a set of
-/// names the local zone currently defines, to avoid the need to
-/// re-examine it.  This also mutates the names set to add any
-/// newly-defined names.
-///
-/// Prior entries, including those in the names set but NOT including
-/// those in the local zone, take precedence over later entries: if a
-/// name is in the local zone but NOT in the name set, and it occurs
-/// in the hosts file, it WILL be replaced!
-pub fn update_static_zone_from_hosts_data_excluding_precedent_names(
-    local_zone: &mut Settings,
-    names: &mut HashSet<DomainName>,
-    data: &str,
-) -> Result<(), Error> {
     for line in data.lines() {
-        if let Some((address, new_names)) = parse_line_excluding_precedent_names(names, line)? {
+        if let Some((address, new_names)) = parse_line(line)? {
             for name in new_names {
-                names.insert(name.clone());
-                local_zone.static_records.push(Record {
-                    domain: DomainWithOptionalSubdomains {
-                        name: Name { domain: name },
-                        include_subdomains: false,
-                    },
-                    record_a: Some(address),
-                    record_cname: None,
-                });
+                zone.insert(
+                    &name,
+                    RecordTypeWithData::A { address },
+                    RecordClass::IN,
+                    300,
+                );
             }
         }
     }
@@ -93,11 +48,8 @@ pub fn update_static_zone_from_hosts_data_excluding_precedent_names(
     Ok(())
 }
 
-/// Parse a single line, excluding names we already know about.
-pub fn parse_line_excluding_precedent_names(
-    names: &HashSet<DomainName>,
-    line: &str,
-) -> Result<Option<(Ipv4Addr, HashSet<DomainName>)>, Error> {
+/// Parse a single line.
+pub fn parse_line(line: &str) -> Result<Option<(Ipv4Addr, HashSet<DomainName>)>, Error> {
     let mut state = State::SkipToAddress;
     let mut address = Ipv4Addr::LOCALHOST;
     let mut new_names = HashSet::new();
@@ -134,9 +86,7 @@ pub fn parse_line_excluding_precedent_names(
                 let name_str = &line[*start..i];
                 match DomainName::from_dotted_string(name_str) {
                     Some(name) => {
-                        if !names.contains(&name) {
-                            new_names.insert(name);
-                        }
+                        new_names.insert(name);
                     }
                     None => {
                         return Err(Error::CouldNotParseName {
@@ -154,9 +104,7 @@ pub fn parse_line_excluding_precedent_names(
         let name_str = &line[start..];
         match DomainName::from_dotted_string(name_str) {
             Some(name) => {
-                if !names.contains(&name) {
-                    new_names.insert(name);
-                }
+                new_names.insert(name);
             }
             None => {
                 return Err(Error::CouldNotParseName {
@@ -173,18 +121,10 @@ pub fn parse_line_excluding_precedent_names(
     }
 }
 
-/// Get names from the local zone.
-pub fn get_names_from_local_zone(local_zone: &Settings) -> HashSet<DomainName> {
-    let mut names = HashSet::with_capacity(local_zone.static_records.len());
-    for record in &local_zone.static_records {
-        names.insert(record.domain.name.domain.clone());
-    }
-    names
-}
-
 /// An error that can occur reading a hosts file.
 #[derive(Debug)]
 pub enum Error {
+    ExpectedRootZone,
     IO { error: std::io::Error },
     CouldNotParseAddress { address: String },
     CouldNotParseName { name: String },
@@ -205,7 +145,7 @@ mod tests {
     use crate::protocol::wire_types::test_util::*;
 
     #[test]
-    fn update_does_all_ipv4_excluding_precedent_names() {
+    fn update_does_all_ipv4() {
         let hosts_data = "# hark, a comment!\n\
                           1.2.3.4 one two three four\n\
                           0.0.0.0 blocked\n
@@ -213,32 +153,29 @@ mod tests {
                           127.0.0.1 localhost\n\
                           ::1 also-localhost";
 
-        let mut local_zone = local_zone(&[
-            (domain("one"), Ipv4Addr::new(1, 1, 1, 1)),
-            (domain("four"), Ipv4Addr::new(4, 5, 6, 7)),
-        ]);
+        let mut root_zone = Zone::default();
+        assert!(update_root_zone_from_hosts_data(&mut root_zone, hosts_data).is_ok());
 
-        assert!(update_static_zone_from_hosts_data(&mut local_zone, hosts_data).is_ok());
-
-        let mut expected_records = vec![
-            record(domain("one"), Ipv4Addr::new(1, 1, 1, 1)),
-            record(domain("two"), Ipv4Addr::new(1, 2, 3, 4)),
-            record(domain("three"), Ipv4Addr::new(1, 2, 3, 4)),
-            record(domain("four"), Ipv4Addr::new(4, 5, 6, 7)),
-            record(domain("blocked"), Ipv4Addr::new(0, 0, 0, 0)),
-            record(domain("localhost"), Ipv4Addr::new(127, 0, 0, 1)),
+        let expected_records = &[
+            ("one", Ipv4Addr::new(1, 2, 3, 4)),
+            ("two", Ipv4Addr::new(1, 2, 3, 4)),
+            ("three", Ipv4Addr::new(1, 2, 3, 4)),
+            ("four", Ipv4Addr::new(1, 2, 3, 4)),
+            ("blocked", Ipv4Addr::new(0, 0, 0, 0)),
+            ("localhost", Ipv4Addr::new(127, 0, 0, 1)),
         ];
 
-        expected_records.sort();
-        local_zone.static_records.sort();
-
-        assert_eq!(expected_records, local_zone.static_records);
+        for (name, addr) in expected_records {
+            assert_eq!(
+                Some(vec![a_record(name, *addr)]),
+                root_zone.get(&domain(name), QueryType::Wildcard, QueryClass::Wildcard)
+            );
+        }
     }
 
     #[test]
     fn parse_line_parses_ipv4_with_names() {
-        if let Ok(parsed) = parse_line_excluding_precedent_names(&HashSet::new(), "1.2.3.4 foo bar")
-        {
+        if let Ok(parsed) = parse_line("1.2.3.4 foo bar") {
             assert_eq!(
                 Some((
                     Ipv4Addr::new(1, 2, 3, 4),
@@ -253,7 +190,7 @@ mod tests {
 
     #[test]
     fn parse_line_parses_ipv4_without_names() {
-        if let Ok(parsed) = parse_line_excluding_precedent_names(&HashSet::new(), "1.2.3.4") {
+        if let Ok(parsed) = parse_line("1.2.3.4") {
             assert_eq!(None, parsed)
         } else {
             panic!("unexpected parse failure")
@@ -262,52 +199,10 @@ mod tests {
 
     #[test]
     fn parse_line_ignores_ipv6() {
-        if let Ok(parsed) = parse_line_excluding_precedent_names(&HashSet::new(), "::1 localhost") {
+        if let Ok(parsed) = parse_line("::1 localhost") {
             assert_eq!(None, parsed)
         } else {
             panic!("unexpected parse failure")
-        }
-    }
-
-    #[test]
-    fn parse_line_excludes_precedent_names() {
-        let precedent_names = [domain("one"), domain("two")].into_iter().collect();
-
-        if let Ok(parsed) =
-            parse_line_excluding_precedent_names(&precedent_names, "1.2.3.4 one two three four")
-        {
-            assert_eq!(
-                Some((
-                    Ipv4Addr::new(1, 2, 3, 4),
-                    [domain("three"), domain("four")].into_iter().collect()
-                )),
-                parsed
-            );
-        } else {
-            panic!("unexpected parse failure")
-        }
-    }
-
-    fn local_zone(records: &[(DomainName, Ipv4Addr)]) -> Settings {
-        Settings {
-            interface: None,
-            root_hints: Vec::new(),
-            hosts_files: Vec::new(),
-            static_records: records
-                .iter()
-                .map(|(name, address)| record(name.clone(), *address))
-                .collect(),
-        }
-    }
-
-    fn record(name: DomainName, address: Ipv4Addr) -> Record {
-        Record {
-            domain: DomainWithOptionalSubdomains {
-                name: Name { domain: name },
-                include_subdomains: false,
-            },
-            record_a: Some(address),
-            record_cname: None,
         }
     }
 }
