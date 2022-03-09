@@ -20,13 +20,12 @@ use crate::zones::{Zone, Zones};
 /// Resolve a question using the standard DNS algorithms.
 pub async fn resolve(
     is_recursive: bool,
-    upstream_nameservers: &[Ipv4Addr],
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     if is_recursive {
-        resolve_recursive(upstream_nameservers, zones, cache, question).await
+        resolve_recursive(zones, cache, question).await
     } else {
         resolve_nonrecursive(zones, cache, question)
     }
@@ -178,14 +177,13 @@ pub fn resolve_nonrecursive(
 ///
 /// See section 5.3.3 of RFC 1034.
 pub async fn resolve_recursive(
-    root_hints: &[Ipv4Addr],
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     match timeout(
         Duration::from_secs(60),
-        resolve_recursive_notimeout(root_hints, zones, cache, question),
+        resolve_recursive_notimeout(zones, cache, question),
     )
     .await
     {
@@ -197,7 +195,6 @@ pub async fn resolve_recursive(
 /// Timeout-less version of `resolve_recursive`.
 #[async_recursion]
 async fn resolve_recursive_notimeout(
-    root_hints: &[Ipv4Addr],
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
@@ -210,69 +207,71 @@ async fn resolve_recursive_notimeout(
         return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
     }
 
-    let mut candidates = candidate_nameservers(root_hints, zones, cache, &question.name);
-    'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
-        if let Some(ip) = match candidate {
-            HostOrIP::IP(ip) => Some(ip),
-            HostOrIP::Host(name) => resolve_recursive_notimeout(
-                root_hints,
-                zones,
-                cache,
-                &Question {
-                    name: name.clone(),
-                    qclass: QueryClass::Record(RecordClass::IN),
-                    qtype: QueryType::Record(RecordType::A),
-                },
-            )
-            .await
-            .and_then(|res| get_ip(&res.rrs(), &name)),
-        } {
-            match query_nameserver(&ip, question, candidates.match_count()).await {
-                Some(NameserverResponse::Answer { rrs, authority }) => {
-                    for rr in &rrs {
-                        cache.insert(rr);
+    if let Some(mut candidates) = candidate_nameservers(zones, cache, &question.name) {
+        'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
+            if let Some(ip) = match candidate {
+                HostOrIP::IP(ip) => Some(ip),
+                HostOrIP::Host(name) => resolve_recursive_notimeout(
+                    zones,
+                    cache,
+                    &Question {
+                        name: name.clone(),
+                        qclass: QueryClass::Record(RecordClass::IN),
+                        qtype: QueryType::Record(RecordType::A),
+                    },
+                )
+                .await
+                .and_then(|res| get_ip(&res.rrs(), &name)),
+            } {
+                match query_nameserver(&ip, question, candidates.match_count()).await {
+                    Some(NameserverResponse::Answer { rrs, authority }) => {
+                        for rr in &rrs {
+                            cache.insert(rr);
+                        }
+                        println!("[DEBUG] got response to current query");
+                        return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
                     }
-                    println!("[DEBUG] got response to current query");
-                    return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
+                    Some(NameserverResponse::Delegation { rrs, delegation }) => {
+                        for rr in &rrs {
+                            cache.insert(rr);
+                        }
+                        candidates = delegation;
+                        println!("[DEBUG] found better nameserver - restarting current query");
+                        continue 'query_nameservers;
+                    }
+                    Some(NameserverResponse::CNAME { rrs, cname }) => {
+                        for rr in &rrs {
+                            cache.insert(rr);
+                        }
+                        let cname_question = Question {
+                            name: cname,
+                            qclass: question.qclass,
+                            qtype: question.qtype,
+                        };
+                        println!("[DEBUG] current query is a CNAME - restarting with CNAME target");
+                        if let Some(resolved) =
+                            resolve_recursive_notimeout(zones, cache, &cname_question).await
+                        {
+                            let mut r_rrs = resolved.clone().rrs();
+                            let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
+                            combined_rrs.append(&mut rrs.clone());
+                            combined_rrs.append(&mut r_rrs);
+                            return Some(ResolvedRecord::NonAuthoritative {
+                                rrs: combined_rrs,
+                                authority: resolved.authority(),
+                            });
+                        } else {
+                            return None;
+                        }
+                    }
+                    None => (),
                 }
-                Some(NameserverResponse::Delegation { rrs, delegation }) => {
-                    for rr in &rrs {
-                        cache.insert(rr);
-                    }
-                    candidates = delegation;
-                    println!("[DEBUG] found better nameserver - restarting current query");
-                    continue 'query_nameservers;
-                }
-                Some(NameserverResponse::CNAME { rrs, cname }) => {
-                    for rr in &rrs {
-                        cache.insert(rr);
-                    }
-                    let cname_question = Question {
-                        name: cname,
-                        qclass: question.qclass,
-                        qtype: question.qtype,
-                    };
-                    println!("[DEBUG] current query is a CNAME - restarting with CNAME target");
-                    if let Some(resolved) =
-                        resolve_recursive_notimeout(root_hints, zones, cache, &cname_question).await
-                    {
-                        let mut r_rrs = resolved.clone().rrs();
-                        let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
-                        combined_rrs.append(&mut rrs.clone());
-                        combined_rrs.append(&mut r_rrs);
-                        return Some(ResolvedRecord::NonAuthoritative {
-                            rrs: combined_rrs,
-                            authority: resolved.authority(),
-                        });
-                    } else {
-                        return None;
-                    }
-                }
-                None => (),
             }
-        }
 
-        return None;
+            return None;
+        }
+    } else {
+        println!("[DEBUG] no candidate nameservers");
     }
 
     None
@@ -366,11 +365,10 @@ pub fn nonauthoritative_from_cache(
 ///
 /// This corresponds to step 2 of the standard resolver algorithm.
 pub fn candidate_nameservers(
-    root_hints: &[Ipv4Addr],
     zones: &Zones,
     cache: &SharedCache,
     question: &DomainName,
-) -> Nameservers {
+) -> Option<Nameservers> {
     for i in 0..question.labels.len() {
         let labels = &question.labels[i..];
         if let Some(name) = DomainName::from_labels(labels.into()) {
@@ -391,18 +389,15 @@ pub fn candidate_nameservers(
             }
 
             if !hostnames.is_empty() {
-                return Nameservers {
+                return Some(Nameservers {
                     hostnames,
                     name: ns_q.name,
-                };
+                });
             }
         }
     }
 
-    Nameservers {
-        hostnames: root_hints.iter().copied().map(HostOrIP::IP).collect(),
-        name: DomainName::root_domain(),
-    }
+    None
 }
 
 /// Query a remote nameserver to answer a question.
@@ -1050,29 +1045,28 @@ mod tests {
     fn candidate_nameservers_gets_all_matches() {
         let qdomain = domain("com");
         assert_eq!(
-            Nameservers {
+            Some(Nameservers {
                 hostnames: vec![
                     HostOrIP::Host(domain("ns1.example.com")),
                     HostOrIP::Host(domain("ns2.example.com"))
                 ],
                 name: qdomain.clone(),
-            },
-            candidate_nameservers(&[], &zones(), &cache_with_nameservers(&["com"]), &qdomain)
+            }),
+            candidate_nameservers(&zones(), &cache_with_nameservers(&["com"]), &qdomain)
         );
     }
 
     #[test]
     fn candidate_nameservers_returns_longest_match() {
         assert_eq!(
-            Nameservers {
+            Some(Nameservers {
                 hostnames: vec![
                     HostOrIP::Host(domain("ns1.example.com")),
                     HostOrIP::Host(domain("ns2.example.com"))
                 ],
                 name: domain("example.com"),
-            },
+            }),
             candidate_nameservers(
-                &[],
                 &zones(),
                 &cache_with_nameservers(&["example.com", "com"]),
                 &domain("www.example.com")
@@ -1081,20 +1075,10 @@ mod tests {
     }
 
     #[test]
-    fn candidate_nameservers_returns_root_hints_on_failure() {
-        let root_hints = vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)];
-
+    fn candidate_nameservers_returns_none_on_failure() {
         assert_eq!(
-            Nameservers {
-                hostnames: root_hints.iter().copied().map(HostOrIP::IP).collect(),
-                name: DomainName::root_domain(),
-            },
-            candidate_nameservers(
-                &root_hints,
-                &zones(),
-                &cache_with_nameservers(&["com"]),
-                &domain("net")
-            )
+            None,
+            candidate_nameservers(&zones(), &cache_with_nameservers(&["com"]), &domain("net"))
         );
     }
 

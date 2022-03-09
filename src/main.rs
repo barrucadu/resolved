@@ -16,12 +16,7 @@ use resolved::resolver::{resolve, ResolvedRecord};
 use resolved::settings::Settings;
 use resolved::zones::{Zone, Zones};
 
-async fn resolve_and_build_response(
-    settings: &Settings,
-    zones: &Zones,
-    cache: &SharedCache,
-    query: Message,
-) -> Message {
+async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: Message) -> Message {
     let mut response = query.make_response();
     response.header.is_authoritative = true;
 
@@ -33,15 +28,7 @@ async fn resolve_and_build_response(
     }
 
     for question in &query.questions {
-        if let Some(rr) = resolve(
-            query.header.recursion_desired,
-            &settings.root_hints,
-            zones,
-            cache,
-            question,
-        )
-        .await
-        {
+        if let Some(rr) = resolve(query.header.recursion_desired, zones, cache, question).await {
             match rr {
                 ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
                 ResolvedRecord::NonAuthoritative { mut rrs, authority } => {
@@ -71,12 +58,7 @@ async fn resolve_and_build_response(
     response
 }
 
-async fn handle_raw_message<'a>(
-    settings: &Settings,
-    zones: &Zones,
-    cache: &SharedCache,
-    buf: &[u8],
-) -> Option<Message> {
+async fn handle_raw_message<'a>(zones: &Zones, cache: &SharedCache, buf: &[u8]) -> Option<Message> {
     let res = Message::from_octets(buf);
     println!("{:?}", res);
 
@@ -85,7 +67,7 @@ async fn handle_raw_message<'a>(
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == Opcode::Standard {
-                Some(resolve_and_build_response(settings, zones, cache, msg).await)
+                Some(resolve_and_build_response(zones, cache, msg).await)
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = Rcode::NotImplemented;
@@ -96,19 +78,16 @@ async fn handle_raw_message<'a>(
     }
 }
 
-async fn listen_tcp(settings: Settings, zones: Zones, cache: SharedCache, socket: TcpListener) {
+async fn listen_tcp(zones: Zones, cache: SharedCache, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
-                let settings = settings.clone();
                 let zones = zones.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
-                        Ok(bytes) => {
-                            handle_raw_message(&settings, &zones, &cache, bytes.as_ref()).await
-                        }
+                        Ok(bytes) => handle_raw_message(&zones, &cache, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
                             id,
                             expected,
@@ -148,7 +127,7 @@ async fn listen_tcp(settings: Settings, zones: Zones, cache: SharedCache, socket
     }
 }
 
-async fn listen_udp(settings: Settings, zones: Zones, cache: SharedCache, socket: UdpSocket) {
+async fn listen_udp(zones: Zones, cache: SharedCache, socket: UdpSocket) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut buf = vec![0u8; 512];
 
@@ -158,11 +137,10 @@ async fn listen_udp(settings: Settings, zones: Zones, cache: SharedCache, socket
                 println!("[{:?}] udp request ok", peer);
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
-                let settings = settings.clone();
                 let zones = zones.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(&settings, &zones, &cache, bytes.as_ref()).await {
+                    if let Some(response_message) = handle_raw_message(&zones, &cache, bytes.as_ref()).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
@@ -272,6 +250,27 @@ async fn main() {
                 );
             }
         }
+        if let Some(ns) = &record.record_ns {
+            if record.domain.include_subdomains {
+                root_zone.insert_wildcard(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::NS {
+                        nsdname: ns.domain.clone(),
+                    },
+                    RecordClass::IN,
+                    300,
+                );
+            } else {
+                root_zone.insert(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::NS {
+                        nsdname: ns.domain.clone(),
+                    },
+                    RecordClass::IN,
+                    300,
+                );
+            }
+        }
     }
     for path_str in &settings.hosts_files.clone() {
         let path = Path::new(path_str);
@@ -313,18 +312,8 @@ async fn main() {
 
     let cache = SharedCache::new();
 
-    tokio::spawn(listen_tcp(
-        settings.clone(),
-        zones.clone(),
-        cache.clone(),
-        tcp,
-    ));
-    tokio::spawn(listen_udp(
-        settings.clone(),
-        zones.clone(),
-        cache.clone(),
-        udp,
-    ));
+    tokio::spawn(listen_tcp(zones.clone(), cache.clone(), tcp));
+    tokio::spawn(listen_udp(zones.clone(), cache.clone(), udp));
 
     prune_cache_task(cache).await;
 }
