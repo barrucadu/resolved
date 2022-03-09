@@ -31,11 +31,8 @@ async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: M
         if let Some(rr) = resolve(query.header.recursion_desired, zones, cache, question).await {
             match rr {
                 ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
-                ResolvedRecord::NonAuthoritative { mut rrs, authority } => {
+                ResolvedRecord::NonAuthoritative { mut rrs } => {
                     response.answers.append(&mut rrs);
-                    if let Some(rr) = authority {
-                        response.authority.push(rr);
-                    }
                     response.header.is_authoritative = false;
                 }
             }

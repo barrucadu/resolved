@@ -55,7 +55,6 @@ pub fn resolve_nonrecursive(
 ) -> Option<ResolvedRecord> {
     let mut questions = vec![initial_question.clone()];
     let mut rrs = Vec::new();
-    let mut authority = None;
     let mut authoritative = true;
     let mut cnames_followed = HashSet::new();
 
@@ -117,11 +116,9 @@ pub fn resolve_nonrecursive(
             if !skip_cache {
                 authoritative = false;
 
-                let (cached_rrs, cached_authority_rr) =
-                    nonauthoritative_from_cache(cache, &question);
+                let cached_rrs = nonauthoritative_from_cache(cache, &question);
                 if !cached_rrs.is_empty() {
                     new_rrs.append(&mut cached_rrs.clone());
-                    authority = cached_authority_rr;
 
                     println!(
                         "[DEBUG] cache HIT for {:?} {:?} {:?}",
@@ -162,7 +159,7 @@ pub fn resolve_nonrecursive(
     } else if rrs.is_empty() {
         None
     } else {
-        Some(ResolvedRecord::NonAuthoritative { rrs, authority })
+        Some(ResolvedRecord::NonAuthoritative { rrs })
     }
 }
 
@@ -201,10 +198,8 @@ async fn resolve_recursive_notimeout(
 ) -> Option<ResolvedRecord> {
     // TODO: bound recursion depth
 
-    if let Some(resolved) = resolve_nonrecursive(zones, cache, question) {
-        let rrs = resolved.clone().rrs();
-        let authority = resolved.authority();
-        return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
+    if let resolved @ Some(_) = resolve_nonrecursive(zones, cache, question) {
+        return resolved;
     }
 
     if let Some(mut candidates) = candidate_nameservers(zones, cache, &question.name) {
@@ -224,12 +219,12 @@ async fn resolve_recursive_notimeout(
                 .and_then(|res| get_ip(&res.rrs(), &name)),
             } {
                 match query_nameserver(&ip, question, candidates.match_count()).await {
-                    Some(NameserverResponse::Answer { rrs, authority }) => {
+                    Some(NameserverResponse::Answer { rrs }) => {
                         for rr in &rrs {
                             cache.insert(rr);
                         }
                         println!("[DEBUG] got response to current query");
-                        return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
+                        return Some(ResolvedRecord::NonAuthoritative { rrs });
                     }
                     Some(NameserverResponse::Delegation { rrs, delegation }) => {
                         for rr in &rrs {
@@ -252,14 +247,11 @@ async fn resolve_recursive_notimeout(
                         if let Some(resolved) =
                             resolve_recursive_notimeout(zones, cache, &cname_question).await
                         {
-                            let mut r_rrs = resolved.clone().rrs();
+                            let mut r_rrs = resolved.rrs();
                             let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
                             combined_rrs.append(&mut rrs.clone());
                             combined_rrs.append(&mut r_rrs);
-                            return Some(ResolvedRecord::NonAuthoritative {
-                                rrs: combined_rrs,
-                                authority: resolved.authority(),
-                            });
+                            return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         } else {
                             return None;
                         }
@@ -285,27 +277,15 @@ async fn resolve_recursive_notimeout(
 ///
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ResolvedRecord {
-    Authoritative {
-        rrs: Vec<ResourceRecord>,
-    },
-    NonAuthoritative {
-        rrs: Vec<ResourceRecord>,
-        authority: Option<ResourceRecord>,
-    },
+    Authoritative { rrs: Vec<ResourceRecord> },
+    NonAuthoritative { rrs: Vec<ResourceRecord> },
 }
 
 impl ResolvedRecord {
     pub fn rrs(self) -> Vec<ResourceRecord> {
         match self {
             ResolvedRecord::Authoritative { rrs } => rrs,
-            ResolvedRecord::NonAuthoritative { rrs, authority: _ } => rrs,
-        }
-    }
-
-    pub fn authority(self) -> Option<ResourceRecord> {
-        match self {
-            ResolvedRecord::Authoritative { rrs: _ } => None,
-            ResolvedRecord::NonAuthoritative { rrs: _, authority } => authority,
+            ResolvedRecord::NonAuthoritative { rrs } => rrs,
         }
     }
 }
@@ -344,7 +324,7 @@ pub fn from_zones<'a>(
 pub fn nonauthoritative_from_cache(
     cache: &SharedCache,
     question: &Question,
-) -> (Vec<ResourceRecord>, Option<ResourceRecord>) {
+) -> Vec<ResourceRecord> {
     let mut rrs = cache.get(&question.name, &question.qtype, &question.qclass);
 
     if rrs.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
@@ -355,8 +335,7 @@ pub fn nonauthoritative_from_cache(
         )
     }
 
-    // TODO: implement authority record
-    (rrs, None)
+    rrs
 }
 
 /// Get the best nameservers by non-recursively looking them up for
@@ -638,11 +617,7 @@ pub fn validate_nameserver_response(
         } else {
             // step 3.1 & 3.2: what sort of answer is this?
             if seen_final_record {
-                // TODO: implement authority
-                Some(NameserverResponse::Answer {
-                    rrs: rrs_for_query,
-                    authority: None,
-                })
+                Some(NameserverResponse::Answer { rrs: rrs_for_query })
             } else {
                 Some(NameserverResponse::CNAME {
                     rrs: rrs_for_query,
@@ -746,7 +721,6 @@ pub enum HostOrIP {
 pub enum NameserverResponse {
     Answer {
         rrs: Vec<ResourceRecord>,
-        authority: Option<ResourceRecord>,
     },
     CNAME {
         rrs: Vec<ResourceRecord>,
@@ -804,7 +778,6 @@ mod tests {
         assert_eq!(
             Some(ResolvedRecord::NonAuthoritative {
                 rrs: vec![a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))],
-                authority: None,
             }),
             resolve_nonrecursive(
                 &zones(),
@@ -825,10 +798,7 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&rr);
 
-        if let Some(ResolvedRecord::NonAuthoritative {
-            rrs,
-            authority: None,
-        }) = resolve_nonrecursive(
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
             &zones(),
             &cache,
             &Question {
@@ -891,10 +861,7 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&cache_rr);
 
-        if let Some(ResolvedRecord::NonAuthoritative {
-            rrs,
-            authority: None,
-        }) = resolve_nonrecursive(
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
             &zones(),
             &cache,
             &Question {
@@ -921,10 +888,7 @@ mod tests {
         cache.insert(&cname_rr1);
         cache.insert(&cname_rr2);
 
-        if let Some(ResolvedRecord::NonAuthoritative {
-            rrs,
-            authority: None,
-        }) = resolve_nonrecursive(
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
             &zones(),
             &cache,
             &Question {
@@ -1012,15 +976,17 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&rr);
 
-        let (actuals, _) = nonauthoritative_from_cache(
-            &cache,
-            &Question {
-                name: domain("www.example.com"),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Wildcard,
-            },
+        assert_cache_response(
+            &rr,
+            nonauthoritative_from_cache(
+                &cache,
+                &Question {
+                    name: domain("www.example.com"),
+                    qtype: QueryType::Record(RecordType::A),
+                    qclass: QueryClass::Wildcard,
+                },
+            ),
         );
-        assert_cache_response(&rr, actuals);
     }
 
     #[test]
@@ -1030,15 +996,17 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&rr);
 
-        let (actuals, _) = nonauthoritative_from_cache(
-            &cache,
-            &Question {
-                name: domain("www.example.com"),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Wildcard,
-            },
+        assert_cache_response(
+            &rr,
+            nonauthoritative_from_cache(
+                &cache,
+                &Question {
+                    name: domain("www.example.com"),
+                    qtype: QueryType::Record(RecordType::A),
+                    qclass: QueryClass::Wildcard,
+                },
+            ),
         );
-        assert_cache_response(&rr, actuals);
     }
 
     #[test]
@@ -1165,7 +1133,6 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
-                authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1192,7 +1159,6 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
-                authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1237,7 +1203,6 @@ mod tests {
                     cname_record("www.example.com", "cname-target.example.com"),
                     a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1))
                 ],
-                authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
         );
