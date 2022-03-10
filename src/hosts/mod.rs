@@ -143,6 +143,7 @@ mod tests {
     use super::*;
 
     use crate::protocol::wire_types::test_util::*;
+    use crate::zones::ZoneResult;
 
     #[test]
     fn update_does_all_ipv4() {
@@ -167,8 +168,10 @@ mod tests {
 
         for (name, addr) in expected_records {
             assert_eq!(
-                Some(vec![a_record(name, *addr)]),
-                root_zone.get(&domain(name), QueryType::Wildcard, QueryClass::Wildcard)
+                Some(ZoneResult::Answer {
+                    rrs: vec![a_record(name, *addr)]
+                }),
+                root_zone.resolve(&domain(name), QueryType::Wildcard, QueryClass::Wildcard)
             );
         }
     }

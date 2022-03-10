@@ -70,7 +70,7 @@ impl Zone {
     /// If there is a `SOA` value, it is inserted as an RR at the root
     /// of the zone.
     pub fn new(apex: DomainName, soa: Option<SOA>) -> Self {
-        let mut records = ZoneRecords::new();
+        let mut records = ZoneRecords::new(apex.clone());
         if let Some(soa) = &soa {
             let rr = soa.to_rr(&apex);
             records.insert(&[], rr.rtype_with_data, rr.rclass, rr.ttl);
@@ -94,52 +94,19 @@ impl Zone {
         self.soa.as_ref().map(|soa| soa.to_rr(&self.apex))
     }
 
-    /// Get records matching a domain.  This domain MUST be a
+    /// Resolve a query.  Returns `None` if the domain is not a
     /// subdomain of the apex.
     ///
-    /// Returns `None` if the domain does not exist.  This is distinct
-    /// from `Some(Vec::new())`, which means that the domain does
-    /// exist but has no matching records.  If the domain does not
-    /// exist and this zone is authoritative, an authoritative
-    /// NXDOMAIN response can be served to the user.
-    pub fn get(
+    /// This corresponds to step 3 of the standard nameserver
+    /// algorithm (see section 4.3.2 of RFC 1034).
+    pub fn resolve(
         &self,
         name: &DomainName,
         qtype: QueryType,
         qclass: QueryClass,
-    ) -> Option<Vec<ResourceRecord>> {
-        if !name.is_subdomain_of(&self.apex) {
-            return None;
-        }
-
-        let relative_domain = &name.labels[0..name.labels.len() - self.apex.labels.len()];
-        if let Some(zrs) = self.records.get(relative_domain) {
-            let mut rrs = Vec::new();
-            match qtype {
-                QueryType::Wildcard => {
-                    for entries in zrs.values() {
-                        for entry in entries {
-                            if entry.rclass.matches(&qclass) {
-                                rrs.push(entry.to_rr(name));
-                            }
-                        }
-                    }
-                }
-                QueryType::Record(ty) => {
-                    if let Some(entries) = zrs.get(&ty) {
-                        for entry in entries {
-                            if entry.rclass.matches(&qclass) {
-                                rrs.push(entry.to_rr(name));
-                            }
-                        }
-                    }
-                }
-                _ => (),
-            }
-            Some(rrs)
-        } else {
-            None
-        }
+    ) -> Option<ZoneResult> {
+        self.relative_domain(name)
+            .map(|relative| self.records.resolve(name, qtype, qclass, relative))
     }
 
     /// Insert a record for a domain.  This domain MUST be a subdomain
@@ -155,17 +122,14 @@ impl Zone {
         rclass: RecordClass,
         ttl: u32,
     ) {
-        if !name.is_subdomain_of(&self.apex) {
-            return;
+        if let Some(relative_domain) = self.relative_domain(name) {
+            self.records.insert(
+                relative_domain,
+                rtype_with_data,
+                rclass,
+                self.actual_ttl(ttl),
+            );
         }
-
-        let relative_domain = &name.labels[0..name.labels.len() - self.apex.labels.len()];
-        self.records.insert(
-            relative_domain,
-            rtype_with_data,
-            rclass,
-            self.actual_ttl(ttl),
-        );
     }
 
     /// Insert a wildcard record for a domain.  This domain MUST be a
@@ -181,17 +145,26 @@ impl Zone {
         rclass: RecordClass,
         ttl: u32,
     ) {
-        if !name.is_subdomain_of(&self.apex) {
-            return;
+        if let Some(relative_domain) = self.relative_domain(name) {
+            self.records.insert_wildcard(
+                relative_domain,
+                rtype_with_data,
+                rclass,
+                self.actual_ttl(ttl),
+            );
         }
+    }
 
-        let relative_domain = &name.labels[0..name.labels.len() - self.apex.labels.len()];
-        self.records.insert_wildcard(
-            relative_domain,
-            rtype_with_data,
-            rclass,
-            self.actual_ttl(ttl),
-        );
+    /// Take a domain and chop off the suffix corresponding to the
+    /// apex of this zone.
+    ///
+    /// Returns `None` if the given domain does not match the apex.
+    pub fn relative_domain<'a>(&self, name: &'a DomainName) -> Option<&'a [Vec<u8>]> {
+        if name.is_subdomain_of(&self.apex) {
+            Some(&name.labels[0..name.labels.len() - self.apex.labels.len()])
+        } else {
+            None
+        }
     }
 
     /// If this zone is authoritative, and the given TTL is below the
@@ -207,9 +180,22 @@ impl Zone {
     }
 }
 
+/// The result of looking up a name in a zone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ZoneResult {
+    Answer { rrs: Vec<ResourceRecord> },
+    CNAME { cname_rr: ResourceRecord },
+    Delegation { ns_rrs: Vec<ResourceRecord> },
+    NameError,
+}
+
 /// The tree of records in a zone.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ZoneRecords {
+struct ZoneRecords {
+    /// Fully expanded domain name (labels + apex) of this part of the
+    /// tree.  For reconstructing NS RRs from ZRs.
+    nsdname: DomainName,
+
     /// Records for this domain only.
     this: HashMap<RecordType, Vec<ZoneRecord>>,
 
@@ -221,35 +207,67 @@ pub struct ZoneRecords {
     children: HashMap<Vec<u8>, ZoneRecords>,
 }
 
-impl Default for ZoneRecords {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl ZoneRecords {
-    pub fn new() -> Self {
+    pub fn new(nsdname: DomainName) -> Self {
         Self {
+            nsdname,
             this: HashMap::new(),
             wildcards: None,
             children: HashMap::new(),
         }
     }
 
-    /// Follow a relative domain down the tree.
-    pub fn get(
+    /// Resolve a query
+    pub fn resolve(
         &self,
+        name: &DomainName,
+        qtype: QueryType,
+        qclass: QueryClass,
         relative_domain: &[Vec<u8>],
-    ) -> Option<&HashMap<RecordType, Vec<ZoneRecord>>> {
+    ) -> ZoneResult {
         if relative_domain.is_empty() {
-            Some(&self.this)
-        } else if let Some(child) = self
-            .children
-            .get(&relative_domain[relative_domain.len() - 1])
-        {
-            child.get(&relative_domain[0..relative_domain.len() - 1])
+            // Name matched entirely - this is either case 3.b (if
+            // this name is delegated elsewhere) or 3.a (if not) of
+            // the standard nameserver algorithm
+            zone_result_helper(name, qtype, qclass, &self.this, &self.nsdname)
         } else {
-            self.wildcards.as_ref()
+            let pos = relative_domain.len() - 1;
+            if let Some(child) = self.children.get(&relative_domain[pos]) {
+                child.resolve(name, qtype, qclass, &relative_domain[0..pos])
+            } else if let Some(wildcards) = &self.wildcards {
+                // Name cannot be matched further, but there are
+                // wildcards.  This is part of case 3.c of the standard
+                // nameserver algorithm.
+                //
+                // Semantics of wildcard NS records are "undefined"
+                // and the practice is "discouraged, but not barred"
+                // (RFC 4592).  So I've chosen to implement them as
+                // prepending the next label to the current name.
+                let mut labels = self.nsdname.labels.clone();
+                labels.insert(0, relative_domain[pos].clone());
+                let nsdname = DomainName::from_labels(labels).unwrap();
+                zone_result_helper(name, qtype, qclass, wildcards, &nsdname)
+            } else {
+                // Name cannot be matched further, and there are no
+                // wildcards.  Check if there are NS records here: if
+                // so, we can delegate (part 3.b of the standard
+                // nameserver algorithm), otherwise this is the other
+                // part of case 3.c.
+                match self.this.get(&RecordType::NS) {
+                    Some(ns_zrs) => {
+                        let mut ns_zrs_mut = ns_zrs.clone();
+                        ns_zrs_mut.retain(|zr| zr.rclass.matches(&qclass));
+                        if ns_zrs_mut.is_empty() {
+                            ZoneResult::NameError
+                        } else {
+                            ZoneResult::Delegation {
+                                ns_rrs: ns_zrs.iter().map(|zr| zr.to_rr(&self.nsdname)).collect(),
+                            }
+                        }
+                    }
+                    None => ZoneResult::NameError,
+                }
+            }
         }
     }
 
@@ -283,7 +301,10 @@ impl ZoneRecords {
             if let Some(child) = self.children.get_mut(&label) {
                 child.insert(remainder, rtype_with_data, rclass, ttl);
             } else {
-                let mut child = ZoneRecords::new();
+                let mut labels = self.nsdname.labels.clone();
+                labels.insert(0, label.clone());
+
+                let mut child = ZoneRecords::new(DomainName::from_labels(labels).unwrap());
                 child.insert(remainder, rtype_with_data, rclass, ttl);
                 self.children.insert(label, child);
             }
@@ -329,7 +350,10 @@ impl ZoneRecords {
             if let Some(child) = self.children.get_mut(&label) {
                 child.insert_wildcard(remainder, rtype_with_data, rclass, ttl);
             } else {
-                let mut child = ZoneRecords::new();
+                let mut labels = self.nsdname.labels.clone();
+                labels.insert(0, label.clone());
+
+                let mut child = ZoneRecords::new(DomainName::from_labels(labels).unwrap());
                 child.insert_wildcard(remainder, rtype_with_data, rclass, ttl);
                 self.children.insert(label, child);
             }
@@ -389,6 +413,77 @@ impl ZoneRecord {
     }
 }
 
+/// Handles the terminal cases of step 3 of the standard nameserver
+/// algorithm.  If we're here, we've got a domain and records which
+/// are associated with it.  The possible cases are:
+///
+/// - There are `NS` record(s) delegating this name elsewhere, and the
+///   qtype is not *exactly equal to* `NS`.  In which case we should
+///   return those.  If this is a top-level non-recursive query they
+///   will be returned in the AUTHORITY section.
+///
+/// - There's a `CNAME` record on this name, and the qtype does *not*
+///   match `CNAME`.  In which case we return a `CNAME` response, and
+///   the upstream resolver will then try go resolve that.
+///
+/// - Otherwise, return all RRs which match the query: this answers
+///   the question.
+fn zone_result_helper(
+    name: &DomainName,
+    qtype: QueryType,
+    qclass: QueryClass,
+    records: &HashMap<RecordType, Vec<ZoneRecord>>,
+    nsdname: &DomainName,
+) -> ZoneResult {
+    if QueryType::Record(RecordType::NS) != qtype {
+        match records.get(&RecordType::NS) {
+            Some(ns_zrs) => {
+                let mut ns_zrs_mut = ns_zrs.clone();
+                ns_zrs_mut.retain(|zr| zr.rclass.matches(&qclass));
+                if !ns_zrs_mut.is_empty() {
+                    return ZoneResult::Delegation {
+                        ns_rrs: ns_zrs.iter().map(|zr| zr.to_rr(nsdname)).collect(),
+                    };
+                }
+            }
+            None => (),
+        }
+    }
+
+    if !RecordType::CNAME.matches(&qtype) {
+        match records.get(&RecordType::CNAME) {
+            Some(cname_zrs) => {
+                let mut cname_zrs_mut = cname_zrs.clone();
+                cname_zrs_mut.retain(|zr| zr.rclass.matches(&qclass));
+                if !cname_zrs_mut.is_empty() {
+                    return ZoneResult::CNAME {
+                        cname_rr: cname_zrs_mut[0].to_rr(name),
+                    };
+                }
+            }
+            None => (),
+        }
+    }
+
+    match qtype {
+        QueryType::Wildcard => {
+            let mut rrs = Vec::new();
+            for zrs in records.values() {
+                rrs.append(&mut zrs.iter().map(|zr| zr.to_rr(name)).collect());
+            }
+            ZoneResult::Answer { rrs }
+        }
+        QueryType::Record(rtype) => ZoneResult::Answer {
+            rrs: if let Some(zrs) = records.get(&rtype) {
+                zrs.iter().map(|zr| zr.to_rr(name)).collect()
+            } else {
+                Vec::new()
+            },
+        },
+        _ => ZoneResult::Answer { rrs: Vec::new() },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
@@ -427,29 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn zone_build_soa() {
-        let apex = domain("example.com");
-        let soa = SOA {
-            mname: domain("mname"),
-            rname: domain("rname"),
-            serial: 1,
-            refresh: 2,
-            retry: 3,
-            expire: 4,
-            minimum: 5,
-        };
-        let soa_rr = soa.to_rr(&apex);
-
-        let zone = Zone::new(apex.clone(), Some(soa));
-
-        assert_eq!(
-            Some(vec![soa_rr]),
-            zone.get(&apex, QueryType::Wildcard, QueryClass::Wildcard)
-        );
-    }
-
-    #[test]
-    fn zone_minimum_ttl() {
+    fn zone_authoritative_minimum_ttl() {
         let zone = Zone::new(
             domain("example.com"),
             Some(SOA {
@@ -468,259 +541,365 @@ mod tests {
     }
 
     #[test]
-    fn zone_build_get() {
-        let apex = domain("example.com");
-        let subdomain = "foo.bar.baz.example.com";
-        let a_rr = a_record(subdomain, Ipv4Addr::new(1, 1, 1, 1));
-        let ns_rr = ns_record(subdomain, "ns1.example.com");
+    fn zone_nonauthoritative_minimum_ttl() {
+        let zone = Zone::new(domain("example.com"), None);
 
-        let mut zone = Zone::new(apex, None);
-        zone.insert(
-            &a_rr.name,
-            a_rr.rtype_with_data.clone(),
-            a_rr.rclass,
-            a_rr.ttl,
+        assert_eq!(30, zone.actual_ttl(30));
+        assert_eq!(301, zone.actual_ttl(301));
+    }
+
+    #[test]
+    fn zone_resolve_soa() {
+        let apex = domain("example.com");
+        let soa = SOA {
+            mname: domain("mname"),
+            rname: domain("rname"),
+            serial: 1,
+            refresh: 2,
+            retry: 3,
+            expire: 4,
+            minimum: 5,
+        };
+        let soa_rr = soa.to_rr(&apex);
+
+        let zone = Zone::new(apex.clone(), Some(soa));
+
+        assert_eq!(
+            Some(ZoneResult::Answer { rrs: vec![soa_rr] }),
+            zone.resolve(
+                &apex,
+                QueryType::Record(RecordType::SOA),
+                QueryClass::Wildcard
+            )
         );
-        zone.insert(
-            &ns_rr.name,
-            ns_rr.rtype_with_data.clone(),
-            ns_rr.rclass,
-            ns_rr.ttl,
+    }
+
+    #[test]
+    fn zone_insert_resolve() {
+        for _ in 0..100 {
+            let mut zone = Zone::new(domain("example.com"), None);
+            let mut rr = arbitrary_resourcerecord();
+            make_subdomain(&zone.apex, &mut rr.name);
+
+            zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.rclass, rr.ttl);
+
+            let expected = Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()],
+            });
+
+            assert_eq!(
+                expected,
+                zone.resolve(
+                    &rr.name,
+                    QueryType::Record(rr.rtype_with_data.rtype()),
+                    QueryClass::Record(rr.rclass)
+                )
+            );
+            assert_eq!(
+                expected,
+                zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Record(rr.rclass))
+            );
+            assert_eq!(
+                expected,
+                zone.resolve(
+                    &rr.name,
+                    QueryType::Record(rr.rtype_with_data.rtype()),
+                    QueryClass::Wildcard
+                )
+            );
+            assert_eq!(
+                expected,
+                zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Wildcard)
+            );
+        }
+    }
+
+    #[test]
+    fn zone_insert_wildcard_resolve() {
+        for _ in 0..100 {
+            let mut zone = Zone::new(domain("example.com"), None);
+            let mut rr = arbitrary_resourcerecord();
+            make_subdomain(&zone.apex, &mut rr.name);
+
+            zone.insert_wildcard(&rr.name, rr.rtype_with_data.clone(), rr.rclass, rr.ttl);
+
+            let mut subdomain = domain("foo");
+            make_subdomain(&rr.name, &mut subdomain);
+            rr.name = subdomain;
+
+            let expected = Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()],
+            });
+
+            assert_eq!(
+                expected,
+                zone.resolve(
+                    &rr.name,
+                    QueryType::Record(rr.rtype_with_data.rtype()),
+                    QueryClass::Record(rr.rclass)
+                )
+            );
+            assert_eq!(
+                expected,
+                zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Record(rr.rclass))
+            );
+            assert_eq!(
+                expected,
+                zone.resolve(
+                    &rr.name,
+                    QueryType::Record(rr.rtype_with_data.rtype()),
+                    QueryClass::Wildcard
+                )
+            );
+            assert_eq!(
+                expected,
+                zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Wildcard)
+            );
+        }
+    }
+
+    #[test]
+    fn zone_resolve_cname() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let rr = cname_record("www.example.com", "example.com");
+        zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.rclass, rr.ttl);
+
+        assert_eq!(
+            Some(ZoneResult::CNAME {
+                cname_rr: rr.clone()
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::A),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()]
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::CNAME),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()]
+            }),
+            zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Wildcard)
+        );
+    }
+
+    #[test]
+    fn zone_resolve_cname_wildcard() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let wildcard_rr = cname_record("example.com", "example.com"); // *.example.com
+        let rr = cname_record("www.example.com", "example.com");
+        zone.insert_wildcard(
+            &wildcard_rr.name,
+            wildcard_rr.rtype_with_data.clone(),
+            wildcard_rr.rclass,
+            wildcard_rr.ttl,
         );
 
         assert_eq!(
-            Some(Vec::new()),
-            zone.get(
+            Some(ZoneResult::CNAME {
+                cname_rr: rr.clone()
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::A),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()]
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::CNAME),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()]
+            }),
+            zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Wildcard)
+        );
+    }
+
+    #[test]
+    fn zone_resolve_delegation() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let rr = ns_record("www.example.com", "ns.example.com");
+        zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.rclass, rr.ttl);
+
+        assert_eq!(
+            Some(ZoneResult::Delegation {
+                ns_rrs: vec![rr.clone()]
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::A),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()]
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::NS),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Delegation {
+                ns_rrs: vec![rr.clone()]
+            }),
+            zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Wildcard)
+        );
+    }
+
+    #[test]
+    fn zone_resolve_delegation_wildcard() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let wildcard_rr = ns_record("example.com", "ns.example.com");
+        let rr = ns_record("www.example.com", "ns.example.com");
+        zone.insert_wildcard(
+            &wildcard_rr.name,
+            wildcard_rr.rtype_with_data.clone(),
+            wildcard_rr.rclass,
+            wildcard_rr.ttl,
+        );
+
+        assert_eq!(
+            Some(ZoneResult::Delegation {
+                ns_rrs: vec![rr.clone()]
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::A),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr.clone()]
+            }),
+            zone.resolve(
+                &rr.name,
+                QueryType::Record(RecordType::NS),
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Delegation {
+                ns_rrs: vec![rr.clone()]
+            }),
+            zone.resolve(&rr.name, QueryType::Wildcard, QueryClass::Wildcard)
+        );
+    }
+
+    #[test]
+    fn zone_resolve_delegation_wildcard_multilabel() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let wildcard_rr = ns_record("example.com", "ns.example.com");
+        zone.insert_wildcard(
+            &wildcard_rr.name,
+            wildcard_rr.rtype_with_data.clone(),
+            wildcard_rr.rclass,
+            wildcard_rr.ttl,
+        );
+
+        assert_eq!(
+            Some(ZoneResult::Delegation {
+                ns_rrs: vec![ns_record("www.example.com", "ns.example.com")]
+            }),
+            zone.resolve(
+                &domain("some.long.subdomain.of.www.example.com"),
+                QueryType::Record(RecordType::A),
+                QueryClass::Wildcard
+            )
+        );
+    }
+
+    #[test]
+    fn zone_resolve_nameerror() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let rr = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        zone.insert(&rr.name, rr.rtype_with_data, rr.rclass, rr.ttl);
+
+        assert_eq!(
+            Some(ZoneResult::NameError),
+            zone.resolve(
+                &domain("subdomain.www.example.com"),
+                QueryType::Wildcard,
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::NameError),
+            zone.resolve(
+                &domain("sibling.example.com"),
+                QueryType::Wildcard,
+                QueryClass::Wildcard
+            )
+        );
+    }
+
+    #[test]
+    fn zone_resolve_empty_answer_not_nameerror_for_subdomain() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let rr = a_record(
+            "long.chain.of.subdomains.example.com",
+            Ipv4Addr::new(1, 1, 1, 1),
+        );
+        zone.insert(&rr.name, rr.rtype_with_data, rr.rclass, rr.ttl);
+
+        assert_eq!(
+            Some(ZoneResult::Answer { rrs: Vec::new() }),
+            zone.resolve(
+                &domain("chain.of.subdomains.example.com"),
+                QueryType::Wildcard,
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer { rrs: Vec::new() }),
+            zone.resolve(
+                &domain("of.subdomains.example.com"),
+                QueryType::Wildcard,
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer { rrs: Vec::new() }),
+            zone.resolve(
+                &domain("subdomains.example.com"),
+                QueryType::Wildcard,
+                QueryClass::Wildcard
+            )
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer { rrs: Vec::new() }),
+            zone.resolve(
                 &domain("example.com"),
                 QueryType::Wildcard,
                 QueryClass::Wildcard
             )
         );
-        assert_eq!(
-            Some(Vec::new()),
-            zone.get(
-                &domain("baz.example.com"),
-                QueryType::Wildcard,
-                QueryClass::Wildcard
-            )
-        );
-        assert_eq!(
-            Some(Vec::new()),
-            zone.get(
-                &domain("bar.baz.example.com"),
-                QueryType::Wildcard,
-                QueryClass::Wildcard
-            )
-        );
-        assert_eq!(
-            None,
-            zone.get(
-                &domain("whoops.foo.bar.baz.example.com"),
-                QueryType::Wildcard,
-                QueryClass::Wildcard
-            )
-        );
-
-        assert_eq!(
-            Some(vec![a_rr.clone()]),
-            zone.get(
-                &domain(subdomain),
-                QueryType::Record(RecordType::A),
-                QueryClass::Record(RecordClass::IN),
-            )
-        );
-        assert_eq!(
-            Some(vec![a_rr.clone()]),
-            zone.get(
-                &domain(subdomain),
-                QueryType::Record(RecordType::A),
-                QueryClass::Wildcard,
-            )
-        );
-        if let Some(mut actual) = zone.get(
-            &domain(subdomain),
-            QueryType::Wildcard,
-            QueryClass::Wildcard,
-        ) {
-            let mut expected = vec![a_rr, ns_rr];
-            expected.sort();
-            actual.sort();
-            assert_eq!(expected, actual);
-        } else {
-            panic!("unexpected None");
-        }
     }
 
-    #[test]
-    fn zrs_insert_get_exact() {
-        let mut zrs = ZoneRecords::new();
-        let zr_a = a_zonerecord(Ipv4Addr::new(1, 1, 1, 1));
-        let zr_ns = ns_zonerecord(domain("ns1.example.net"));
-
-        zrs.insert(
-            &domain("www.example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-        zrs.insert(
-            &domain("www.example.com").labels,
-            zr_ns.rtype_with_data.clone(),
-            zr_ns.rclass,
-            zr_ns.ttl,
-        );
-
-        let mut zrmap = HashMap::new();
-        zrmap.insert(RecordType::A, vec![zr_a]);
-        zrmap.insert(RecordType::NS, vec![zr_ns]);
-
-        assert_eq!(Some(&zrmap), zrs.get(&domain("www.example.com").labels));
-        assert_eq!(None, zrs.get(&domain("subdomain.www.example.com").labels));
-        assert_eq!(None, zrs.get(&domain("sibling.example.com").labels));
-        assert_eq!(
-            Some(&HashMap::new()),
-            zrs.get(&domain("example.com").labels)
-        );
-        assert_eq!(Some(&HashMap::new()), zrs.get(&domain("com").labels));
-    }
-
-    #[test]
-    fn zrs_insert_get_wildcard() {
-        let mut zrs = ZoneRecords::new();
-        let zr_a = a_zonerecord(Ipv4Addr::new(1, 1, 1, 1));
-        let zr_ns = ns_zonerecord(domain("ns1.example.net"));
-
-        zrs.insert_wildcard(
-            &domain("www.example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-        zrs.insert_wildcard(
-            &domain("www.example.com").labels,
-            zr_ns.rtype_with_data.clone(),
-            zr_ns.rclass,
-            zr_ns.ttl,
-        );
-
-        let mut zrmap = HashMap::new();
-        zrmap.insert(RecordType::A, vec![zr_a]);
-        zrmap.insert(RecordType::NS, vec![zr_ns]);
-
-        assert_eq!(
-            Some(&HashMap::new()),
-            zrs.get(&domain("www.example.com").labels)
-        );
-        assert_eq!(
-            Some(&zrmap),
-            zrs.get(&domain("subdomain.www.example.com").labels)
-        );
-        assert_eq!(None, zrs.get(&domain("sibling.example.com").labels));
-        assert_eq!(
-            Some(&HashMap::new()),
-            zrs.get(&domain("example.com").labels)
-        );
-        assert_eq!(Some(&HashMap::new()), zrs.get(&domain("com").labels));
-    }
-
-    #[test]
-    fn zrs_insert_get_overlap() {
-        let mut zrs = ZoneRecords::new();
-        let zr_a = a_zonerecord(Ipv4Addr::new(1, 1, 1, 1));
-        let zr_ns = ns_zonerecord(domain("ns1.example.net"));
-
-        zrs.insert(
-            &domain("www.example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-        zrs.insert_wildcard(
-            &domain("example.com").labels,
-            zr_ns.rtype_with_data.clone(),
-            zr_ns.rclass,
-            zr_ns.ttl,
-        );
-
-        let mut zrmap_www = HashMap::new();
-        zrmap_www.insert(RecordType::A, vec![zr_a]);
-        let mut zrmap_other = HashMap::new();
-        zrmap_other.insert(RecordType::NS, vec![zr_ns]);
-
-        assert_eq!(Some(&zrmap_www), zrs.get(&domain("www.example.com").labels));
-        assert_eq!(None, zrs.get(&domain("subdomain.www.example.com").labels));
-        assert_eq!(
-            Some(&zrmap_other),
-            zrs.get(&domain("sibling.example.com").labels)
-        );
-        assert_eq!(
-            Some(&HashMap::new()),
-            zrs.get(&domain("example.com").labels)
-        );
-        assert_eq!(Some(&HashMap::new()), zrs.get(&domain("com").labels));
-    }
-
-    #[test]
-    fn zrs_insert_deduplicates() {
-        let mut zrs = ZoneRecords::new();
-        let zr_a = a_zonerecord(Ipv4Addr::new(1, 1, 1, 1));
-
-        zrs.insert(
-            &domain("www.example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-        zrs.insert(
-            &domain("www.example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-
-        let mut zrmap = HashMap::new();
-        zrmap.insert(RecordType::A, vec![zr_a]);
-
-        assert_eq!(Some(&zrmap), zrs.get(&domain("www.example.com").labels));
-    }
-
-    #[test]
-    fn zrs_insert_wildcard_deduplicates() {
-        let mut zrs = ZoneRecords::new();
-        let zr_a = a_zonerecord(Ipv4Addr::new(1, 1, 1, 1));
-
-        zrs.insert_wildcard(
-            &domain("example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-        zrs.insert_wildcard(
-            &domain("example.com").labels,
-            zr_a.rtype_with_data.clone(),
-            zr_a.rclass,
-            zr_a.ttl,
-        );
-
-        let mut zrmap = HashMap::new();
-        zrmap.insert(RecordType::A, vec![zr_a]);
-
-        assert_eq!(Some(&zrmap), zrs.get(&domain("www.example.com").labels));
-    }
-
-    fn a_zonerecord(address: Ipv4Addr) -> ZoneRecord {
-        ZoneRecord {
-            rtype_with_data: RecordTypeWithData::A { address },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        }
-    }
-
-    fn ns_zonerecord(nsdname: DomainName) -> ZoneRecord {
-        ZoneRecord {
-            rtype_with_data: RecordTypeWithData::NS { nsdname },
-            rclass: RecordClass::IN,
-            ttl: 300,
-        }
+    fn make_subdomain(apex: &DomainName, domain: &mut DomainName) {
+        domain.labels.pop();
+        domain.octets.pop();
+        domain.labels.append(&mut apex.labels.clone());
+        domain.octets.append(&mut apex.octets.clone());
     }
 }

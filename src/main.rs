@@ -30,7 +30,19 @@ async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: M
     for question in &query.questions {
         if let Some(rr) = resolve(query.header.recursion_desired, zones, cache, question).await {
             match rr {
-                ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
+                ResolvedRecord::Authoritative {
+                    mut rrs,
+                    mut authority_rrs,
+                } => {
+                    response.answers.append(&mut rrs);
+                    response.authority.append(&mut authority_rrs);
+                }
+                ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
+                    response.authority.append(&mut authority_rrs);
+                    if query.questions.len() == 1 {
+                        response.header.rcode = Rcode::NameError;
+                    }
+                }
                 ResolvedRecord::NonAuthoritative { mut rrs } => {
                     response.answers.append(&mut rrs);
                     response.header.is_authoritative = false;
@@ -45,7 +57,7 @@ async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: M
     // I think, by the text of RFC 1034, the AUTHORITY section of the
     // response should include an NS record for something which can
     // help.
-    if response.answers.is_empty() {
+    if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
         response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
