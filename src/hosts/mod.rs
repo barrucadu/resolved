@@ -35,12 +35,7 @@ pub fn update_root_zone_from_hosts_data(zone: &mut Zone, data: &str) -> Result<(
     for line in data.lines() {
         if let Some((address, new_names)) = parse_line(line)? {
             for name in new_names {
-                zone.insert(
-                    &name,
-                    RecordTypeWithData::A { address },
-                    RecordClass::IN,
-                    300,
-                );
+                zone.insert(&name, RecordTypeWithData::A { address }, 300);
             }
         }
     }
@@ -171,7 +166,7 @@ mod tests {
                 Some(ZoneResult::Answer {
                     rrs: vec![a_record(name, *addr)]
                 }),
-                root_zone.resolve(&domain(name), QueryType::Wildcard, QueryClass::Wildcard)
+                root_zone.resolve(&domain(name), QueryType::Wildcard)
             );
         }
     }

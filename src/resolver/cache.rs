@@ -32,13 +32,8 @@ impl SharedCache {
     /// The TTL in the returned `ResourceRecord` is relative to the
     /// current time - not when the record was inserted into the
     /// cache.
-    pub fn get(
-        &self,
-        name: &DomainName,
-        qtype: &QueryType,
-        qclass: &QueryClass,
-    ) -> Vec<ResourceRecord> {
-        let mut rrs = self.get_without_checking_expiration(name, qtype, qclass);
+    pub fn get(&self, name: &DomainName, qtype: &QueryType) -> Vec<ResourceRecord> {
+        let mut rrs = self.get_without_checking_expiration(name, qtype);
         let len = rrs.len();
         rrs.retain(|rr| rr.ttl > 0);
         if rrs.len() != len {
@@ -55,12 +50,11 @@ impl SharedCache {
         &self,
         name: &DomainName,
         qtype: &QueryType,
-        qclass: &QueryClass,
     ) -> Vec<ResourceRecord> {
         self.cache
             .lock()
             .expect(MUTEX_POISON_MESSAGE)
-            .get_without_checking_expiration(name, qtype, qclass)
+            .get_without_checking_expiration(name, qtype)
     }
 
     /// Insert an entry into the cache.
@@ -159,7 +153,7 @@ struct CachedDomainRecords {
     /// The records, further divided by record type.
     ///
     /// INVARIANT: the `RecordType` and `RecordTypeWithData` match.
-    records: HashMap<RecordType, Vec<(RecordTypeWithData, RecordClass, Instant)>>,
+    records: HashMap<RecordType, Vec<(RecordTypeWithData, Instant)>>,
 }
 
 impl Default for Cache {
@@ -211,7 +205,6 @@ impl Cache {
         &mut self,
         name: &DomainName,
         qtype: &QueryType,
-        qclass: &QueryClass,
     ) -> Vec<ResourceRecord> {
         if let Some(entry) = self.entries.get_mut(name) {
             let now = Instant::now();
@@ -219,12 +212,12 @@ impl Cache {
             match qtype {
                 QueryType::Wildcard => {
                     for tuples in entry.records.values() {
-                        to_rrs(name, qclass, now, tuples, &mut rrs);
+                        to_rrs(name, now, tuples, &mut rrs);
                     }
                 }
                 QueryType::Record(rtype) => {
                     if let Some(tuples) = entry.records.get(rtype) {
-                        to_rrs(name, qclass, now, tuples, &mut rrs);
+                        to_rrs(name, now, tuples, &mut rrs);
                     }
                 }
                 _ => (),
@@ -245,14 +238,14 @@ impl Cache {
         let now = Instant::now();
         let rtype = record.rtype_with_data.rtype();
         let expiry = Instant::now() + Duration::from_secs(record.ttl.into());
-        let tuple = (record.rtype_with_data.clone(), record.rclass, expiry);
+        let tuple = (record.rtype_with_data.clone(), expiry);
         if let Some(entry) = self.entries.get_mut(&record.name) {
             if let Some(tuples) = entry.records.get_mut(&rtype) {
                 let mut duplicate_expires_at = None;
                 for i in 0..tuples.len() {
                     let t = &tuples[i];
-                    if t.0 == tuple.0 && t.1 == tuple.1 {
-                        duplicate_expires_at = Some(t.2);
+                    if t.0 == tuple.0 {
+                        duplicate_expires_at = Some(t.1);
                         tuples.swap_remove(i);
                         break;
                     }
@@ -266,7 +259,7 @@ impl Cache {
 
                     if dup_expiry == entry.next_expiry {
                         let mut new_next_expiry = expiry;
-                        for (_, _, e) in tuples {
+                        for (_, e) in tuples {
                             if *e < new_next_expiry {
                                 new_next_expiry = *e;
                             }
@@ -365,9 +358,9 @@ impl Cache {
                 for rtype in rtypes {
                     if let Some(tuples) = entry.records.get_mut(&rtype) {
                         let len = tuples.len();
-                        tuples.retain(|(_, _, expiry)| expiry > &now);
+                        tuples.retain(|(_, expiry)| expiry > &now);
                         pruned += len - tuples.len();
-                        for (_, _, expiry) in tuples {
+                        for (_, expiry) in tuples {
                             match next_expiry {
                                 None => next_expiry = Some(*expiry),
                                 Some(t) if *expiry < t => next_expiry = Some(*expiry),
@@ -423,26 +416,23 @@ impl Cache {
 /// record tuples into RRs.
 fn to_rrs(
     name: &DomainName,
-    qclass: &QueryClass,
     now: Instant,
-    tuples: &[(RecordTypeWithData, RecordClass, Instant)],
+    tuples: &[(RecordTypeWithData, Instant)],
     rrs: &mut Vec<ResourceRecord>,
 ) {
-    for (rtype, rclass, expires) in tuples {
-        if rclass.matches(qclass) {
-            let ttl = if let Ok(ttl) = expires.saturating_duration_since(now).as_secs().try_into() {
-                ttl
-            } else {
-                u32::MAX
-            };
+    for (rtype, expires) in tuples {
+        let ttl = if let Ok(ttl) = expires.saturating_duration_since(now).as_secs().try_into() {
+            ttl
+        } else {
+            u32::MAX
+        };
 
-            rrs.push(ResourceRecord {
-                name: name.clone(),
-                rtype_with_data: rtype.clone(),
-                rclass: *rclass,
-                ttl,
-            });
-        }
+        rrs.push(ResourceRecord {
+            name: name.clone(),
+            rtype_with_data: rtype.clone(),
+            rclass: RecordClass::IN,
+            ttl,
+        });
     }
 }
 
@@ -456,7 +446,8 @@ mod tests {
     fn cache_put_can_get() {
         for _ in 0..100 {
             let mut cache = Cache::new();
-            let rr = arbitrary_resourcerecord();
+            let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
             cache.insert(&rr);
 
             assert_cache_response(
@@ -464,32 +455,11 @@ mod tests {
                 cache.get_without_checking_expiration(
                     &rr.name,
                     &QueryType::Record(rr.rtype_with_data.rtype()),
-                    &QueryClass::Record(rr.rclass),
                 ),
             );
             assert_cache_response(
                 &rr,
-                cache.get_without_checking_expiration(
-                    &rr.name,
-                    &QueryType::Wildcard,
-                    &QueryClass::Record(rr.rclass),
-                ),
-            );
-            assert_cache_response(
-                &rr,
-                cache.get_without_checking_expiration(
-                    &rr.name,
-                    &QueryType::Record(rr.rtype_with_data.rtype()),
-                    &QueryClass::Wildcard,
-                ),
-            );
-            assert_cache_response(
-                &rr,
-                cache.get_without_checking_expiration(
-                    &rr.name,
-                    &QueryType::Wildcard,
-                    &QueryClass::Wildcard,
-                ),
+                cache.get_without_checking_expiration(&rr.name, &QueryType::Wildcard),
             );
         }
     }
@@ -497,7 +467,8 @@ mod tests {
     #[test]
     fn cache_put_deduplicates_and_maintains_invariants() {
         let mut cache = Cache::new();
-        let rr = arbitrary_resourcerecord();
+        let mut rr = arbitrary_resourcerecord();
+        rr.rclass = RecordClass::IN;
 
         cache.insert(&rr);
         cache.insert(&rr);
@@ -511,7 +482,9 @@ mod tests {
         let mut cache = Cache::new();
 
         for _ in 0..100 {
-            cache.insert(&arbitrary_resourcerecord());
+            let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
+            cache.insert(&rr);
         }
 
         assert_invariants(&cache);
@@ -523,16 +496,16 @@ mod tests {
         let mut queries = Vec::new();
 
         for _ in 0..100 {
-            let rr = arbitrary_resourcerecord();
+            let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
             cache.insert(&rr);
             queries.push((
                 rr.name.clone(),
                 QueryType::Record(rr.rtype_with_data.rtype()),
-                QueryClass::Record(rr.rclass),
             ));
         }
-        for (name, qtype, qclass) in queries {
-            cache.get_without_checking_expiration(&name, &qtype, &qclass);
+        for (name, qtype) in queries {
+            cache.get_without_checking_expiration(&name, &qtype);
         }
 
         assert_invariants(&cache);
@@ -544,6 +517,7 @@ mod tests {
 
         for _ in 0..100 {
             let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
             rr.ttl = 300; // this case isn't testing expiration
             cache.insert(&rr);
         }
@@ -562,6 +536,7 @@ mod tests {
 
         for i in 0..100 {
             let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
             rr.ttl = if i > 0 && i % 2 == 0 { 0 } else { 300 };
             cache.insert(&rr);
         }
@@ -577,6 +552,7 @@ mod tests {
 
         for i in 0..100 {
             let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
             rr.ttl = if i > 0 && i % 2 == 0 { 0 } else { 300 };
             cache.insert(&rr);
         }
@@ -604,7 +580,7 @@ mod tests {
 
             let mut min_expires = None;
             for (rtype, tuples) in entry.records.iter() {
-                for (rtype_with_data, _, expires) in tuples {
+                for (rtype_with_data, expires) in tuples {
                     assert_eq!(*rtype, rtype_with_data.rtype());
 
                     if let Some(e) = min_expires {
@@ -641,7 +617,7 @@ pub mod test_util {
 
         assert_eq!(original.name, cached.name);
         assert_eq!(original.rtype_with_data, cached.rtype_with_data);
-        assert_eq!(original.rclass, cached.rclass);
+        assert_eq!(RecordClass::IN, cached.rclass);
         assert!(original.ttl >= cached.ttl);
     }
 }

@@ -9,18 +9,16 @@ use crate::protocol::wire_types::*;
 /// name that will have the non-`CNAME` records associated with it).
 ///
 /// Returns `None` if CNAMEs form a loop, or there is no RR which
-/// matches the target name (a CNAME or one with the right type &
-/// class).
+/// matches the target name (a CNAME or one with the right type).
 pub fn follow_cnames(
     rrs: &[ResourceRecord],
     target: &DomainName,
-    qclass: &QueryClass,
     qtype: &QueryType,
 ) -> Option<(DomainName, HashMap<DomainName, DomainName>)> {
     let mut got_match = false;
     let mut cname_map = HashMap::<DomainName, DomainName>::new();
     for rr in rrs {
-        if &rr.name == target && rr.rclass.matches(qclass) && rr.rtype_with_data.matches(qtype) {
+        if &rr.name == target && rr.rtype_with_data.matches(qtype) {
             got_match = true;
         }
         if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
@@ -84,12 +82,7 @@ pub fn get_better_ns_names(
 /// `CNAME`s in the response and get the address from the final `A`
 /// record.
 pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
-    if let Some((final_name, _)) = follow_cnames(
-        rrs,
-        target,
-        &QueryClass::Record(RecordClass::IN),
-        &QueryType::Record(RecordType::A),
-    ) {
+    if let Some((final_name, _)) = follow_cnames(rrs, target, &QueryType::Record(RecordType::A)) {
         for rr in rrs {
             match &rr.rtype_with_data {
                 RecordTypeWithData::A { address } if rr.name == final_name => {
@@ -112,12 +105,7 @@ mod tests {
     fn follow_cnames_empty() {
         assert_eq!(
             None,
-            follow_cnames(
-                &[],
-                &domain("www.example.com"),
-                &QueryClass::Wildcard,
-                &QueryType::Wildcard
-            )
+            follow_cnames(&[], &domain("www.example.com"), &QueryType::Wildcard)
         );
     }
 
@@ -128,20 +116,6 @@ mod tests {
             follow_cnames(
                 &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com"),
-                &QueryClass::Wildcard,
-                &QueryType::Wildcard
-            )
-        );
-    }
-
-    #[test]
-    fn follow_cnames_no_class_match() {
-        assert_eq!(
-            None,
-            follow_cnames(
-                &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
-                &domain("www.example.com"),
-                &QueryClass::Record(RecordClass::CH),
                 &QueryType::Wildcard
             )
         );
@@ -154,7 +128,6 @@ mod tests {
             follow_cnames(
                 &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com"),
-                &QueryClass::Wildcard,
                 &QueryType::Record(RecordType::NS)
             )
         );
@@ -165,12 +138,7 @@ mod tests {
         let rr_a = a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(
             Some((domain("www.example.com"), HashMap::new())),
-            follow_cnames(
-                &[rr_a],
-                &domain("www.example.com"),
-                &QueryClass::Wildcard,
-                &QueryType::Wildcard
-            )
+            follow_cnames(&[rr_a], &domain("www.example.com"), &QueryType::Wildcard)
         );
     }
 
@@ -192,7 +160,6 @@ mod tests {
             follow_cnames(
                 &[rr_a, rr_cname2, rr_cname1],
                 &domain("www.example.com"),
-                &QueryClass::Wildcard,
                 &QueryType::Wildcard
             )
         );
@@ -208,7 +175,6 @@ mod tests {
             follow_cnames(
                 &[rr_cname1, rr_cname2],
                 &domain("www.example.com"),
-                &QueryClass::Wildcard,
                 &QueryType::Wildcard
             )
         )

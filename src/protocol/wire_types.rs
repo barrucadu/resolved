@@ -951,9 +951,6 @@ impl<'a> arbitrary::Arbitrary<'a> for RecordType {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum RecordClass {
     IN,
-    CS,
-    CH,
-    HS,
     Unknown(RecordClassUnknown),
 }
 
@@ -979,9 +976,6 @@ impl From<u16> for RecordClass {
     fn from(value: u16) -> Self {
         match value {
             1 => RecordClass::IN,
-            2 => RecordClass::CS,
-            3 => RecordClass::CH,
-            4 => RecordClass::HS,
             _ => RecordClass::Unknown(RecordClassUnknown(value)),
         }
     }
@@ -991,9 +985,6 @@ impl From<RecordClass> for u16 {
     fn from(value: RecordClass) -> Self {
         match value {
             RecordClass::IN => 1,
-            RecordClass::CS => 2,
-            RecordClass::CH => 3,
-            RecordClass::HS => 4,
             RecordClass::Unknown(RecordClassUnknown(value)) => value,
         }
     }

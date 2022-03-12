@@ -55,11 +55,7 @@ fn bench__get_without_checking_expiration__hit(c: &mut Criterion) {
                 || build_cache(size, rrs),
                 |mut cache| {
                     for (name, rtype) in &queries {
-                        cache.get_without_checking_expiration(
-                            name,
-                            &QueryType::Record(*rtype),
-                            &QueryClass::Record(RecordClass::IN),
-                        );
+                        cache.get_without_checking_expiration(name, &QueryType::Record(*rtype));
                     }
                 },
                 BatchSize::SmallInput,
@@ -74,17 +70,17 @@ fn bench__get_without_checking_expiration__miss(c: &mut Criterion) {
     let mut group = c.benchmark_group("get_without_checking_expiration/miss");
     for size in [1, 100, 1000] {
         let (rrs, queries) = make_rrs(size, 0);
+        let name = DomainName::from_dotted_string(
+            "name.which.is.unlikely.to.coincidentally.be.randomly.generated",
+        )
+        .unwrap();
         group.throughput(Throughput::Elements(size as u64));
         group.bench_with_input(BenchmarkId::from_parameter(size), &rrs, |b, rrs| {
             b.iter_batched(
                 || build_cache(size, rrs),
                 |mut cache| {
-                    for (name, rtype) in &queries {
-                        cache.get_without_checking_expiration(
-                            name,
-                            &QueryType::Record(*rtype),
-                            &QueryClass::Record(RecordClass::CH),
-                        );
+                    for (_, rtype) in &queries {
+                        cache.get_without_checking_expiration(&name, &QueryType::Record(*rtype));
                     }
                 },
                 BatchSize::SmallInput,
