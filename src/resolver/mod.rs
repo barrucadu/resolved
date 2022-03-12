@@ -4,7 +4,6 @@ pub mod rr_util;
 use async_recursion::async_recursion;
 use rand::Rng;
 use std::cmp::Ordering;
-use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
@@ -15,20 +14,19 @@ use self::rr_util::*;
 
 use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
 use crate::protocol::wire_types::*;
-use crate::settings::Settings;
+use crate::zones::{ZoneResult, Zones};
 
 /// Resolve a question using the standard DNS algorithms.
 pub async fn resolve(
     is_recursive: bool,
-    upstream_nameservers: &[Ipv4Addr],
-    local_zone: &Settings,
+    zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     if is_recursive {
-        resolve_recursive(upstream_nameservers, local_zone, cache, question).await
+        resolve_recursive(zones, cache, question).await
     } else {
-        resolve_nonrecursive(local_zone, cache, question)
+        resolve_nonrecursive(zones, cache, question)
     }
 }
 
@@ -50,72 +48,277 @@ pub async fn resolve(
 ///
 /// See section 4.3.2 of RFC 1034.
 pub fn resolve_nonrecursive(
-    local_zone: &Settings,
+    zones: &Zones,
     cache: &SharedCache,
-    initial_question: &Question,
+    question: &Question,
 ) -> Option<ResolvedRecord> {
-    let mut questions = vec![initial_question.clone()];
-    let mut rrs = Vec::new();
-    let mut authority = None;
-    let mut authoritative = true;
-    let mut cnames_followed = HashSet::new();
+    // TODO: bound recursion depth
 
-    while !questions.is_empty() {
-        let mut new_questions = Vec::new();
+    let mut rrs_from_zone = Vec::new();
 
-        for question in questions {
-            let mut new_rrs = Vec::new();
+    if let Some(zone) = zones.get(&question.name) {
+        // `zone.resolve` implements the non-recursive part of step 3
+        // of the standard resolver algorithm: matching down through
+        // the zone and returning what sort of end state is reached.
+        match zone.resolve(&question.name, question.qtype, question.qclass) {
+            // If we get an answer:
+            //
+            // - if the zone is authoritative: we're done; this fully
+            // answers the question, there's no need to consult the
+            // cache for additional records.
+            //
+            // - if the zone is not authoritative: store the RRs but
+            // pass the query onto the cache (handled below), to see
+            // if this fetches any new records.
+            Some(ZoneResult::Answer { rrs }) => {
+                println!(
+                    "[DEBUG] zone {:?} {} ANSWER for {:?} {:?} {:?}",
+                    zone.get_apex().to_dotted_string(),
+                    if zone.is_authoritative() {
+                        "AUTHORITATIVE"
+                    } else {
+                        "NON-AUTHORITATIVE"
+                    },
+                    question.name.to_dotted_string(),
+                    question.qclass,
+                    question.qtype
+                );
 
-            if let Some(rr) = authoritative_from_zone(local_zone, &question) {
-                new_rrs.push(rr.clone());
-            } else {
-                let (cached_rrs, cached_authority_rr) =
-                    nonauthoritative_from_cache(cache, &question);
-                if !cached_rrs.is_empty() {
-                    new_rrs.append(&mut cached_rrs.clone());
-                    authority = cached_authority_rr;
-                    authoritative = false;
-
-                    println!(
-                        "[DEBUG] cache HIT for {:?} {:?} {:?}",
-                        question.name.to_dotted_string(),
-                        question.qclass,
-                        question.qtype
-                    );
+                if let Some(soa_rr) = zone.soa_rr() {
+                    return Some(ResolvedRecord::Authoritative {
+                        rrs,
+                        authority_rrs: vec![soa_rr],
+                    });
                 } else {
-                    println!(
-                        "[DEBUG] cache MISS for {:?} {:?} {:?}",
-                        question.name.to_dotted_string(),
-                        question.qclass,
-                        question.qtype
-                    );
+                    rrs_from_zone = rrs;
                 }
             }
+            // If the name is a CNAME, try resolving it, then:
+            //
+            // - if resolving it only touches authoritative zones:
+            // return the response, which is authoritative if and only
+            // if this starting zone is authoritative, without
+            // consulting the cache for additional records.
+            //
+            // - if resolving it touches non-authoritative zones or
+            // the cache: return the response, which is not
+            // authoritative.
+            //
+            // - if resolving it fails: return the response, which is
+            // authoritative if and only if this starting zone is
+            // authoritative.
+            Some(ZoneResult::CNAME { cname_rr }) => {
+                println!(
+                    "[DEBUG] zone {:?} {} CNAME for {:?} {:?} {:?}",
+                    zone.get_apex().to_dotted_string(),
+                    if zone.is_authoritative() {
+                        "AUTHORITATIVE"
+                    } else {
+                        "NON-AUTHORITATIVE"
+                    },
+                    question.name.to_dotted_string(),
+                    question.qclass,
+                    question.qtype
+                );
 
-            if question.qtype != QueryType::Record(RecordType::CNAME) {
-                for rr in &new_rrs {
-                    if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
-                        if !cnames_followed.contains(cname) {
-                            let mut new_question = question.clone();
-                            new_question.name = cname.clone();
-                            new_questions.push(new_question);
-                            cnames_followed.insert(cname.clone());
+                let cname = if let RecordTypeWithData::CNAME { cname } = &cname_rr.rtype_with_data {
+                    cname
+                } else {
+                    println!("[ERROR] expected CNAME RR (in zone)");
+                    return None;
+                };
+
+                return Some(
+                    match resolve_nonrecursive(
+                        zones,
+                        cache,
+                        &Question {
+                            name: cname.clone(),
+                            qtype: question.qtype,
+                            qclass: question.qclass,
+                        },
+                    ) {
+                        Some(ResolvedRecord::Authoritative {
+                            rrs: mut cname_rrs, ..
+                        }) => {
+                            let mut rrs = vec![cname_rr.clone()];
+                            rrs.append(&mut cname_rrs);
+
+                            if zone.is_authoritative() {
+                                ResolvedRecord::Authoritative {
+                                    rrs,
+                                    authority_rrs: Vec::new(),
+                                }
+                            } else {
+                                ResolvedRecord::NonAuthoritative { rrs }
+                            }
                         }
-                    }
+                        Some(ResolvedRecord::NonAuthoritative { rrs: mut cname_rrs }) => {
+                            let mut rrs = vec![cname_rr.clone()];
+                            rrs.append(&mut cname_rrs);
+                            ResolvedRecord::NonAuthoritative { rrs }
+                        }
+                        _ => {
+                            if let Some(soa_rr) = zone.soa_rr() {
+                                ResolvedRecord::Authoritative {
+                                    rrs: vec![cname_rr.clone()],
+                                    authority_rrs: vec![soa_rr],
+                                }
+                            } else {
+                                ResolvedRecord::NonAuthoritative {
+                                    rrs: vec![cname_rr.clone()],
+                                }
+                            }
+                        }
+                    },
+                );
+            }
+            // If the name is delegated:
+            //
+            // - if this zone is authoritative, return the response
+            // with the NS RRs in the AUTHORITY section.
+            //
+            // - otherwise ignore and proceed to cache.
+            Some(ZoneResult::Delegation { ns_rrs }) => {
+                println!(
+                    "[DEBUG] zone {:?} {} DELEGATION for {:?} {:?} {:?}",
+                    zone.get_apex().to_dotted_string(),
+                    if zone.is_authoritative() {
+                        "AUTHORITATIVE"
+                    } else {
+                        "NON-AUTHORITATIVE"
+                    },
+                    question.name.to_dotted_string(),
+                    question.qclass,
+                    question.qtype
+                );
+
+                if zone.is_authoritative() {
+                    return Some(ResolvedRecord::Authoritative {
+                        rrs: Vec::new(),
+                        authority_rrs: ns_rrs,
+                    });
                 }
             }
-            rrs.append(&mut new_rrs);
-        }
+            // If the name could not be resolved:
+            //
+            // - if this zone is authoritative, a NXDOMAIN response
+            // (todo)
+            //
+            // - otherwise ignore and proceed to cache.
+            Some(ZoneResult::NameError) => {
+                println!(
+                    "[DEBUG] zone {:?} {} NAME ERROR for {:?} {:?} {:?}",
+                    zone.get_apex().to_dotted_string(),
+                    if zone.is_authoritative() {
+                        "AUTHORITATIVE"
+                    } else {
+                        "NON-AUTHORITATIVE"
+                    },
+                    question.name.to_dotted_string(),
+                    question.qclass,
+                    question.qtype
+                );
 
-        questions = new_questions;
+                if let Some(soa_rr) = zone.soa_rr() {
+                    return Some(ResolvedRecord::AuthoritativeNameError {
+                        authority_rrs: vec![soa_rr],
+                    });
+                }
+            }
+            // This shouldn't happen
+            None => {
+                println!(
+                    "[ERROR] zone {:?} domain {:?} mis-match!",
+                    zone.get_apex().to_dotted_string(),
+                    question.name.to_dotted_string()
+                );
+
+                return None;
+            }
+        }
     }
+
+    // If we get here, either:
+    //
+    // - there is no zone for this question (in practice this will be
+    // unlikely, as the root hints get put into a non-authoritative
+    // root zone - and without root hints, we can't do much)
+    //
+    // - the query was answered by a non-authoritative zone, which
+    // means we may have other relevant RRs in the cache
+    //
+    // - the query could not be answered, because the
+    // non-authoritative zone responsible for the name either doesn't
+    // contain the name, or only has NS records (and the query is not
+    // for NS records - if it were, that would be a non-authoritative
+    // answer).
+    //
+    // In all cases, consult the cache for an answer to the question,
+    // and combine with the RRs we already have.
+
+    let mut rrs_from_cache = cache.get(&question.name, &question.qtype, &question.qclass);
+    println!(
+        "[DEBUG] cache {} for {:?} {:?} {:?}",
+        if rrs_from_cache.is_empty() {
+            "MISS"
+        } else {
+            "HIT"
+        },
+        question.name.to_dotted_string(),
+        question.qclass,
+        question.qtype
+    );
+
+    if rrs_from_cache.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
+        let cache_cname_rrs = cache.get(
+            &question.name,
+            &QueryType::Record(RecordType::CNAME),
+            &question.qclass,
+        );
+        println!(
+            "[DEBUG] cache CNAME {} for {:?} {:?} {:?}",
+            if cache_cname_rrs.is_empty() {
+                "MISS"
+            } else {
+                "HIT"
+            },
+            question.name.to_dotted_string(),
+            question.qclass,
+            question.qtype
+        );
+
+        if !cache_cname_rrs.is_empty() {
+            let cname_rr = cache_cname_rrs[0].clone();
+            rrs_from_cache = vec![cname_rr.clone()];
+            let cname = if let RecordTypeWithData::CNAME { cname } = cname_rr.rtype_with_data {
+                cname
+            } else {
+                println!("[ERROR] expected CNAME RR (in cache)");
+                return None;
+            };
+            if let Some(resolved) = resolve_nonrecursive(
+                zones,
+                cache,
+                &Question {
+                    name: cname,
+                    qtype: question.qtype,
+                    qclass: question.qclass,
+                },
+            ) {
+                rrs_from_cache.append(&mut resolved.rrs());
+            }
+        }
+    }
+
+    let mut rrs = Vec::with_capacity(rrs_from_zone.len() + rrs_from_cache.len());
+    rrs.append(&mut rrs_from_zone);
+    rrs.append(&mut rrs_from_cache);
 
     if rrs.is_empty() {
         None
-    } else if authoritative {
-        Some(ResolvedRecord::Authoritative { rrs })
     } else {
-        Some(ResolvedRecord::NonAuthoritative { rrs, authority })
+        Some(ResolvedRecord::NonAuthoritative { rrs })
     }
 }
 
@@ -130,14 +333,13 @@ pub fn resolve_nonrecursive(
 ///
 /// See section 5.3.3 of RFC 1034.
 pub async fn resolve_recursive(
-    root_hints: &[Ipv4Addr],
-    local_zone: &Settings,
+    zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     match timeout(
         Duration::from_secs(60),
-        resolve_recursive_notimeout(root_hints, local_zone, cache, question),
+        resolve_recursive_notimeout(zones, cache, question),
     )
     .await
     {
@@ -149,83 +351,78 @@ pub async fn resolve_recursive(
 /// Timeout-less version of `resolve_recursive`.
 #[async_recursion]
 async fn resolve_recursive_notimeout(
-    root_hints: &[Ipv4Addr],
-    local_zone: &Settings,
+    zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     // TODO: bound recursion depth
 
-    if let Some(resolved) = resolve_nonrecursive(local_zone, cache, question) {
-        let rrs = resolved.clone().rrs();
-        let authority = resolved.authority();
-        return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
+    if let resolved @ Some(_) = resolve_nonrecursive(zones, cache, question) {
+        return resolved;
     }
 
-    let mut candidates = candidate_nameservers(root_hints, local_zone, cache, &question.name);
-    'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
-        if let Some(ip) = match candidate {
-            HostOrIP::IP(ip) => Some(ip),
-            HostOrIP::Host(name) => resolve_recursive_notimeout(
-                root_hints,
-                local_zone,
-                cache,
-                &Question {
-                    name: name.clone(),
-                    qclass: QueryClass::Record(RecordClass::IN),
-                    qtype: QueryType::Record(RecordType::A),
-                },
-            )
-            .await
-            .and_then(|res| get_ip(&res.rrs(), &name)),
-        } {
-            match query_nameserver(&ip, question, candidates.match_count()).await {
-                Some(NameserverResponse::Answer { rrs, authority }) => {
-                    for rr in &rrs {
-                        cache.insert(rr);
+    if let Some(mut candidates) = candidate_nameservers(zones, cache, &question.name) {
+        'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
+            if let Some(ip) = match candidate {
+                HostOrIP::IP(ip) => Some(ip),
+                HostOrIP::Host(name) => resolve_recursive_notimeout(
+                    zones,
+                    cache,
+                    &Question {
+                        name: name.clone(),
+                        qclass: QueryClass::Record(RecordClass::IN),
+                        qtype: QueryType::Record(RecordType::A),
+                    },
+                )
+                .await
+                .and_then(|res| get_ip(&res.rrs(), &name)),
+            } {
+                match query_nameserver(&ip, question, candidates.match_count()).await {
+                    Some(NameserverResponse::Answer { rrs }) => {
+                        for rr in &rrs {
+                            cache.insert(rr);
+                        }
+                        println!("[DEBUG] got response to current query");
+                        return Some(ResolvedRecord::NonAuthoritative { rrs });
                     }
-                    println!("[DEBUG] got response to current query");
-                    return Some(ResolvedRecord::NonAuthoritative { rrs, authority });
+                    Some(NameserverResponse::Delegation { rrs, delegation }) => {
+                        for rr in &rrs {
+                            cache.insert(rr);
+                        }
+                        candidates = delegation;
+                        println!("[DEBUG] found better nameserver - restarting current query");
+                        continue 'query_nameservers;
+                    }
+                    Some(NameserverResponse::CNAME { rrs, cname }) => {
+                        for rr in &rrs {
+                            cache.insert(rr);
+                        }
+                        let cname_question = Question {
+                            name: cname,
+                            qclass: question.qclass,
+                            qtype: question.qtype,
+                        };
+                        println!("[DEBUG] current query is a CNAME - restarting with CNAME target");
+                        if let Some(resolved) =
+                            resolve_recursive_notimeout(zones, cache, &cname_question).await
+                        {
+                            let mut r_rrs = resolved.rrs();
+                            let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
+                            combined_rrs.append(&mut rrs.clone());
+                            combined_rrs.append(&mut r_rrs);
+                            return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                        } else {
+                            return None;
+                        }
+                    }
+                    None => (),
                 }
-                Some(NameserverResponse::Delegation { rrs, delegation }) => {
-                    for rr in &rrs {
-                        cache.insert(rr);
-                    }
-                    candidates = delegation;
-                    println!("[DEBUG] found better nameserver - restarting current query");
-                    continue 'query_nameservers;
-                }
-                Some(NameserverResponse::CNAME { rrs, cname }) => {
-                    for rr in &rrs {
-                        cache.insert(rr);
-                    }
-                    let cname_question = Question {
-                        name: cname,
-                        qclass: question.qclass,
-                        qtype: question.qtype,
-                    };
-                    println!("[DEBUG] current query is a CNAME - restarting with CNAME target");
-                    if let Some(resolved) =
-                        resolve_recursive_notimeout(root_hints, local_zone, cache, &cname_question)
-                            .await
-                    {
-                        let mut r_rrs = resolved.clone().rrs();
-                        let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
-                        combined_rrs.append(&mut rrs.clone());
-                        combined_rrs.append(&mut r_rrs);
-                        return Some(ResolvedRecord::NonAuthoritative {
-                            rrs: combined_rrs,
-                            authority: resolved.authority(),
-                        });
-                    } else {
-                        return None;
-                    }
-                }
-                None => (),
             }
-        }
 
-        return None;
+            return None;
+        }
+    } else {
+        println!("[DEBUG] no candidate nameservers");
     }
 
     None
@@ -241,86 +438,24 @@ async fn resolve_recursive_notimeout(
 pub enum ResolvedRecord {
     Authoritative {
         rrs: Vec<ResourceRecord>,
+        authority_rrs: Vec<ResourceRecord>,
+    },
+    AuthoritativeNameError {
+        authority_rrs: Vec<ResourceRecord>,
     },
     NonAuthoritative {
         rrs: Vec<ResourceRecord>,
-        authority: Option<ResourceRecord>,
     },
 }
 
 impl ResolvedRecord {
     pub fn rrs(self) -> Vec<ResourceRecord> {
         match self {
-            ResolvedRecord::Authoritative { rrs } => rrs,
-            ResolvedRecord::NonAuthoritative { rrs, authority: _ } => rrs,
+            ResolvedRecord::Authoritative { rrs, .. } => rrs,
+            ResolvedRecord::AuthoritativeNameError { .. } => Vec::new(),
+            ResolvedRecord::NonAuthoritative { rrs } => rrs,
         }
     }
-
-    pub fn authority(self) -> Option<ResourceRecord> {
-        match self {
-            ResolvedRecord::Authoritative { rrs: _ } => None,
-            ResolvedRecord::NonAuthoritative { rrs: _, authority } => authority,
-        }
-    }
-}
-
-/// Locally-defined records for DNS blocklisting and LAN DNS.
-///
-/// This corresponds to steps 3.a and 3.c of the standard nameserver
-/// algorithm.  Since this program is intended for just simple local
-/// resolution, and in particular it does not support delegating to
-/// another zone: all local records are in the same zone.
-pub fn authoritative_from_zone(
-    local_zone: &Settings,
-    question: &Question,
-) -> Option<ResourceRecord> {
-    let make_rr = |rtype_with_data| ResourceRecord {
-        name: question.name.clone(),
-        rtype_with_data,
-        rclass: match question.qclass {
-            QueryClass::Record(rc) => rc,
-            QueryClass::Wildcard => RecordClass::IN,
-        },
-        ttl: 300,
-    };
-
-    // TODO: use a more efficient data structure (like a trie)
-    for static_record in &local_zone.static_records {
-        if static_record.domain.matches(&question.name) {
-            if let Some(name) = &static_record.record_cname {
-                return Some(make_rr(RecordTypeWithData::CNAME {
-                    cname: name.domain.clone(),
-                }));
-            } else if RecordType::A.matches(&question.qtype) {
-                if let Some(address) = static_record.record_a {
-                    return Some(make_rr(RecordTypeWithData::A { address }));
-                }
-            }
-        }
-    }
-
-    None
-}
-
-/// Cached records
-///
-/// This corresponds to step 4 of the standard nameserver algorithm.
-pub fn nonauthoritative_from_cache(
-    cache: &SharedCache,
-    question: &Question,
-) -> (Vec<ResourceRecord>, Option<ResourceRecord>) {
-    let mut rrs = cache.get(&question.name, &question.qtype, &question.qclass);
-
-    if rrs.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
-        rrs = cache.get(
-            &question.name,
-            &QueryType::Record(RecordType::CNAME),
-            &question.qclass,
-        )
-    }
-
-    // TODO: implement authority record
-    (rrs, None)
 }
 
 /// Get the best nameservers by non-recursively looking them up for
@@ -329,11 +464,10 @@ pub fn nonauthoritative_from_cache(
 ///
 /// This corresponds to step 2 of the standard resolver algorithm.
 pub fn candidate_nameservers(
-    root_hints: &[Ipv4Addr],
-    local_zone: &Settings,
+    zones: &Zones,
     cache: &SharedCache,
     question: &DomainName,
-) -> Nameservers {
+) -> Option<Nameservers> {
     for i in 0..question.labels.len() {
         let labels = &question.labels[i..];
         if let Some(name) = DomainName::from_labels(labels.into()) {
@@ -345,7 +479,7 @@ pub fn candidate_nameservers(
 
             let mut hostnames = Vec::new();
 
-            if let Some(resolved) = resolve_nonrecursive(local_zone, cache, &ns_q) {
+            if let Some(resolved) = resolve_nonrecursive(zones, cache, &ns_q) {
                 for ns_rr in resolved.rrs() {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
                         hostnames.push(HostOrIP::Host(nsdname.clone()));
@@ -354,18 +488,15 @@ pub fn candidate_nameservers(
             }
 
             if !hostnames.is_empty() {
-                return Nameservers {
+                return Some(Nameservers {
                     hostnames,
                     name: ns_q.name,
-                };
+                });
             }
         }
     }
 
-    Nameservers {
-        hostnames: root_hints.iter().copied().map(HostOrIP::IP).collect(),
-        name: DomainName::root_domain(),
-    }
+    None
 }
 
 /// Query a remote nameserver to answer a question.
@@ -606,11 +737,7 @@ pub fn validate_nameserver_response(
         } else {
             // step 3.1 & 3.2: what sort of answer is this?
             if seen_final_record {
-                // TODO: implement authority
-                Some(NameserverResponse::Answer {
-                    rrs: rrs_for_query,
-                    authority: None,
-                })
+                Some(NameserverResponse::Answer { rrs: rrs_for_query })
             } else {
                 Some(NameserverResponse::CNAME {
                     rrs: rrs_for_query,
@@ -714,7 +841,6 @@ pub enum HostOrIP {
 pub enum NameserverResponse {
     Answer {
         rrs: Vec<ResourceRecord>,
-        authority: Option<ResourceRecord>,
     },
     CNAME {
         rrs: Vec<ResourceRecord>,
@@ -731,16 +857,46 @@ mod tests {
     use super::cache::test_util::*;
     use super::*;
     use crate::protocol::wire_types::test_util::*;
-    use crate::settings::*;
+    use crate::zones::{Zone, SOA};
 
     #[test]
-    fn resolve_nonrecursive_is_authoritative_for_local_zone() {
+    fn resolve_nonrecursive_is_authoritative_for_zones_with_soa() {
+        let soa_rr = zones_soa_rr();
+        let mut expected = vec![
+            a_record("authoritative.example.com", Ipv4Addr::new(1, 1, 1, 1)),
+            soa_rr.clone(),
+        ];
+        expected.sort();
+
+        if let Some(ResolvedRecord::Authoritative {
+            mut rrs,
+            authority_rrs,
+        }) = resolve_nonrecursive(
+            &zones(),
+            &SharedCache::new(),
+            &Question {
+                name: domain("authoritative.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Wildcard,
+            },
+        ) {
+            rrs.sort();
+
+            assert_eq!(vec![soa_rr], authority_rrs);
+            assert_eq!(expected, rrs);
+        } else {
+            panic!("expected authoritative response");
+        }
+    }
+
+    #[test]
+    fn resolve_nonrecursive_is_nonauthoritative_for_zones_without_soa() {
         assert_eq!(
-            Some(ResolvedRecord::Authoritative {
-                rrs: vec![a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))]
+            Some(ResolvedRecord::NonAuthoritative {
+                rrs: vec![a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))],
             }),
             resolve_nonrecursive(
-                &local_zone(),
+                &zones(),
                 &SharedCache::new(),
                 &Question {
                     name: domain("a.example.com"),
@@ -758,11 +914,8 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&rr);
 
-        if let Some(ResolvedRecord::NonAuthoritative {
-            rrs,
-            authority: None,
-        }) = resolve_nonrecursive(
-            &local_zone(),
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
+            &zones(),
             &cache,
             &Question {
                 name: domain("cached.example.com"),
@@ -777,28 +930,94 @@ mod tests {
     }
 
     #[test]
-    fn resolve_nonrecursive_prefers_local_zone() {
-        let rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
+    fn resolve_nonrecursive_prefers_authoritative_zones() {
+        let soa_rr = zones_soa_rr();
+        let mut expected = vec![
+            a_record("authoritative.example.com", Ipv4Addr::new(1, 1, 1, 1)),
+            soa_rr.clone(),
+        ];
+        expected.sort();
 
         let cache = SharedCache::new();
-        cache.insert(&a_record("a.example.com", Ipv4Addr::new(8, 8, 8, 8)));
+        cache.insert(&a_record(
+            "authoritative.example.com",
+            Ipv4Addr::new(8, 8, 8, 8),
+        ));
 
-        assert_eq!(
-            Some(ResolvedRecord::Authoritative { rrs: vec![rr] }),
-            resolve_nonrecursive(
-                &local_zone(),
-                &cache,
-                &Question {
-                    name: domain("a.example.com"),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard,
-                }
-            )
-        )
+        if let Some(ResolvedRecord::Authoritative {
+            mut rrs,
+            authority_rrs,
+        }) = resolve_nonrecursive(
+            &zones(),
+            &SharedCache::new(),
+            &Question {
+                name: domain("authoritative.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Wildcard,
+            },
+        ) {
+            rrs.sort();
+
+            assert_eq!(vec![soa_rr], authority_rrs);
+            assert_eq!(expected, rrs);
+        } else {
+            panic!("expected authoritative response");
+        }
     }
 
     #[test]
-    fn resolve_nonrecursive_expands_cnames() {
+    fn resolve_nonrecursive_combines_nonauthoritative_zones_with_cache() {
+        let zone_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let cache_rr = a_record("a.example.com", Ipv4Addr::new(8, 8, 8, 8));
+
+        let cache = SharedCache::new();
+        cache.insert(&cache_rr);
+
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
+            &zones(),
+            &cache,
+            &Question {
+                name: domain("a.example.com"),
+                qtype: QueryType::Wildcard,
+                qclass: QueryClass::Wildcard,
+            },
+        ) {
+            assert_eq!(2, rrs.len());
+            assert_cache_response(&zone_rr, vec![rrs[0].clone()]);
+            assert_cache_response(&cache_rr, vec![rrs[1].clone()]);
+        } else {
+            panic!("expected Some response");
+        }
+    }
+
+    #[test]
+    fn resolve_nonrecursive_expands_cnames_from_zone() {
+        let cname_rr = cname_record(
+            "cname-a.authoritative.example.com",
+            "authoritative.example.com",
+        );
+        let a_rr = a_record("authoritative.example.com", Ipv4Addr::new(1, 1, 1, 1));
+
+        if let Some(ResolvedRecord::Authoritative { rrs, authority_rrs }) = resolve_nonrecursive(
+            &zones(),
+            &SharedCache::new(),
+            &Question {
+                name: domain("cname-a.authoritative.example.com"),
+                qtype: QueryType::Record(RecordType::A),
+                qclass: QueryClass::Wildcard,
+            },
+        ) {
+            assert!(authority_rrs.is_empty());
+            assert_eq!(2, rrs.len());
+            assert_cache_response(&cname_rr, vec![rrs[0].clone()]);
+            assert_cache_response(&a_rr, vec![rrs[1].clone()]);
+        } else {
+            panic!("expected Some response");
+        }
+    }
+
+    #[test]
+    fn resolve_nonrecursive_expands_cnames_from_cache() {
         let cname_rr1 = cname_record("cname-1.example.com", "cname-2.example.com");
         let cname_rr2 = cname_record("cname-2.example.com", "a.example.com");
         let a_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
@@ -807,15 +1026,12 @@ mod tests {
         cache.insert(&cname_rr1);
         cache.insert(&cname_rr2);
 
-        if let Some(ResolvedRecord::NonAuthoritative {
-            rrs,
-            authority: None,
-        }) = resolve_nonrecursive(
-            &local_zone(),
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
+            &zones(),
             &cache,
             &Question {
                 name: domain("cname-1.example.com"),
-                qtype: QueryType::Wildcard,
+                qtype: QueryType::Record(RecordType::A),
                 qclass: QueryClass::Wildcard,
             },
         ) {
@@ -829,122 +1045,126 @@ mod tests {
     }
 
     #[test]
-    fn authoritative_from_zone_finds_record() {
-        assert_eq!(
-            Some(a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))),
-            authoritative_from_zone(
-                &local_zone(),
-                &Question {
-                    name: domain("a.example.com"),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard
-                }
-            )
-        )
-    }
+    fn resolve_nonrecursive_propagates_cname_nonauthority() {
+        let cname_rr = cname_record("cname-na.authoritative.example.com", "a.example.com");
+        let a_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
 
-    #[test]
-    fn authoritative_from_zone_prefers_cname() {
-        assert_eq!(
-            Some(cname_record(
-                "cname-and-a.example.com",
-                "cname-target.example.com"
-            )),
-            authoritative_from_zone(
-                &local_zone(),
-                &Question {
-                    name: domain("cname-and-a.example.com"),
-                    qtype: QueryType::Record(RecordType::A),
-                    qclass: QueryClass::Wildcard
-                }
-            )
-        )
-    }
-
-    #[test]
-    fn authoritative_from_zone_blocklists_to_a0000() {
-        assert_eq!(
-            Some(a_record("blocked.example.com", Ipv4Addr::new(0, 0, 0, 0))),
-            authoritative_from_zone(
-                &local_zone(),
-                &Question {
-                    name: domain("blocked.example.com"),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard
-                }
-            )
-        )
-    }
-
-    #[test]
-    fn nonauthoritative_from_cache_finds_record() {
-        let rr = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
-
-        let cache = SharedCache::new();
-        cache.insert(&rr);
-
-        let (actuals, _) = nonauthoritative_from_cache(
-            &cache,
+        if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
+            &zones(),
+            &SharedCache::new(),
             &Question {
-                name: domain("www.example.com"),
+                name: domain("cname-na.authoritative.example.com"),
                 qtype: QueryType::Record(RecordType::A),
                 qclass: QueryClass::Wildcard,
             },
-        );
-        assert_cache_response(&rr, actuals);
+        ) {
+            assert_eq!(2, rrs.len());
+            assert_cache_response(&cname_rr, vec![rrs[0].clone()]);
+            assert_cache_response(&a_rr, vec![rrs[1].clone()]);
+        } else {
+            panic!("expected Some response");
+        }
     }
 
     #[test]
-    fn nonauthoritative_from_cache_falls_back_to_cname() {
-        let rr = cname_record("www.example.com", "cname-target.example.com");
-
-        let cache = SharedCache::new();
-        cache.insert(&rr);
-
-        let (actuals, _) = nonauthoritative_from_cache(
-            &cache,
-            &Question {
-                name: domain("www.example.com"),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Wildcard,
-            },
+    fn resolve_nonrecursive_delegates_from_authoritative_zone() {
+        assert_eq!(
+            Some(ResolvedRecord::Authoritative {
+                rrs: Vec::new(),
+                authority_rrs: vec![ns_record(
+                    "delegated.authoritative.example.com",
+                    "ns.delegated.authoritative.example.com"
+                )]
+            }),
+            resolve_nonrecursive(
+                &zones(),
+                &SharedCache::new(),
+                &Question {
+                    name: domain("www.delegated.authoritative.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard,
+                }
+            )
         );
-        assert_cache_response(&rr, actuals);
+    }
+
+    #[test]
+    fn resolve_nonrecursive_does_not_delegate_from_nonauthoritative_zone() {
+        assert_eq!(
+            None,
+            resolve_nonrecursive(
+                &zones(),
+                &SharedCache::new(),
+                &Question {
+                    name: domain("www.delegated.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard,
+                }
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_nonrecursive_nameerrors_from_authoritative_zone() {
+        assert_eq!(
+            Some(ResolvedRecord::AuthoritativeNameError {
+                authority_rrs: vec![zones_soa_rr()]
+            }),
+            resolve_nonrecursive(
+                &zones(),
+                &SharedCache::new(),
+                &Question {
+                    name: domain("no.such.name.authoritative.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard,
+                },
+            )
+        );
+    }
+
+    #[test]
+    fn resolve_nonrecursive_does_not_nameerror_from_nonauthoritative_zone() {
+        assert_eq!(
+            None,
+            resolve_nonrecursive(
+                &zones(),
+                &SharedCache::new(),
+                &Question {
+                    name: domain("no.such.name.example.com"),
+                    qtype: QueryType::Wildcard,
+                    qclass: QueryClass::Wildcard,
+                },
+            )
+        );
     }
 
     #[test]
     fn candidate_nameservers_gets_all_matches() {
         let qdomain = domain("com");
         assert_eq!(
-            Nameservers {
+            Some(Nameservers {
                 hostnames: vec![
                     HostOrIP::Host(domain("ns1.example.com")),
                     HostOrIP::Host(domain("ns2.example.com"))
                 ],
                 name: qdomain.clone(),
-            },
-            candidate_nameservers(
-                &[],
-                &local_zone(),
-                &cache_with_nameservers(&["com"]),
-                &qdomain
-            )
+            }),
+            candidate_nameservers(&zones(), &cache_with_nameservers(&["com"]), &qdomain)
         );
     }
 
     #[test]
     fn candidate_nameservers_returns_longest_match() {
         assert_eq!(
-            Nameservers {
+            Some(Nameservers {
                 hostnames: vec![
                     HostOrIP::Host(domain("ns1.example.com")),
                     HostOrIP::Host(domain("ns2.example.com"))
                 ],
                 name: domain("example.com"),
-            },
+            }),
             candidate_nameservers(
-                &[],
-                &local_zone(),
+                &zones(),
                 &cache_with_nameservers(&["example.com", "com"]),
                 &domain("www.example.com")
             )
@@ -952,20 +1172,10 @@ mod tests {
     }
 
     #[test]
-    fn candidate_nameservers_returns_root_hints_on_failure() {
-        let root_hints = vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)];
-
+    fn candidate_nameservers_returns_none_on_failure() {
         assert_eq!(
-            Nameservers {
-                hostnames: root_hints.iter().copied().map(HostOrIP::IP).collect(),
-                name: DomainName::root_domain(),
-            },
-            candidate_nameservers(
-                &root_hints,
-                &local_zone(),
-                &cache_with_nameservers(&["com"]),
-                &domain("net")
-            )
+            None,
+            candidate_nameservers(&zones(), &cache_with_nameservers(&["com"]), &domain("net"))
         );
     }
 
@@ -1052,7 +1262,6 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
-                authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1079,7 +1288,6 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
-                authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1124,7 +1332,6 @@ mod tests {
                     cname_record("www.example.com", "cname-target.example.com"),
                     a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1))
                 ],
-                authority: None,
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1303,38 +1510,107 @@ mod tests {
         cache
     }
 
-    fn local_zone() -> Settings {
-        let to_domain = |name| DomainWithOptionalSubdomains {
-            name: Name {
-                domain: domain(name),
+    fn zones() -> Zones {
+        let mut zone_na = Zone::default();
+        zone_na.insert(
+            &domain("blocked.example.com"),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(0, 0, 0, 0),
             },
-            include_subdomains: false,
-        };
+            RecordClass::IN,
+            300,
+        );
+        zone_na.insert(
+            &domain("cname-and-a.example.com"),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(1, 1, 1, 1),
+            },
+            RecordClass::IN,
+            300,
+        );
+        zone_na.insert(
+            &domain("cname-and-a.example.com"),
+            RecordTypeWithData::CNAME {
+                cname: domain("cname-target.example.com"),
+            },
+            RecordClass::IN,
+            300,
+        );
+        zone_na.insert(
+            &domain("a.example.com"),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(1, 1, 1, 1),
+            },
+            RecordClass::IN,
+            300,
+        );
+        zone_na.insert(
+            &domain("delegated.example.com"),
+            RecordTypeWithData::NS {
+                nsdname: domain("ns.delegated.example.com"),
+            },
+            RecordClass::IN,
+            300,
+        );
 
-        Settings {
-            interface: None,
-            root_hints: Vec::new(),
-            static_records: vec![
-                Record {
-                    domain: to_domain("blocked.example.com"),
-                    record_a: Some(Ipv4Addr::new(0, 0, 0, 0)),
-                    record_cname: None,
-                },
-                Record {
-                    domain: to_domain("cname-and-a.example.com"),
-                    record_a: Some(Ipv4Addr::new(1, 1, 1, 1)),
-                    record_cname: Some(Name {
-                        domain: domain("cname-target.example.com"),
-                    }),
-                },
-                Record {
-                    domain: to_domain("a.example.com"),
-                    record_a: Some(Ipv4Addr::new(1, 1, 1, 1)),
-                    record_cname: None,
-                },
-            ],
-            hosts_files: Vec::new(),
-        }
+        let mut zone_a = Zone::new(
+            domain("authoritative.example.com"),
+            Some(SOA {
+                mname: domain("mname"),
+                rname: domain("rname"),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            }),
+        );
+        zone_a.insert(
+            &domain("authoritative.example.com"),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(1, 1, 1, 1),
+            },
+            RecordClass::IN,
+            300,
+        );
+        zone_a.insert(
+            &domain("cname-a.authoritative.example.com"),
+            RecordTypeWithData::CNAME {
+                cname: domain("authoritative.example.com"),
+            },
+            RecordClass::IN,
+            300,
+        );
+        zone_a.insert(
+            &domain("cname-na.authoritative.example.com"),
+            RecordTypeWithData::CNAME {
+                cname: domain("a.example.com"),
+            },
+            RecordClass::IN,
+            300,
+        );
+        zone_a.insert(
+            &domain("delegated.authoritative.example.com"),
+            RecordTypeWithData::NS {
+                nsdname: domain("ns.delegated.authoritative.example.com"),
+            },
+            RecordClass::IN,
+            300,
+        );
+
+        let mut zones = Zones::new();
+        zones.insert(zone_na);
+        zones.insert(zone_a);
+
+        zones
+    }
+
+    fn zones_soa_rr() -> ResourceRecord {
+        zones()
+            .get(&domain("authoritative.example.com"))
+            .unwrap()
+            .soa_rr()
+            .unwrap()
     }
 
     fn matching_nameserver_response() -> (Message, Message) {

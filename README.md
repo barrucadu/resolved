@@ -6,18 +6,12 @@ server for home networks.  To that end, it supports:
 
 - Recursive and non-recursive resolution
 - Caching
-- Custom records
-- Domain blocking (by spoofing A records)
+- Custom records (the current configuration is soon to be replaced
+  zone files)
 - Hosts files
 
-It does *not* support:
-
-- Serving authoritative zones: this isn't intended to a full-blown
-  nameserver, the custom record support is just enough to get nice
-  hostnames for things on your LAN.
-
-- Querying upstream nameservers over IPv6: I don't have IPv6 at home,
-  so this code doesn't support it yet.
+It does not support querying upstream nameservers over IPv6: I don't
+have IPv6 at home, so this code doesn't support it yet.
 
 
 Usage
@@ -48,6 +42,7 @@ modules are:
 - `protocol` - the DNS message types and serialisation / deserialisation logic
 - `resolver` - the resolution and caching logic
 - `settings` - the configuration data type & parser
+- `zones`    - authoritative and non-authoritative zones
 
 ### Testing
 

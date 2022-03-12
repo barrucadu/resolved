@@ -8,18 +8,15 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-use resolved::hosts::update_static_zone_from_hosts_file;
+use resolved::hosts::update_root_zone_from_hosts_file;
 use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
-use resolved::protocol::wire_types::{Message, Opcode, Rcode};
+use resolved::protocol::wire_types::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::{resolve, ResolvedRecord};
 use resolved::settings::Settings;
+use resolved::zones::{Zone, Zones};
 
-async fn resolve_and_build_response(
-    settings: &Settings,
-    cache: &SharedCache,
-    query: Message,
-) -> Message {
+async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: Message) -> Message {
     let mut response = query.make_response();
     response.header.is_authoritative = true;
 
@@ -31,22 +28,23 @@ async fn resolve_and_build_response(
     }
 
     for question in &query.questions {
-        if let Some(rr) = resolve(
-            query.header.recursion_desired,
-            &settings.root_hints,
-            settings,
-            cache,
-            question,
-        )
-        .await
-        {
+        if let Some(rr) = resolve(query.header.recursion_desired, zones, cache, question).await {
             match rr {
-                ResolvedRecord::Authoritative { mut rrs } => response.answers.append(&mut rrs),
-                ResolvedRecord::NonAuthoritative { mut rrs, authority } => {
+                ResolvedRecord::Authoritative {
+                    mut rrs,
+                    mut authority_rrs,
+                } => {
                     response.answers.append(&mut rrs);
-                    if let Some(rr) = authority {
-                        response.authority.push(rr);
+                    response.authority.append(&mut authority_rrs);
+                }
+                ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
+                    response.authority.append(&mut authority_rrs);
+                    if query.questions.len() == 1 {
+                        response.header.rcode = Rcode::NameError;
                     }
+                }
+                ResolvedRecord::NonAuthoritative { mut rrs } => {
+                    response.answers.append(&mut rrs);
                     response.header.is_authoritative = false;
                 }
             }
@@ -59,7 +57,7 @@ async fn resolve_and_build_response(
     // I think, by the text of RFC 1034, the AUTHORITY section of the
     // response should include an NS record for something which can
     // help.
-    if response.answers.is_empty() {
+    if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
         response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
@@ -69,11 +67,7 @@ async fn resolve_and_build_response(
     response
 }
 
-async fn handle_raw_message<'a>(
-    settings: &Settings,
-    cache: &SharedCache,
-    buf: &[u8],
-) -> Option<Message> {
+async fn handle_raw_message<'a>(zones: &Zones, cache: &SharedCache, buf: &[u8]) -> Option<Message> {
     let res = Message::from_octets(buf);
     println!("{:?}", res);
 
@@ -82,7 +76,7 @@ async fn handle_raw_message<'a>(
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == Opcode::Standard {
-                Some(resolve_and_build_response(settings, cache, msg).await)
+                Some(resolve_and_build_response(zones, cache, msg).await)
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = Rcode::NotImplemented;
@@ -93,16 +87,16 @@ async fn handle_raw_message<'a>(
     }
 }
 
-async fn listen_tcp(settings: Settings, cache: SharedCache, socket: TcpListener) {
+async fn listen_tcp(zones: Zones, cache: SharedCache, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
-                let settings = settings.clone();
+                let zones = zones.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
-                        Ok(bytes) => handle_raw_message(&settings, &cache, bytes.as_ref()).await,
+                        Ok(bytes) => handle_raw_message(&zones, &cache, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
                             id,
                             expected,
@@ -142,7 +136,7 @@ async fn listen_tcp(settings: Settings, cache: SharedCache, socket: TcpListener)
     }
 }
 
-async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
+async fn listen_udp(zones: Zones, cache: SharedCache, socket: UdpSocket) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut buf = vec![0u8; 512];
 
@@ -152,10 +146,10 @@ async fn listen_udp(settings: Settings, cache: SharedCache, socket: UdpSocket) {
                 println!("[{:?}] udp request ok", peer);
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
-                let settings = settings.clone();
+                let zones = zones.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(&settings, &cache, bytes.as_ref()).await {
+                    if let Some(response_message) = handle_raw_message(&zones, &cache, bytes.as_ref()).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
@@ -200,7 +194,7 @@ async fn prune_cache_task(cache: SharedCache) {
 
 #[tokio::main]
 async fn main() {
-    let (mut settings, settings_path) = if let Some(fname) = env::args().nth(1) {
+    let (settings, settings_path) = if let Some(fname) = env::args().nth(1) {
         match Settings::new(&fname) {
             Ok(s) => {
                 let mut path = Path::new(&fname)
@@ -222,6 +216,71 @@ async fn main() {
         (Settings::default(), path)
     };
 
+    let mut root_zone = Zone::default();
+    for record in &settings.static_records {
+        // this is very repetitive, but will go away when the zone
+        // file parser comes and the current `settings::Record` type
+        // gets removed.
+        if let Some(address) = &record.record_a {
+            if record.domain.include_subdomains {
+                root_zone.insert_wildcard(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::A { address: *address },
+                    RecordClass::IN,
+                    300,
+                );
+            } else {
+                root_zone.insert(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::A { address: *address },
+                    RecordClass::IN,
+                    300,
+                );
+            }
+        }
+        if let Some(cname) = &record.record_cname {
+            if record.domain.include_subdomains {
+                root_zone.insert_wildcard(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::CNAME {
+                        cname: cname.domain.clone(),
+                    },
+                    RecordClass::IN,
+                    300,
+                );
+            } else {
+                root_zone.insert(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::CNAME {
+                        cname: cname.domain.clone(),
+                    },
+                    RecordClass::IN,
+                    300,
+                );
+            }
+        }
+        if let Some(ns) = &record.record_ns {
+            if record.domain.include_subdomains {
+                root_zone.insert_wildcard(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::NS {
+                        nsdname: ns.domain.clone(),
+                    },
+                    RecordClass::IN,
+                    300,
+                );
+            } else {
+                root_zone.insert(
+                    &record.domain.name.domain,
+                    RecordTypeWithData::NS {
+                        nsdname: ns.domain.clone(),
+                    },
+                    RecordClass::IN,
+                    300,
+                );
+            }
+        }
+    }
     for path_str in &settings.hosts_files.clone() {
         let path = Path::new(path_str);
         let absolute_path = if path.is_relative() {
@@ -230,7 +289,7 @@ async fn main() {
             path.to_path_buf()
         };
 
-        match update_static_zone_from_hosts_file(&mut settings, absolute_path).await {
+        match update_root_zone_from_hosts_file(&mut root_zone, absolute_path).await {
             Ok(()) => (),
             Err(err) => {
                 eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
@@ -238,6 +297,8 @@ async fn main() {
             }
         }
     }
+    let mut zones = Zones::new();
+    zones.insert(root_zone);
 
     let interface = settings.interface.unwrap_or(Ipv4Addr::UNSPECIFIED);
     println!("binding to {:?}", interface);
@@ -260,8 +321,8 @@ async fn main() {
 
     let cache = SharedCache::new();
 
-    tokio::spawn(listen_tcp(settings.clone(), cache.clone(), tcp));
-    tokio::spawn(listen_udp(settings.clone(), cache.clone(), udp));
+    tokio::spawn(listen_tcp(zones.clone(), cache.clone(), tcp));
+    tokio::spawn(listen_udp(zones.clone(), cache.clone(), udp));
 
     prune_cache_task(cache).await;
 }

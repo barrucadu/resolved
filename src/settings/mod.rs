@@ -11,8 +11,6 @@ pub struct Settings {
     #[serde(default)]
     pub interface: Option<Ipv4Addr>,
     #[serde(default)]
-    pub root_hints: Vec<Ipv4Addr>,
-    #[serde(default)]
     pub static_records: Vec<Record>,
     #[serde(default)]
     pub hosts_files: Vec<String>,
@@ -25,6 +23,8 @@ pub struct Record {
     pub record_a: Option<Ipv4Addr>,
     #[serde(rename = "cname")]
     pub record_cname: Option<Name>,
+    #[serde(rename = "ns")]
+    pub record_ns: Option<Name>,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Deserialize)]
