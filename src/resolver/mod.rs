@@ -60,7 +60,7 @@ pub fn resolve_nonrecursive(
         // `zone.resolve` implements the non-recursive part of step 3
         // of the standard resolver algorithm: matching down through
         // the zone and returning what sort of end state is reached.
-        match zone.resolve(&question.name, question.qtype, question.qclass) {
+        match zone.resolve(&question.name, question.qtype) {
             // If we get an answer:
             //
             // - if the zone is authoritative: we're done; this fully
@@ -257,7 +257,7 @@ pub fn resolve_nonrecursive(
     // In all cases, consult the cache for an answer to the question,
     // and combine with the RRs we already have.
 
-    let mut rrs_from_cache = cache.get(&question.name, &question.qtype, &question.qclass);
+    let mut rrs_from_cache = cache.get(&question.name, &question.qtype);
     println!(
         "[DEBUG] cache {} for {:?} {:?} {:?}",
         if rrs_from_cache.is_empty() {
@@ -271,11 +271,7 @@ pub fn resolve_nonrecursive(
     );
 
     if rrs_from_cache.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
-        let cache_cname_rrs = cache.get(
-            &question.name,
-            &QueryType::Record(RecordType::CNAME),
-            &question.qclass,
-        );
+        let cache_cname_rrs = cache.get(&question.name, &QueryType::Record(RecordType::CNAME));
         println!(
             "[DEBUG] cache CNAME {} for {:?} {:?} {:?}",
             if cache_cname_rrs.is_empty() {
@@ -646,7 +642,7 @@ async fn query_nameserver_tcp_notimeout(
 /// Then, only keep valid RRs:
 ///
 /// - RRs matching the query domain (or the name it ends up being
-///   after following `CNAME`s, class, and type (or `CNAME`)
+///   after following `CNAME`s) and type (or `CNAME`)
 ///
 /// - `NS` RRs for a superdomain of the query domain (if it matches
 ///   better than our current nameservers).
@@ -700,12 +696,9 @@ pub fn validate_nameserver_response(
         return None;
     }
 
-    if let Some((final_name, cname_map)) = follow_cnames(
-        &response.answers,
-        &question.name,
-        &question.qclass,
-        &question.qtype,
-    ) {
+    if let Some((final_name, cname_map)) =
+        follow_cnames(&response.answers, &question.name, &question.qtype)
+    {
         // step 2.1: get RRs matching the query name or the names it
         // `CNAME`s to
 
@@ -717,16 +710,14 @@ pub fn validate_nameserver_response(
                 continue;
             }
 
-            if an.rclass.matches(&question.qclass) {
-                let rtype = an.rtype_with_data.rtype();
-                all_unknown = false;
+            let rtype = an.rtype_with_data.rtype();
+            all_unknown = false;
 
-                if rtype.matches(&question.qtype) && an.name == final_name {
-                    rrs_for_query.push(an.clone());
-                    seen_final_record = true;
-                } else if rtype == RecordType::CNAME && cname_map.contains_key(&an.name) {
-                    rrs_for_query.push(an.clone());
-                }
+            if rtype.matches(&question.qtype) && an.name == final_name {
+                rrs_for_query.push(an.clone());
+                seen_final_record = true;
+            } else if rtype == RecordType::CNAME && cname_map.contains_key(&an.name) {
+                rrs_for_query.push(an.clone());
             }
         }
 
@@ -1517,7 +1508,6 @@ mod tests {
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(0, 0, 0, 0),
             },
-            RecordClass::IN,
             300,
         );
         zone_na.insert(
@@ -1525,7 +1515,6 @@ mod tests {
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(1, 1, 1, 1),
             },
-            RecordClass::IN,
             300,
         );
         zone_na.insert(
@@ -1533,7 +1522,6 @@ mod tests {
             RecordTypeWithData::CNAME {
                 cname: domain("cname-target.example.com"),
             },
-            RecordClass::IN,
             300,
         );
         zone_na.insert(
@@ -1541,7 +1529,6 @@ mod tests {
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(1, 1, 1, 1),
             },
-            RecordClass::IN,
             300,
         );
         zone_na.insert(
@@ -1549,7 +1536,6 @@ mod tests {
             RecordTypeWithData::NS {
                 nsdname: domain("ns.delegated.example.com"),
             },
-            RecordClass::IN,
             300,
         );
 
@@ -1570,7 +1556,6 @@ mod tests {
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(1, 1, 1, 1),
             },
-            RecordClass::IN,
             300,
         );
         zone_a.insert(
@@ -1578,7 +1563,6 @@ mod tests {
             RecordTypeWithData::CNAME {
                 cname: domain("authoritative.example.com"),
             },
-            RecordClass::IN,
             300,
         );
         zone_a.insert(
@@ -1586,7 +1570,6 @@ mod tests {
             RecordTypeWithData::CNAME {
                 cname: domain("a.example.com"),
             },
-            RecordClass::IN,
             300,
         );
         zone_a.insert(
@@ -1594,7 +1577,6 @@ mod tests {
             RecordTypeWithData::NS {
                 nsdname: domain("ns.delegated.authoritative.example.com"),
             },
-            RecordClass::IN,
             300,
         );
 

@@ -226,14 +226,12 @@ async fn main() {
                 root_zone.insert_wildcard(
                     &record.domain.name.domain,
                     RecordTypeWithData::A { address: *address },
-                    RecordClass::IN,
                     300,
                 );
             } else {
                 root_zone.insert(
                     &record.domain.name.domain,
                     RecordTypeWithData::A { address: *address },
-                    RecordClass::IN,
                     300,
                 );
             }
@@ -245,7 +243,6 @@ async fn main() {
                     RecordTypeWithData::CNAME {
                         cname: cname.domain.clone(),
                     },
-                    RecordClass::IN,
                     300,
                 );
             } else {
@@ -254,7 +251,6 @@ async fn main() {
                     RecordTypeWithData::CNAME {
                         cname: cname.domain.clone(),
                     },
-                    RecordClass::IN,
                     300,
                 );
             }
@@ -266,7 +262,6 @@ async fn main() {
                     RecordTypeWithData::NS {
                         nsdname: ns.domain.clone(),
                     },
-                    RecordClass::IN,
                     300,
                 );
             } else {
@@ -275,7 +270,6 @@ async fn main() {
                     RecordTypeWithData::NS {
                         nsdname: ns.domain.clone(),
                     },
-                    RecordClass::IN,
                     300,
                 );
             }
