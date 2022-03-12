@@ -141,7 +141,7 @@ mod tests {
             follow_cnames(
                 &[a_record("www.example.net", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com"),
-                &QueryClass::Record(RecordClass::CH),
+                &QueryClass::Record(u16::into(42)),
                 &QueryType::Wildcard
             )
         );
