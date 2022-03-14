@@ -186,6 +186,20 @@ impl Zone {
 
         Ok(())
     }
+
+    /// Return all the records in the zone.
+    pub fn all_records(&self) -> HashMap<&DomainName, Vec<&ZoneRecord>> {
+        let mut map = HashMap::new();
+        self.records.all_records(&mut map);
+        map
+    }
+
+    /// Return all the wildcard records in the zone.
+    pub fn all_wildcard_records(&self) -> HashMap<&DomainName, Vec<&ZoneRecord>> {
+        let mut map = HashMap::new();
+        self.records.all_wildcard_records(&mut map);
+        map
+    }
 }
 
 /// The result of looking up a name in a zone.
@@ -377,6 +391,35 @@ impl ZoneRecords {
             } else {
                 self.children.insert(k, other_zrs);
             }
+        }
+    }
+
+    /// Return all the records in the zone.
+    pub fn all_records<'a>(&'a self, map: &mut HashMap<&'a DomainName, Vec<&'a ZoneRecord>>) {
+        let zrs: Vec<&ZoneRecord> = self.this.values().flatten().collect();
+        if !zrs.is_empty() {
+            map.insert(&self.nsdname, zrs);
+        }
+
+        for (_, child) in self.children.iter() {
+            child.all_records(map);
+        }
+    }
+
+    /// Return all the wildcard records in the zone.
+    pub fn all_wildcard_records<'a>(
+        &'a self,
+        map: &mut HashMap<&'a DomainName, Vec<&'a ZoneRecord>>,
+    ) {
+        if let Some(ws) = &self.wildcards {
+            let zrs: Vec<&ZoneRecord> = ws.values().flatten().collect();
+            if !zrs.is_empty() {
+                map.insert(&self.nsdname, zrs);
+            }
+        }
+
+        for (_, child) in self.children.iter() {
+            child.all_wildcard_records(map);
         }
     }
 }
@@ -714,6 +757,56 @@ mod tests {
             );
             assert_eq!(expected, zone.resolve(&rr.name, QueryType::Wildcard));
         }
+    }
+
+    #[test]
+    fn zone_insert_all_records() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let mut expected = Vec::with_capacity(100);
+        for _ in 0..expected.capacity() {
+            let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
+            make_subdomain(&zone.apex, &mut rr.name);
+            expected.push(rr.clone());
+            zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
+        }
+        expected.sort();
+
+        let mut actual = Vec::with_capacity(expected.capacity());
+        for (name, zrs) in zone.all_records().iter() {
+            for zr in zrs {
+                actual.push(zr.to_rr(name));
+            }
+        }
+        actual.sort();
+
+        assert_eq!(expected, actual);
+        assert!(zone.all_wildcard_records().is_empty());
+    }
+
+    #[test]
+    fn zone_insert_all_wildcard_records() {
+        let mut zone = Zone::new(domain("example.com"), None);
+        let mut expected = Vec::with_capacity(100);
+        for _ in 0..expected.capacity() {
+            let mut rr = arbitrary_resourcerecord();
+            rr.rclass = RecordClass::IN;
+            make_subdomain(&zone.apex, &mut rr.name);
+            expected.push(rr.clone());
+            zone.insert_wildcard(&rr.name, rr.rtype_with_data, rr.ttl);
+        }
+        expected.sort();
+
+        let mut actual = Vec::with_capacity(expected.capacity());
+        for (name, zrs) in zone.all_wildcard_records().iter() {
+            for zr in zrs {
+                actual.push(zr.to_rr(name));
+            }
+        }
+        actual.sort();
+
+        assert!(zone.all_records().is_empty());
+        assert_eq!(expected, actual);
     }
 
     #[test]
