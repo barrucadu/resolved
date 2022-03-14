@@ -13,7 +13,7 @@ use self::cache::SharedCache;
 use self::rr_util::*;
 
 use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 use crate::zones::{ZoneResult, Zones};
 
 /// Resolve a question using the standard DNS algorithms.
@@ -847,7 +847,7 @@ pub enum NameserverResponse {
 mod tests {
     use super::cache::test_util::*;
     use super::*;
-    use crate::protocol::wire_types::test_util::*;
+    use crate::protocol::types::test_util::*;
     use crate::zones::{Zone, SOA};
 
     #[test]

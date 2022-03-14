@@ -5,7 +5,7 @@ use std::str::FromStr;
 use tokio::fs::read_to_string;
 
 use crate::hosts::types::*;
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 
 impl Hosts {
     /// Read a hosts file, for example /etc/hosts.
@@ -123,7 +123,7 @@ enum State {
 mod tests {
     use super::*;
 
-    use crate::protocol::wire_types::test_util::*;
+    use crate::protocol::types::test_util::*;
     use crate::zones::{Zone, ZoneResult};
 
     #[test]

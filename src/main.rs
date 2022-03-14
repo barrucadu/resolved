@@ -10,7 +10,7 @@ use tokio::time::sleep;
 
 use resolved::hosts::types::Hosts;
 use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
-use resolved::protocol::wire_types::*;
+use resolved::protocol::types::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::{resolve, ResolvedRecord};
 use resolved::settings::Settings;

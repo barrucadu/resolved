@@ -1,8 +1,8 @@
 pub mod deserialise;
 pub mod serialise;
-pub mod wire_types;
+pub mod types;
 
-use self::wire_types::*;
+use self::types::*;
 
 impl Message {
     pub fn make_response(&self) -> Self {
