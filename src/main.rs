@@ -8,7 +8,7 @@ use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-use resolved::hosts::update_root_zone_from_hosts_file;
+use resolved::hosts::types::Hosts;
 use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
 use resolved::protocol::wire_types::*;
 use resolved::resolver::cache::SharedCache;
@@ -275,6 +275,7 @@ async fn main() {
             }
         }
     }
+    let mut combined_hosts = Hosts::default();
     for path_str in &settings.hosts_files.clone() {
         let path = Path::new(path_str);
         let absolute_path = if path.is_relative() {
@@ -283,14 +284,16 @@ async fn main() {
             path.to_path_buf()
         };
 
-        match update_root_zone_from_hosts_file(&mut root_zone, absolute_path).await {
-            Ok(()) => (),
+        match Hosts::from_file(absolute_path).await {
+            Ok(hosts) => combined_hosts.merge(hosts),
             Err(err) => {
                 eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
                 process::exit(1);
             }
         }
     }
+    root_zone.merge(combined_hosts.into()).unwrap();
+
     let mut zones = Zones::new();
     zones.insert(root_zone);
 
