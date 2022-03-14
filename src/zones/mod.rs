@@ -39,6 +39,17 @@ impl Zones {
     pub fn insert(&mut self, zone: Zone) {
         self.zones.insert(zone.apex.clone(), zone);
     }
+
+    /// Perform a zone-wise merge.  See `Zone.merge` for details.
+    pub fn merge(&mut self, other: Zones) {
+        for (apex, other_zone) in other.zones.into_iter() {
+            if let Some(my_zone) = self.zones.get_mut(&apex) {
+                my_zone.merge(other_zone).unwrap();
+            } else {
+                self.insert(other_zone)
+            }
+        }
+    }
 }
 
 /// A zone is a collection of records all belonging to the same domain
@@ -157,6 +168,23 @@ impl Zone {
         } else {
             ttl
         }
+    }
+
+    /// Merge another zone into this one.
+    ///
+    /// Returns `Err` if the apex does not match.
+    pub fn merge(&mut self, other: Zone) -> Result<(), (DomainName, DomainName)> {
+        if self.apex != other.apex {
+            return Err((self.apex.clone(), other.apex));
+        }
+
+        if other.soa.is_some() {
+            self.soa = other.soa;
+        }
+
+        self.records.merge(other.records);
+
+        Ok(())
     }
 }
 
@@ -332,6 +360,25 @@ impl ZoneRecords {
             }
         }
     }
+
+    /// Recursively merge some other records into these.
+    pub fn merge(&mut self, other: ZoneRecords) {
+        merge_zrs_helper(&mut self.this, other.this);
+
+        if let Some(other_wildcards) = other.wildcards {
+            if let Some(my_wildcards) = self.wildcards.as_mut() {
+                merge_zrs_helper(my_wildcards, other_wildcards);
+            }
+        }
+
+        for (k, other_zrs) in other.children.into_iter() {
+            if let Some(my_zrs) = self.children.get_mut(&k) {
+                my_zrs.merge(other_zrs);
+            } else {
+                self.children.insert(k, other_zrs);
+            }
+        }
+    }
 }
 
 /// A SOA record.
@@ -451,6 +498,26 @@ fn zone_result_helper(
     }
 }
 
+/// Handles merging two sets of records, discarding duplicates.
+fn merge_zrs_helper(
+    this: &mut HashMap<RecordType, Vec<ZoneRecord>>,
+    other: HashMap<RecordType, Vec<ZoneRecord>>,
+) {
+    for (k, other_zrs) in other.into_iter() {
+        if let Some(my_zrs) = this.get_mut(&k) {
+            for new in other_zrs {
+                if my_zrs.iter().any(|e| e == &new) {
+                    continue;
+                }
+
+                my_zrs.push(new);
+            }
+        } else {
+            this.insert(k, other_zrs);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
@@ -476,6 +543,80 @@ mod tests {
         assert_eq!(None, zones.get(&domain("com")));
         assert_eq!(Some(&zone), zones.get(&domain("example.com")));
         assert_eq!(Some(&zone), zones.get(&domain("www.example.com")));
+    }
+
+    #[test]
+    fn zone_merge_prefers_leftmost_some_authority() {
+        let name = domain("example.com");
+        let soa1 = SOA {
+            mname: domain("mname"),
+            rname: domain("rname"),
+            serial: 1,
+            refresh: 2,
+            retry: 3,
+            expire: 4,
+            minimum: 300,
+        };
+        let soa2 = SOA {
+            mname: domain("mname"),
+            rname: domain("rname"),
+            serial: 100,
+            refresh: 200,
+            retry: 300,
+            expire: 400,
+            minimum: 30000,
+        };
+
+        let mut zone1 = Zone::new(name.clone(), None);
+        zone1
+            .merge(Zone::new(name.clone(), Some(soa2.clone())))
+            .unwrap();
+        assert_eq!(Some(soa2.clone()), zone1.soa);
+
+        let mut zone2 = Zone::new(name.clone(), Some(soa1.clone()));
+        zone2.merge(Zone::new(name.clone(), None)).unwrap();
+        assert_eq!(Some(soa1.clone()), zone2.soa);
+
+        let mut zone3 = Zone::new(name.clone(), Some(soa1));
+        zone3.merge(Zone::new(name, Some(soa2.clone()))).unwrap();
+        assert_eq!(Some(soa2), zone3.soa);
+    }
+
+    #[test]
+    fn zone_merge_checks_apex_consistency() {
+        assert!(Zone::new(domain("example.com"), None)
+            .merge(Zone::new(domain("example.com"), None))
+            .is_ok());
+
+        assert!(Zone::new(domain("example.com"), None)
+            .merge(Zone::new(domain("example.net"), None))
+            .is_err());
+    }
+
+    #[test]
+    fn zone_merge_combines_and_deduplicates() {
+        let mut zone1 = Zone::new(domain("example.com"), None);
+        let mut zone2 = Zone::new(domain("example.com"), None);
+
+        let a_rr1 = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let a_rr2 = a_record("www.example.com", Ipv4Addr::new(2, 2, 2, 2));
+        zone1.insert(&a_rr1.name, a_rr1.rtype_with_data.clone(), a_rr1.ttl);
+        zone2.insert(&a_rr1.name, a_rr1.rtype_with_data.clone(), a_rr1.ttl);
+        zone2.insert(&a_rr2.name, a_rr2.rtype_with_data.clone(), a_rr2.ttl);
+
+        zone1.merge(zone2).unwrap();
+
+        if let Some(ZoneResult::Answer { mut rrs }) =
+            zone1.resolve(&domain("www.example.com"), QueryType::Wildcard)
+        {
+            let mut expected = vec![a_rr1, a_rr2];
+            expected.sort();
+            rrs.sort();
+
+            assert_eq!(expected, rrs);
+        } else {
+            panic!("expected answer");
+        }
     }
 
     #[test]
