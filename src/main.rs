@@ -14,7 +14,7 @@ use resolved::protocol::types::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::{resolve, ResolvedRecord};
 use resolved::settings::Settings;
-use resolved::zones::{Zone, Zones};
+use resolved::zones::types::*;
 
 async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: Message) -> Message {
     let mut response = query.make_response();

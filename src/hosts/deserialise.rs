@@ -124,7 +124,7 @@ mod tests {
     use super::*;
 
     use crate::protocol::types::test_util::*;
-    use crate::zones::{Zone, ZoneResult};
+    use crate::zones::types::*;
 
     #[test]
     fn update_does_all_ipv4() {
