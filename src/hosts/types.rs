@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 use crate::zones::Zone;
 
 /// A collection of A records.

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 
 /// A collection of zones.
 #[derive(Debug, Clone)]
@@ -566,7 +566,7 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::*;
-    use crate::protocol::wire_types::test_util::*;
+    use crate::protocol::types::test_util::*;
 
     #[test]
     fn zones_build_get_get() {

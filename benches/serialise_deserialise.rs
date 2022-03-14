@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use std::net::Ipv4Addr;
 
-use resolved::protocol::wire_types::*;
+use resolved::protocol::types::*;
 
 #[allow(non_snake_case)]
 fn bench__question(c: &mut Criterion) {
@@ -103,7 +103,7 @@ fn bench__answer__big(c: &mut Criterion) {
     });
 }
 
-// TODO: reduce duplication with wire_types::test_util
+// TODO: reduce duplication with protocol::types::test_util
 fn domain(name: &str) -> DomainName {
     DomainName::from_dotted_string(name).unwrap()
 }

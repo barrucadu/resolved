@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 
 /// A convenience wrapper around a `Cache` which lets it be shared
 /// between threads.
@@ -440,7 +440,7 @@ fn to_rrs(
 mod tests {
     use super::test_util::*;
     use super::*;
-    use crate::protocol::wire_types::test_util::*;
+    use crate::protocol::types::test_util::*;
 
     #[test]
     fn cache_put_can_get() {

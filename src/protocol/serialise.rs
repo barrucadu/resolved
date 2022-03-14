@@ -1,7 +1,7 @@
-//! Serialisation of DNS messages to the wire format.  See the
-//! `wire_types` module for details of the format.
+//! Serialisation of DNS messages to the wire format.  See the `types`
+//! module for details of the format.
 
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 
 impl Message {
     pub fn to_octets(self) -> Result<Vec<u8>, Error> {

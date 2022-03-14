@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use resolved::protocol::wire_types::Message;
+use resolved::protocol::types::Message;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(deserialised) = Message::from_octets(data) {

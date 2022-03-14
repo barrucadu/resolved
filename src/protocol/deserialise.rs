@@ -1,9 +1,9 @@
-//! Deserialisation of DNS messages from the network.  See the
-//! `wire_types` module for details of the format.
+//! Deserialisation of DNS messages from the network.  See the `types`
+//! module for details of the format.
 
 use std::net::Ipv4Addr;
 
-use crate::protocol::wire_types::*;
+use crate::protocol::types::*;
 
 impl Message {
     pub fn from_octets(octets: &[u8]) -> Result<Self, Error> {
