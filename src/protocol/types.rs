@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Basic DNS message format, used for both queries and responses.
 ///
@@ -493,6 +493,15 @@ pub enum RecordTypeWithData {
     /// Where `TXT-DATA` is one or more character strings.
     TXT { octets: Vec<u8> },
 
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    ADDRESS                    |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `ADDRESS` is a 128 bit Internet address.
+    AAAA { address: Ipv6Addr },
+
     /// Any other record.
     Unknown {
         tag: RecordTypeUnknown,
@@ -527,6 +536,7 @@ impl RecordTypeWithData {
             RecordTypeWithData::MINFO { .. } => RecordType::MINFO,
             RecordTypeWithData::MX { .. } => RecordType::MX,
             RecordTypeWithData::TXT { .. } => RecordType::TXT,
+            RecordTypeWithData::AAAA { .. } => RecordType::AAAA,
             RecordTypeWithData::Unknown { tag, .. } => RecordType::Unknown(*tag),
         }
     }
@@ -590,6 +600,9 @@ impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
                 exchange: u.arbitrary()?,
             },
             RecordType::TXT => RecordTypeWithData::TXT { octets },
+            RecordType::AAAA => RecordTypeWithData::AAAA {
+                address: u.arbitrary()?,
+            },
             RecordType::Unknown(tag) => RecordTypeWithData::Unknown { tag, octets },
         };
         Ok(rtype_with_data)
@@ -870,6 +883,7 @@ pub enum RecordType {
     MINFO,
     MX,
     TXT,
+    AAAA,
     Unknown(RecordTypeUnknown),
 }
 
@@ -911,6 +925,7 @@ impl From<u16> for RecordType {
             14 => RecordType::MINFO,
             15 => RecordType::MX,
             16 => RecordType::TXT,
+            28 => RecordType::AAAA,
             _ => RecordType::Unknown(RecordTypeUnknown(value)),
         }
     }
@@ -935,6 +950,7 @@ impl From<RecordType> for u16 {
             RecordType::MINFO => 14,
             RecordType::MX => 15,
             RecordType::TXT => 16,
+            RecordType::AAAA => 28,
             RecordType::Unknown(RecordTypeUnknown(value)) => value,
         }
     }
@@ -1092,6 +1108,15 @@ pub mod test_util {
         ResourceRecord {
             name: domain(name),
             rtype_with_data: RecordTypeWithData::A { address },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+
+    pub fn aaaa_record(name: &str, address: Ipv6Addr) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(name),
+            rtype_with_data: RecordTypeWithData::AAAA { address },
             rclass: RecordClass::IN,
             ttl: 300,
         }

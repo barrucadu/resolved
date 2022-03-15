@@ -1,5 +1,5 @@
 use std::iter::Peekable;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::str::FromStr;
 use tokio::fs::read_to_string;
@@ -479,6 +479,10 @@ fn try_parse_rtype_with_data(
         "TXT" if tokens.len() == 2 => Some(RecordTypeWithData::TXT {
             octets: tokens[1].as_bytes().to_vec(),
         }),
+        "AAAA" if tokens.len() == 2 => match Ipv6Addr::from_str(&tokens[1]) {
+            Ok(address) => Some(RecordTypeWithData::AAAA { address }),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1460,6 +1464,34 @@ mod tests {
                         name: domain("nyarlathotep.lan"),
                         rtype_with_data: RecordTypeWithData::TXT {
                             octets: vec![b'1', b'2', b'3'],
+                        },
+                        rclass: RecordClass::IN,
+                        ttl: 300
+                    }
+                },
+                parsed
+            )
+        } else {
+            panic!("expected successful parse");
+        }
+    }
+
+    #[test]
+    fn parse_rr_aaaa() {
+        let tokens = vec![
+            "nyarlathotep.lan.".to_string(),
+            "IN".to_string(),
+            "300".to_string(),
+            "AAAA".to_string(),
+            "::1:2:3".to_string(),
+        ];
+        if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
+            assert_eq!(
+                Entry::RR {
+                    rr: ResourceRecord {
+                        name: domain("nyarlathotep.lan"),
+                        rtype_with_data: RecordTypeWithData::AAAA {
+                            address: Ipv6Addr::new(0, 0, 0, 0, 0, 1, 2, 3)
                         },
                         rclass: RecordClass::IN,
                         ttl: 300

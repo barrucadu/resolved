@@ -1,5 +1,5 @@
 # hosts can be blocked by routing them to 0.0.0.0
 0.0.0.0 block.test.barrucadu.co.uk
 
-# since resolved doesn't support AAAA records yet, IPv6 lines are ignored
-::1 ignored
+# ipv6 addresses are supported too
+::1:2:3:4 one-two-three-four.test.barrucadu.co.uk

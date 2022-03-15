@@ -1,7 +1,7 @@
 //! Deserialisation of DNS messages from the network.  See the `types`
 //! module for details of the format.
 
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use crate::protocol::types::*;
 
@@ -161,6 +161,18 @@ impl ResourceRecord {
             },
             RecordType::TXT => RecordTypeWithData::TXT {
                 octets: raw_rdata()?,
+            },
+            RecordType::AAAA => RecordTypeWithData::AAAA {
+                address: Ipv6Addr::new(
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                    buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                ),
             },
             RecordType::Unknown(tag) => RecordTypeWithData::Unknown {
                 tag,

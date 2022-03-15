@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use crate::protocol::types::*;
 use crate::zones::types::*;
@@ -8,21 +8,26 @@ use crate::zones::types::*;
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct Hosts {
-    pub entries: HashMap<DomainName, Ipv4Addr>,
+    pub v4: HashMap<DomainName, Ipv4Addr>,
+    pub v6: HashMap<DomainName, Ipv6Addr>,
 }
 
 impl Hosts {
     pub fn new() -> Self {
         Self {
-            entries: HashMap::new(),
+            v4: HashMap::new(),
+            v6: HashMap::new(),
         }
     }
 
     /// Merge another hosts file into this one.  If the same name has
     /// records in both files, the new file will win.
     pub fn merge(&mut self, other: Hosts) {
-        for (name, address) in other.entries.into_iter() {
-            self.entries.insert(name, address);
+        for (name, address) in other.v4.into_iter() {
+            self.v4.insert(name, address);
+        }
+        for (name, address) in other.v6.into_iter() {
+            self.v6.insert(name, address);
         }
     }
 }
@@ -36,8 +41,11 @@ impl Default for Hosts {
 impl From<Hosts> for Zone {
     fn from(hosts: Hosts) -> Zone {
         let mut zone = Self::default();
-        for (name, address) in hosts.entries.into_iter() {
+        for (name, address) in hosts.v4.into_iter() {
             zone.insert(&name, RecordTypeWithData::A { address }, 300);
+        }
+        for (name, address) in hosts.v6.into_iter() {
+            zone.insert(&name, RecordTypeWithData::AAAA { address }, 300);
         }
         zone
     }
@@ -51,19 +59,24 @@ impl TryFrom<Zone> for Hosts {
             return Err(TryFromZoneError::HasWildcardRecords);
         }
 
-        let mut entries = HashMap::new();
+        let mut v4 = HashMap::new();
+        let mut v6 = HashMap::new();
         for (name, zrs) in zone.all_records() {
             for zr in zrs {
                 let rr = zr.to_rr(name);
-                if let RecordTypeWithData::A { address } = rr.rtype_with_data {
-                    entries.insert(rr.name.clone(), address);
-                } else {
-                    return Err(TryFromZoneError::HasRecordTypesOtherThanA);
+                match rr.rtype_with_data {
+                    RecordTypeWithData::A { address } => {
+                        v4.insert(rr.name.clone(), address);
+                    }
+                    RecordTypeWithData::AAAA { address } => {
+                        v6.insert(rr.name.clone(), address);
+                    }
+                    _ => return Err(TryFromZoneError::HasRecordTypesOtherThanA),
                 }
             }
         }
 
-        Ok(Self { entries })
+        Ok(Self { v4, v6 })
     }
 }
 
@@ -76,33 +89,62 @@ pub enum TryFromZoneError {
 
 #[cfg(test)]
 mod tests {
+    use crate::protocol::types::test_util::*;
+
     use super::test_util::*;
     use super::*;
 
     #[test]
     fn hosts_zone_roundtrip() {
-        let expected = arbitrary_hosts();
-        if let Ok(actual) = Hosts::try_from(Zone::from(expected.clone())) {
-            assert_eq!(expected, actual);
-        } else {
-            panic!("expected round-trip");
+        for _ in 0..100 {
+            let expected = arbitrary_hosts();
+            if let Ok(actual) = Hosts::try_from(Zone::from(expected.clone())) {
+                assert_eq!(expected, actual);
+            } else {
+                panic!("expected round-trip");
+            }
         }
     }
 
     #[test]
-    fn hosts_merge_zone_merge_equiv() {
-        let hosts1 = arbitrary_hosts();
-        let hosts2 = arbitrary_hosts();
+    fn hosts_merge_zone_merge_equiv_when_disjoint() {
+        for _ in 0..100 {
+            let hosts1 = arbitrary_hosts_with_apex(domain("hosts1"));
+            let hosts2 = arbitrary_hosts_with_apex(domain("hosts2"));
 
-        let mut combined_hosts = hosts1.clone();
-        combined_hosts.merge(hosts2.clone());
+            let mut combined_hosts = hosts1.clone();
+            combined_hosts.merge(hosts2.clone());
 
-        let combined_zone_direct = Zone::from(combined_hosts.clone());
-        let mut combined_zone_indirect = Zone::from(hosts1);
-        combined_zone_indirect.merge(hosts2.into()).unwrap();
+            let combined_zone_direct = Zone::from(combined_hosts.clone());
+            let mut combined_zone_indirect = Zone::from(hosts1);
+            combined_zone_indirect.merge(hosts2.into()).unwrap();
 
-        assert_eq!(combined_zone_direct, combined_zone_indirect);
-        assert_eq!(Ok(combined_hosts), combined_zone_direct.try_into());
+            assert_eq!(combined_zone_direct, combined_zone_indirect);
+            assert_eq!(Ok(combined_hosts), combined_zone_direct.try_into());
+        }
+    }
+
+    fn arbitrary_hosts_with_apex(apex: DomainName) -> Hosts {
+        let arbitrary = arbitrary_hosts();
+
+        let mut out = Hosts::new();
+        for (k, v) in arbitrary.v4 {
+            let mut k2 = k.clone();
+            k2.labels.pop();
+            k2.octets.pop();
+            k2.labels.append(&mut apex.labels.clone());
+            k2.octets.append(&mut apex.octets.clone());
+            out.v4.insert(k2, v);
+        }
+        for (k, v) in arbitrary.v6 {
+            let mut k2 = k.clone();
+            k2.labels.pop();
+            k2.octets.pop();
+            k2.labels.append(&mut apex.labels.clone());
+            k2.octets.append(&mut apex.octets.clone());
+            out.v6.insert(k2, v);
+        }
+        out
     }
 }
 

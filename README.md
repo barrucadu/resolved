@@ -79,6 +79,10 @@ Supported standards
   Defines the wire format and discusses implementation concerns of the
   algorithms from RFC 1034.
 
+- [RFC 3596: DNS Extensions to Support IP Version 6](https://datatracker.ietf.org/doc/html/rfc3596)
+
+  Defines the `AAAA` record and query types.
+
 - [hosts(5)](https://man7.org/linux/man-pages/man5/hosts.5.html)
 
   Defines the Linux hosts file format.
