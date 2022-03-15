@@ -209,7 +209,7 @@ mod tests {
             }
 
             labels_input.push(Vec::new());
-            if Faker.fake() && output.len() > 0 {
+            if Faker.fake() && !output.is_empty() {
                 dotted_string_input.push('.');
             }
             output.push('.');
