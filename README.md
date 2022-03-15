@@ -23,7 +23,7 @@ maybe even exploits.**
 
 ```
 cargo build --release
-sudo ./target/release/resolved -a example/hosts-file -z example/root-hints.zone -z example/example-static-records.zone
+sudo ./target/release/resolved -A config/hosts -Z config/zones
 ```
 
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be

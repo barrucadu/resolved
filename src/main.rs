@@ -1,9 +1,11 @@
 use bytes::BytesMut;
 use clap::Parser;
+use std::io;
 use std::net::Ipv4Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
+use tokio::fs::read_dir;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -191,6 +193,22 @@ async fn prune_cache_task(cache: SharedCache) {
     }
 }
 
+/// Get files from a directory, sorted.
+async fn get_files_from_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+
+    let mut reader = read_dir(dir).await?;
+    while let Some(entry) = reader.next_entry().await? {
+        let path = entry.path();
+        if !path.is_dir() {
+            out.push(path);
+        }
+    }
+
+    out.sort();
+    Ok(out)
+}
+
 // the doc comments for this struct turn into the CLI help text
 #[derive(Debug, Parser)]
 /// A simple DNS server for home networks.
@@ -218,18 +236,35 @@ struct Args {
 
     /// Path to a hosts file, can be specified more than once
     #[clap(short = 'a', long)]
-    hosts_file: Vec<String>,
+    hosts_file: Vec<PathBuf>,
+
+    /// Path to a directory to read hosts files from, can be specified more than once
+    #[clap(short = 'A', long)]
+    hosts_dir: Vec<PathBuf>,
 
     /// Path to a zone file, can be specified more than once
     #[clap(short = 'z', long)]
-    zone_file: Vec<String>,
+    zone_file: Vec<PathBuf>,
+
+    /// Path to a directory to read zone files from, can be specified more than once
+    #[clap(short = 'Z', long)]
+    zones_dir: Vec<PathBuf>,
 }
 
 #[tokio::main]
 async fn main() {
-    let args = Args::parse();
+    let mut args = Args::parse();
 
     let mut zones = Zones::new();
+    for path in args.zones_dir.iter() {
+        match get_files_from_dir(path).await {
+            Ok(mut paths) => args.zone_file.append(&mut paths),
+            Err(err) => {
+                eprintln!("error reading zone directory \"{:?}\": {:?}", path, err);
+                process::exit(1);
+            }
+        }
+    }
     for path in args.zone_file.iter() {
         match Zone::from_file(Path::new(path)).await {
             Ok(zone) => zones.insert_merge(zone),
@@ -241,6 +276,15 @@ async fn main() {
     }
 
     let mut combined_hosts = Hosts::default();
+    for path in args.hosts_dir.iter() {
+        match get_files_from_dir(path).await {
+            Ok(mut paths) => args.hosts_file.append(&mut paths),
+            Err(err) => {
+                eprintln!("error reading hosts directory \"{:?}\": {:?}", path, err);
+                process::exit(1);
+            }
+        }
+    }
     for path in args.hosts_file.iter() {
         match Hosts::from_file(Path::new(path)).await {
             Ok(hosts) => combined_hosts.merge(hosts),
