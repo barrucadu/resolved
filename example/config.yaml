@@ -1,51 +1,9 @@
 interface: "127.0.0.1"
 
-static_records:
-  # root hints
-  - { domain: { name: "" }, ns: "a.root-servers.net" }
-  - { domain: { name: "" }, ns: "b.root-servers.net" }
-  - { domain: { name: "" }, ns: "c.root-servers.net" }
-  - { domain: { name: "" }, ns: "d.root-servers.net" }
-  - { domain: { name: "" }, ns: "e.root-servers.net" }
-  - { domain: { name: "" }, ns: "f.root-servers.net" }
-  - { domain: { name: "" }, ns: "g.root-servers.net" }
-  - { domain: { name: "" }, ns: "h.root-servers.net" }
-  - { domain: { name: "" }, ns: "i.root-servers.net" }
-  - { domain: { name: "" }, ns: "j.root-servers.net" }
-  - { domain: { name: "" }, ns: "k.root-servers.net" }
-  - { domain: { name: "" }, ns: "l.root-servers.net" }
-  - { domain: { name: "" }, ns: "m.root-servers.net" }
-  - { domain: { name: "a.root-servers.net" }, a: "198.41.0.4" }
-  - { domain: { name: "b.root-servers.net" }, a: "199.9.14.201" }
-  - { domain: { name: "c.root-servers.net" }, a: "192.33.4.12" }
-  - { domain: { name: "d.root-servers.net" }, a: "199.7.91.13" }
-  - { domain: { name: "e.root-servers.net" }, a: "192.203.230.10" }
-  - { domain: { name: "f.root-servers.net" }, a: "192.5.5.241" }
-  - { domain: { name: "g.root-servers.net" }, a: "192.112.36.4" }
-  - { domain: { name: "h.root-servers.net" }, a: "198.97.190.53" }
-  - { domain: { name: "i.root-servers.net" }, a: "192.36.148.17" }
-  - { domain: { name: "j.root-servers.net" }, a: "192.58.128.30" }
-  - { domain: { name: "k.root-servers.net" }, a: "193.0.14.129" }
-  - { domain: { name: "l.root-servers.net" }, a: "199.7.83.42" }
-  - { domain: { name: "m.root-servers.net" }, a: "202.12.27.33" }
-  # example static records
-  - domain:
-      name: "a.static.test.barrucadu.co.uk"
-    a: "116.203.34.201"
-  - domain:
-      name: "a.static-subdomains.test.barrucadu.co.uk"
-      include_subdomains: true
-    a: "116.203.34.201"
-  - domain:
-      name: "cname-1.static.test.barrucadu.co.uk"
-    cname: "cname-2.static.test.barrucadu.co.uk"
-  - domain:
-      name: "cname-2.static.test.barrucadu.co.uk"
-    cname: "cname-3.static.test.barrucadu.co.uk"
-  - domain:
-      name: "cname-3.static.test.barrucadu.co.uk"
-    cname: "target.a.static-subdomains.test.barrucadu.co.uk"
-
 hosts_files:
   - "/etc/hosts"
   - "hosts-file"
+
+zone_files:
+  - "root-hints.zone"
+  - "example-static-records.zone"

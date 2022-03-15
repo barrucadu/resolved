@@ -216,65 +216,24 @@ async fn main() {
         (Settings::default(), path)
     };
 
-    let mut root_zone = Zone::default();
-    for record in &settings.static_records {
-        // this is very repetitive, but will go away when the zone
-        // file parser comes and the current `settings::Record` type
-        // gets removed.
-        if let Some(address) = &record.record_a {
-            if record.domain.include_subdomains {
-                root_zone.insert_wildcard(
-                    &record.domain.name.domain,
-                    RecordTypeWithData::A { address: *address },
-                    300,
-                );
-            } else {
-                root_zone.insert(
-                    &record.domain.name.domain,
-                    RecordTypeWithData::A { address: *address },
-                    300,
-                );
-            }
-        }
-        if let Some(cname) = &record.record_cname {
-            if record.domain.include_subdomains {
-                root_zone.insert_wildcard(
-                    &record.domain.name.domain,
-                    RecordTypeWithData::CNAME {
-                        cname: cname.domain.clone(),
-                    },
-                    300,
-                );
-            } else {
-                root_zone.insert(
-                    &record.domain.name.domain,
-                    RecordTypeWithData::CNAME {
-                        cname: cname.domain.clone(),
-                    },
-                    300,
-                );
-            }
-        }
-        if let Some(ns) = &record.record_ns {
-            if record.domain.include_subdomains {
-                root_zone.insert_wildcard(
-                    &record.domain.name.domain,
-                    RecordTypeWithData::NS {
-                        nsdname: ns.domain.clone(),
-                    },
-                    300,
-                );
-            } else {
-                root_zone.insert(
-                    &record.domain.name.domain,
-                    RecordTypeWithData::NS {
-                        nsdname: ns.domain.clone(),
-                    },
-                    300,
-                );
+    let mut zones = Zones::new();
+    for path_str in &settings.zone_files.clone() {
+        let path = Path::new(path_str);
+        let absolute_path = if path.is_relative() {
+            Path::new(&settings_path).join(path)
+        } else {
+            path.to_path_buf()
+        };
+
+        match Zone::from_file(absolute_path).await {
+            Ok(zone) => zones.insert_merge(zone),
+            Err(err) => {
+                eprintln!("error reading zone file \"{:?}\": {:?}", path, err);
+                process::exit(1);
             }
         }
     }
+
     let mut combined_hosts = Hosts::default();
     for path_str in &settings.hosts_files.clone() {
         let path = Path::new(path_str);
@@ -292,10 +251,8 @@ async fn main() {
             }
         }
     }
-    root_zone.merge(combined_hosts.into()).unwrap();
 
-    let mut zones = Zones::new();
-    zones.insert(root_zone);
+    zones.insert_merge(combined_hosts.into());
 
     let interface = settings.interface.unwrap_or(Ipv4Addr::UNSPECIFIED);
     println!("binding to {:?}", interface);

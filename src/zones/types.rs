@@ -35,9 +35,19 @@ impl Zones {
         None
     }
 
-    /// Update or replace a zone.
+    /// Create or replace a zone.
     pub fn insert(&mut self, zone: Zone) {
         self.zones.insert(zone.apex.clone(), zone);
+    }
+
+    /// Create a new zone or merge with an existing one.  See
+    /// `Zone.merge` for details.
+    pub fn insert_merge(&mut self, other_zone: Zone) {
+        if let Some(my_zone) = self.zones.get_mut(&other_zone.apex) {
+            my_zone.merge(other_zone).unwrap();
+        } else {
+            self.insert(other_zone);
+        }
     }
 
     /// Perform a zone-wise merge.  See `Zone.merge` for details.
