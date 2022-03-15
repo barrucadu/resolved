@@ -83,13 +83,19 @@ impl DomainName {
         out
     }
 
+    // todo: change this to require the trailing dot, for consistency
+    // with zone files.
     pub fn from_dotted_string(s: &str) -> Option<Self> {
         let mut labels = Vec::<Vec<u8>>::with_capacity(5);
         let mut blank_label = false;
 
         for label in s.split('.') {
             if blank_label {
-                return None;
+                if label.is_empty() {
+                    continue;
+                } else {
+                    return None;
+                }
             }
 
             let label = label.as_bytes();
@@ -154,6 +160,11 @@ mod tests {
         assert_eq!(
             Some(DomainName::root_domain()),
             DomainName::from_dotted_string("")
+        );
+
+        assert_eq!(
+            Some(DomainName::root_domain()),
+            DomainName::from_dotted_string(".")
         );
 
         assert_eq!(
