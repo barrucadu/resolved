@@ -6,9 +6,8 @@ server for home networks.  To that end, it supports:
 
 - Recursive and non-recursive resolution
 - Caching
-- Custom records (the current configuration is soon to be replaced
-  zone files)
 - Hosts files
+- Zone files
 
 It does not support querying upstream nameservers over IPv6: I don't
 have IPv6 at home, so this code doesn't support it yet.
@@ -24,7 +23,7 @@ maybe even exploits.**
 
 ```
 cargo build --release
-sudo ./target/release/resolved ./example/config.yaml
+sudo ./target/release/resolved -a example/hosts-file -z example/root-hints.zone -z example/example-static-records.zone
 ```
 
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
@@ -41,7 +40,6 @@ modules are:
 - `net_util` - shared utilities used by both the `main.rs` file and the `resolver` module
 - `protocol` - the DNS message types and serialisation / deserialisation logic
 - `resolver` - the resolution and caching logic
-- `settings` - the configuration data type & parser
 - `zones`    - authoritative and non-authoritative zones
 
 ### Testing
