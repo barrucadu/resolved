@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
 use crate::protocol::types::*;
-use crate::zones::Zone;
+use crate::zones::types::*;
 
 /// A collection of A records.
 #[derive(Debug, Clone, Eq, PartialEq)]

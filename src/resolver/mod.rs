@@ -14,7 +14,7 @@ use self::rr_util::*;
 
 use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
 use crate::protocol::types::*;
-use crate::zones::{ZoneResult, Zones};
+use crate::zones::types::*;
 
 /// Resolve a question using the standard DNS algorithms.
 pub async fn resolve(
@@ -848,7 +848,6 @@ mod tests {
     use super::cache::test_util::*;
     use super::*;
     use crate::protocol::types::test_util::*;
-    use crate::zones::{Zone, SOA};
 
     #[test]
     fn resolve_nonrecursive_is_authoritative_for_zones_with_soa() {
