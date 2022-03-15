@@ -1113,6 +1113,15 @@ pub mod test_util {
         }
     }
 
+    pub fn aaaa_record(name: &str, address: Ipv6Addr) -> ResourceRecord {
+        ResourceRecord {
+            name: domain(name),
+            rtype_with_data: RecordTypeWithData::AAAA { address },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }
+    }
+
     pub fn cname_record(name: &str, target_name: &str) -> ResourceRecord {
         ResourceRecord {
             name: domain(name),
