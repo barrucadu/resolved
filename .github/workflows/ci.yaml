@@ -20,7 +20,7 @@ jobs:
         run: cargo fmt --all --check
 
       - name: Check clippy lints
-        run: cargo clippy
+        run: cargo clippy -- -Dwarnings
 
   test:
     runs-on: ubuntu-latest
