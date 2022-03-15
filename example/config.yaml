@@ -1,9 +1,0 @@
-interface: "127.0.0.1"
-
-hosts_files:
-  - "/etc/hosts"
-  - "hosts-file"
-
-zone_files:
-  - "root-hints.zone"
-  - "example-static-records.zone"

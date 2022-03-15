@@ -1,9 +1,11 @@
 use bytes::BytesMut;
-use std::env;
+use clap::Parser;
+use std::io;
 use std::net::Ipv4Addr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
+use tokio::fs::read_dir;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -13,7 +15,6 @@ use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpE
 use resolved::protocol::types::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::{resolve, ResolvedRecord};
-use resolved::settings::Settings;
 use resolved::zones::types::*;
 
 async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: Message) -> Message {
@@ -192,40 +193,80 @@ async fn prune_cache_task(cache: SharedCache) {
     }
 }
 
+/// Get files from a directory, sorted.
+async fn get_files_from_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
+    let mut out = Vec::new();
+
+    let mut reader = read_dir(dir).await?;
+    while let Some(entry) = reader.next_entry().await? {
+        let path = entry.path();
+        if !path.is_dir() {
+            out.push(path);
+        }
+    }
+
+    out.sort();
+    Ok(out)
+}
+
+// the doc comments for this struct turn into the CLI help text
+#[derive(Debug, Parser)]
+/// A simple DNS server for home networks.
+///
+/// resolved supports:
+///
+/// - Recursive and non-recursive resolution
+///
+/// - Caching
+///
+/// - Hosts files
+///
+/// - Zone files
+///
+/// It does not support querying upstream nameservers over IPv6: I
+/// don't have IPv6 at home, so this code doesn't support it yet.
+///
+/// It is not intended to be a fully-featured internet-facing
+/// nameserver, but just enough to get DNS ad-blocking and nice
+/// hostnames working in your LAN.
+struct Args {
+    /// Interface to listen on
+    #[clap(short, long, default_value_t = Ipv4Addr::UNSPECIFIED)]
+    interface: Ipv4Addr,
+
+    /// Path to a hosts file, can be specified more than once
+    #[clap(short = 'a', long)]
+    hosts_file: Vec<PathBuf>,
+
+    /// Path to a directory to read hosts files from, can be specified more than once
+    #[clap(short = 'A', long)]
+    hosts_dir: Vec<PathBuf>,
+
+    /// Path to a zone file, can be specified more than once
+    #[clap(short = 'z', long)]
+    zone_file: Vec<PathBuf>,
+
+    /// Path to a directory to read zone files from, can be specified more than once
+    #[clap(short = 'Z', long)]
+    zones_dir: Vec<PathBuf>,
+}
+
 #[tokio::main]
 async fn main() {
-    let (settings, settings_path) = if let Some(fname) = env::args().nth(1) {
-        match Settings::new(&fname) {
-            Ok(s) => {
-                let mut path = Path::new(&fname)
-                    .canonicalize()
-                    .expect("could not get absolute path to configuration file");
-                path.pop();
+    let mut args = Args::parse();
 
-                println!("read config file");
-                (s, path)
-            }
+    let mut zones = Zones::new();
+    for path in args.zones_dir.iter() {
+        match get_files_from_dir(path).await {
+            Ok(mut paths) => args.zone_file.append(&mut paths),
             Err(err) => {
-                eprintln!("error reading config file: {:?}", err);
+                eprintln!("error reading zone directory \"{:?}\": {:?}", path, err);
                 process::exit(1);
             }
         }
-    } else {
-        println!("starting with default config");
-        let path = std::env::current_dir().expect("could not get current working directory");
-        (Settings::default(), path)
-    };
-
-    let mut zones = Zones::new();
-    for path_str in &settings.zone_files.clone() {
-        let path = Path::new(path_str);
-        let absolute_path = if path.is_relative() {
-            Path::new(&settings_path).join(path)
-        } else {
-            path.to_path_buf()
-        };
-
-        match Zone::from_file(absolute_path).await {
+    }
+    for path in args.zone_file.iter() {
+        match Zone::from_file(Path::new(path)).await {
             Ok(zone) => zones.insert_merge(zone),
             Err(err) => {
                 eprintln!("error reading zone file \"{:?}\": {:?}", path, err);
@@ -235,15 +276,17 @@ async fn main() {
     }
 
     let mut combined_hosts = Hosts::default();
-    for path_str in &settings.hosts_files.clone() {
-        let path = Path::new(path_str);
-        let absolute_path = if path.is_relative() {
-            Path::new(&settings_path).join(path)
-        } else {
-            path.to_path_buf()
-        };
-
-        match Hosts::from_file(absolute_path).await {
+    for path in args.hosts_dir.iter() {
+        match get_files_from_dir(path).await {
+            Ok(mut paths) => args.hosts_file.append(&mut paths),
+            Err(err) => {
+                eprintln!("error reading hosts directory \"{:?}\": {:?}", path, err);
+                process::exit(1);
+            }
+        }
+    }
+    for path in args.hosts_file.iter() {
+        match Hosts::from_file(Path::new(path)).await {
             Ok(hosts) => combined_hosts.merge(hosts),
             Err(err) => {
                 eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
@@ -254,10 +297,9 @@ async fn main() {
 
     zones.insert_merge(combined_hosts.into());
 
-    let interface = settings.interface.unwrap_or(Ipv4Addr::UNSPECIFIED);
-    println!("binding to {:?}", interface);
+    println!("binding to {:?}", args.interface);
 
-    let udp = match UdpSocket::bind((interface, 53)).await {
+    let udp = match UdpSocket::bind((args.interface, 53)).await {
         Ok(s) => s,
         Err(err) => {
             eprintln!("error binding bind UDP socket: {:?}", err);
@@ -265,7 +307,7 @@ async fn main() {
         }
     };
 
-    let tcp = match TcpListener::bind((interface, 53)).await {
+    let tcp = match TcpListener::bind((args.interface, 53)).await {
         Ok(s) => s,
         Err(err) => {
             eprintln!("error binding bind TCP socket: {:?}", err);
