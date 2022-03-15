@@ -161,6 +161,7 @@ impl ResourceRecord {
                 (RecordType::MX, octets)
             }
             RecordTypeWithData::TXT { octets } => (RecordType::TXT, octets),
+            RecordTypeWithData::AAAA { address } => (RecordType::AAAA, Vec::from(address.octets())),
             RecordTypeWithData::Unknown { tag, octets } => (RecordType::Unknown(tag), octets),
         };
 
