@@ -853,7 +853,7 @@ mod tests {
     fn resolve_nonrecursive_is_authoritative_for_zones_with_soa() {
         let soa_rr = zones_soa_rr();
         let mut expected = vec![
-            a_record("authoritative.example.com", Ipv4Addr::new(1, 1, 1, 1)),
+            a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
             soa_rr.clone(),
         ];
         expected.sort();
@@ -865,7 +865,7 @@ mod tests {
             &zones(),
             &SharedCache::new(),
             &Question {
-                name: domain("authoritative.example.com"),
+                name: domain("authoritative.example.com."),
                 qtype: QueryType::Wildcard,
                 qclass: QueryClass::Wildcard,
             },
@@ -883,13 +883,13 @@ mod tests {
     fn resolve_nonrecursive_is_nonauthoritative_for_zones_without_soa() {
         assert_eq!(
             Some(ResolvedRecord::NonAuthoritative {
-                rrs: vec![a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1))],
+                rrs: vec![a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
             }),
             resolve_nonrecursive(
                 &zones(),
                 &SharedCache::new(),
                 &Question {
-                    name: domain("a.example.com"),
+                    name: domain("a.example.com."),
                     qtype: QueryType::Wildcard,
                     qclass: QueryClass::Wildcard,
                 }
@@ -899,7 +899,7 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_is_nonauthoritative_for_cache() {
-        let rr = a_record("cached.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let rr = a_record("cached.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&rr);
@@ -908,7 +908,7 @@ mod tests {
             &zones(),
             &cache,
             &Question {
-                name: domain("cached.example.com"),
+                name: domain("cached.example.com."),
                 qtype: QueryType::Wildcard,
                 qclass: QueryClass::Wildcard,
             },
@@ -923,14 +923,14 @@ mod tests {
     fn resolve_nonrecursive_prefers_authoritative_zones() {
         let soa_rr = zones_soa_rr();
         let mut expected = vec![
-            a_record("authoritative.example.com", Ipv4Addr::new(1, 1, 1, 1)),
+            a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
             soa_rr.clone(),
         ];
         expected.sort();
 
         let cache = SharedCache::new();
         cache.insert(&a_record(
-            "authoritative.example.com",
+            "authoritative.example.com.",
             Ipv4Addr::new(8, 8, 8, 8),
         ));
 
@@ -941,7 +941,7 @@ mod tests {
             &zones(),
             &SharedCache::new(),
             &Question {
-                name: domain("authoritative.example.com"),
+                name: domain("authoritative.example.com."),
                 qtype: QueryType::Wildcard,
                 qclass: QueryClass::Wildcard,
             },
@@ -957,8 +957,8 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_combines_nonauthoritative_zones_with_cache() {
-        let zone_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
-        let cache_rr = a_record("a.example.com", Ipv4Addr::new(8, 8, 8, 8));
+        let zone_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+        let cache_rr = a_record("a.example.com.", Ipv4Addr::new(8, 8, 8, 8));
 
         let cache = SharedCache::new();
         cache.insert(&cache_rr);
@@ -967,7 +967,7 @@ mod tests {
             &zones(),
             &cache,
             &Question {
-                name: domain("a.example.com"),
+                name: domain("a.example.com."),
                 qtype: QueryType::Wildcard,
                 qclass: QueryClass::Wildcard,
             },
@@ -983,16 +983,16 @@ mod tests {
     #[test]
     fn resolve_nonrecursive_expands_cnames_from_zone() {
         let cname_rr = cname_record(
-            "cname-a.authoritative.example.com",
-            "authoritative.example.com",
+            "cname-a.authoritative.example.com.",
+            "authoritative.example.com.",
         );
-        let a_rr = a_record("authoritative.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let a_rr = a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
         if let Some(ResolvedRecord::Authoritative { rrs, authority_rrs }) = resolve_nonrecursive(
             &zones(),
             &SharedCache::new(),
             &Question {
-                name: domain("cname-a.authoritative.example.com"),
+                name: domain("cname-a.authoritative.example.com."),
                 qtype: QueryType::Record(RecordType::A),
                 qclass: QueryClass::Wildcard,
             },
@@ -1008,9 +1008,9 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_expands_cnames_from_cache() {
-        let cname_rr1 = cname_record("cname-1.example.com", "cname-2.example.com");
-        let cname_rr2 = cname_record("cname-2.example.com", "a.example.com");
-        let a_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let cname_rr1 = cname_record("cname-1.example.com.", "cname-2.example.com.");
+        let cname_rr2 = cname_record("cname-2.example.com.", "a.example.com.");
+        let a_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
         cache.insert(&cname_rr1);
@@ -1020,7 +1020,7 @@ mod tests {
             &zones(),
             &cache,
             &Question {
-                name: domain("cname-1.example.com"),
+                name: domain("cname-1.example.com."),
                 qtype: QueryType::Record(RecordType::A),
                 qclass: QueryClass::Wildcard,
             },
@@ -1036,14 +1036,14 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_propagates_cname_nonauthority() {
-        let cname_rr = cname_record("cname-na.authoritative.example.com", "a.example.com");
-        let a_rr = a_record("a.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let cname_rr = cname_record("cname-na.authoritative.example.com.", "a.example.com.");
+        let a_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
         if let Some(ResolvedRecord::NonAuthoritative { rrs }) = resolve_nonrecursive(
             &zones(),
             &SharedCache::new(),
             &Question {
-                name: domain("cname-na.authoritative.example.com"),
+                name: domain("cname-na.authoritative.example.com."),
                 qtype: QueryType::Record(RecordType::A),
                 qclass: QueryClass::Wildcard,
             },
@@ -1062,15 +1062,15 @@ mod tests {
             Some(ResolvedRecord::Authoritative {
                 rrs: Vec::new(),
                 authority_rrs: vec![ns_record(
-                    "delegated.authoritative.example.com",
-                    "ns.delegated.authoritative.example.com"
+                    "delegated.authoritative.example.com.",
+                    "ns.delegated.authoritative.example.com."
                 )]
             }),
             resolve_nonrecursive(
                 &zones(),
                 &SharedCache::new(),
                 &Question {
-                    name: domain("www.delegated.authoritative.example.com"),
+                    name: domain("www.delegated.authoritative.example.com."),
                     qtype: QueryType::Wildcard,
                     qclass: QueryClass::Wildcard,
                 }
@@ -1086,7 +1086,7 @@ mod tests {
                 &zones(),
                 &SharedCache::new(),
                 &Question {
-                    name: domain("www.delegated.example.com"),
+                    name: domain("www.delegated.example.com."),
                     qtype: QueryType::Wildcard,
                     qclass: QueryClass::Wildcard,
                 }
@@ -1104,7 +1104,7 @@ mod tests {
                 &zones(),
                 &SharedCache::new(),
                 &Question {
-                    name: domain("no.such.name.authoritative.example.com"),
+                    name: domain("no.such.name.authoritative.example.com."),
                     qtype: QueryType::Wildcard,
                     qclass: QueryClass::Wildcard,
                 },
@@ -1120,7 +1120,7 @@ mod tests {
                 &zones(),
                 &SharedCache::new(),
                 &Question {
-                    name: domain("no.such.name.example.com"),
+                    name: domain("no.such.name.example.com."),
                     qtype: QueryType::Wildcard,
                     qclass: QueryClass::Wildcard,
                 },
@@ -1130,16 +1130,16 @@ mod tests {
 
     #[test]
     fn candidate_nameservers_gets_all_matches() {
-        let qdomain = domain("com");
+        let qdomain = domain("com.");
         assert_eq!(
             Some(Nameservers {
                 hostnames: vec![
-                    HostOrIP::Host(domain("ns1.example.com")),
-                    HostOrIP::Host(domain("ns2.example.com"))
+                    HostOrIP::Host(domain("ns1.example.com.")),
+                    HostOrIP::Host(domain("ns2.example.com."))
                 ],
                 name: qdomain.clone(),
             }),
-            candidate_nameservers(&zones(), &cache_with_nameservers(&["com"]), &qdomain)
+            candidate_nameservers(&zones(), &cache_with_nameservers(&["com."]), &qdomain)
         );
     }
 
@@ -1148,15 +1148,15 @@ mod tests {
         assert_eq!(
             Some(Nameservers {
                 hostnames: vec![
-                    HostOrIP::Host(domain("ns1.example.com")),
-                    HostOrIP::Host(domain("ns2.example.com"))
+                    HostOrIP::Host(domain("ns1.example.com.")),
+                    HostOrIP::Host(domain("ns2.example.com."))
                 ],
-                name: domain("example.com"),
+                name: domain("example.com."),
             }),
             candidate_nameservers(
                 &zones(),
-                &cache_with_nameservers(&["example.com", "com"]),
-                &domain("www.example.com")
+                &cache_with_nameservers(&["example.com.", "com."]),
+                &domain("www.example.com.")
             )
         );
     }
@@ -1165,7 +1165,11 @@ mod tests {
     fn candidate_nameservers_returns_none_on_failure() {
         assert_eq!(
             None,
-            candidate_nameservers(&zones(), &cache_with_nameservers(&["com"]), &domain("net"))
+            candidate_nameservers(
+                &zones(),
+                &cache_with_nameservers(&["com."]),
+                &domain("net.")
+            )
         );
     }
 
@@ -1243,15 +1247,15 @@ mod tests {
     #[test]
     fn validate_nameserver_response_returns_answer() {
         let (request, response) = nameserver_response(
-            "www.example.com",
-            &[a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
+            "www.example.com.",
+            &[a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
             &[],
             &[],
         );
 
         assert_eq!(
             Some(NameserverResponse::Answer {
-                rrs: vec![a_record("www.example.com", Ipv4Addr::new(127, 0, 0, 1))],
+                rrs: vec![a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1262,7 +1266,7 @@ mod tests {
         let request = Message::from_question(
             1234,
             Question {
-                name: domain("www.example.com"),
+                name: domain("www.example.com."),
                 qtype: QueryType::Wildcard,
                 qclass: QueryClass::Record(RecordClass::IN),
             },
@@ -1270,14 +1274,14 @@ mod tests {
 
         let mut response = request.make_response();
         response.answers = [
-            unknown_record("www.example.com", &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
-            a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1)),
+            unknown_record("www.example.com.", &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]),
+            a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
         ]
         .into();
 
         assert_eq!(
             Some(NameserverResponse::Answer {
-                rrs: vec![a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
+                rrs: vec![a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1288,7 +1292,7 @@ mod tests {
         let request = Message::from_question(
             1234,
             Question {
-                name: domain("www.example.com"),
+                name: domain("www.example.com."),
                 qtype: QueryType::Wildcard,
                 qclass: QueryClass::Record(RecordClass::IN),
             },
@@ -1296,7 +1300,7 @@ mod tests {
 
         let mut response = request.make_response();
         response.answers = [unknown_record(
-            "www.example.com",
+            "www.example.com.",
             &[1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
         )]
         .into();
@@ -1307,10 +1311,10 @@ mod tests {
     #[test]
     fn validate_nameserver_response_follows_cnames() {
         let (request, response) = nameserver_response(
-            "www.example.com",
+            "www.example.com.",
             &[
-                cname_record("www.example.com", "cname-target.example.com"),
-                a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1)),
+                cname_record("www.example.com.", "cname-target.example.com."),
+                a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1)),
             ],
             &[],
             &[],
@@ -1319,8 +1323,8 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![
-                    cname_record("www.example.com", "cname-target.example.com"),
-                    a_record("cname-target.example.com", Ipv4Addr::new(127, 0, 0, 1))
+                    cname_record("www.example.com.", "cname-target.example.com."),
+                    a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1))
                 ],
             }),
             validate_nameserver_response(&request, response, 0)
@@ -1330,16 +1334,22 @@ mod tests {
     #[test]
     fn validate_nameserver_response_returns_partial_answer() {
         let (request, response) = nameserver_response(
-            "www.example.com",
-            &[cname_record("www.example.com", "cname-target.example.com")],
+            "www.example.com.",
+            &[cname_record(
+                "www.example.com.",
+                "cname-target.example.com.",
+            )],
             &[],
             &[],
         );
 
         assert_eq!(
             Some(NameserverResponse::CNAME {
-                rrs: vec![cname_record("www.example.com", "cname-target.example.com")],
-                cname: domain("cname-target.example.com"),
+                rrs: vec![cname_record(
+                    "www.example.com.",
+                    "cname-target.example.com."
+                )],
+                cname: domain("cname-target.example.com."),
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -1348,10 +1358,10 @@ mod tests {
     #[test]
     fn validate_nameserver_response_gets_ns_from_answers_and_authority_but_not_additional() {
         let (request, response) = nameserver_response(
-            "www.example.com",
-            &[ns_record("example.com", "ns-an.example.net")],
-            &[ns_record("example.com", "ns-ns.example.net")],
-            &[ns_record("example.com", "ns-ar.example.net")],
+            "www.example.com.",
+            &[ns_record("example.com.", "ns-an.example.net.")],
+            &[ns_record("example.com.", "ns-ns.example.net.")],
+            &[ns_record("example.com.", "ns-ar.example.net.")],
         );
 
         match validate_nameserver_response(&request, response, 0) {
@@ -1360,8 +1370,8 @@ mod tests {
                 delegation: mut actual_delegation,
             }) => {
                 let mut expected_rrs = vec![
-                    ns_record("example.com", "ns-an.example.net"),
-                    ns_record("example.com", "ns-ns.example.net"),
+                    ns_record("example.com.", "ns-an.example.net."),
+                    ns_record("example.com.", "ns-ns.example.net."),
                 ];
 
                 expected_rrs.sort();
@@ -1371,10 +1381,10 @@ mod tests {
 
                 let mut expected_delegation = Nameservers {
                     hostnames: vec![
-                        HostOrIP::Host(domain("ns-an.example.net")),
-                        HostOrIP::Host(domain("ns-ns.example.net")),
+                        HostOrIP::Host(domain("ns-an.example.net.")),
+                        HostOrIP::Host(domain("ns-ns.example.net.")),
                     ],
-                    name: domain("example.com"),
+                    name: domain("example.com."),
                 };
 
                 expected_delegation.hostnames.sort();
@@ -1389,8 +1399,8 @@ mod tests {
     #[test]
     fn validate_nameserver_response_only_returns_better_ns() {
         let (request, response) = nameserver_response(
-            "long.subdomain.example.com",
-            &[ns_record("example.com", "ns.example.net")],
+            "long.subdomain.example.com.",
+            &[ns_record("example.com.", "ns.example.net.")],
             &[],
             &[],
         );
@@ -1400,7 +1410,7 @@ mod tests {
             validate_nameserver_response(
                 &request,
                 response,
-                domain("subdomain.example.com").labels.len()
+                domain("subdomain.example.com.").labels.len()
             )
         );
     }
@@ -1408,24 +1418,33 @@ mod tests {
     #[test]
     fn validate_nameserver_response_prefers_best_ns() {
         let (request, response1) = nameserver_response(
-            "long.subdomain.example.com",
-            &[ns_record("subdomain.example.com", "ns-better.example.net")],
-            &[ns_record("example.com", "ns-worse.example.net")],
+            "long.subdomain.example.com.",
+            &[ns_record(
+                "subdomain.example.com.",
+                "ns-better.example.net.",
+            )],
+            &[ns_record("example.com.", "ns-worse.example.net.")],
             &[],
         );
         let (_, response2) = nameserver_response(
-            "long.subdomain.example.com",
-            &[ns_record("example.com", "ns-worse.example.net")],
-            &[ns_record("subdomain.example.com", "ns-better.example.net")],
+            "long.subdomain.example.com.",
+            &[ns_record("example.com.", "ns-worse.example.net.")],
+            &[ns_record(
+                "subdomain.example.com.",
+                "ns-better.example.net.",
+            )],
             &[],
         );
 
         assert_eq!(
             Some(NameserverResponse::Delegation {
-                rrs: vec![ns_record("subdomain.example.com", "ns-better.example.net"),],
+                rrs: vec![ns_record(
+                    "subdomain.example.com.",
+                    "ns-better.example.net."
+                )],
                 delegation: Nameservers {
-                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net")),],
-                    name: domain("subdomain.example.com"),
+                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net."))],
+                    name: domain("subdomain.example.com."),
                 },
             }),
             validate_nameserver_response(&request, response1, 0)
@@ -1433,10 +1452,13 @@ mod tests {
 
         assert_eq!(
             Some(NameserverResponse::Delegation {
-                rrs: vec![ns_record("subdomain.example.com", "ns-better.example.net"),],
+                rrs: vec![ns_record(
+                    "subdomain.example.com.",
+                    "ns-better.example.net."
+                )],
                 delegation: Nameservers {
-                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net")),],
-                    name: domain("subdomain.example.com"),
+                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net."))],
+                    name: domain("subdomain.example.com."),
                 },
             }),
             validate_nameserver_response(&request, response2, 0)
@@ -1446,20 +1468,20 @@ mod tests {
     #[test]
     fn validate_nameserver_response_gets_ns_a_from_answers_and_additional_but_not_authority() {
         let (request, response) = nameserver_response(
-            "www.example.com",
+            "www.example.com.",
             &[
-                ns_record("example.com", "ns-an.example.net"),
-                a_record("ns-an.example.net", Ipv4Addr::new(1, 1, 1, 1)),
-                a_record("ns-ns.example.net", Ipv4Addr::new(1, 1, 1, 1)),
+                ns_record("example.com.", "ns-an.example.net."),
+                a_record("ns-an.example.net.", Ipv4Addr::new(1, 1, 1, 1)),
+                a_record("ns-ns.example.net.", Ipv4Addr::new(1, 1, 1, 1)),
             ],
             &[
-                ns_record("example.com", "ns-ns.example.net"),
-                a_record("ns-an.example.net", Ipv4Addr::new(2, 2, 2, 2)),
-                a_record("ns-ns.example.net", Ipv4Addr::new(2, 2, 2, 2)),
+                ns_record("example.com.", "ns-ns.example.net."),
+                a_record("ns-an.example.net.", Ipv4Addr::new(2, 2, 2, 2)),
+                a_record("ns-ns.example.net.", Ipv4Addr::new(2, 2, 2, 2)),
             ],
             &[
-                a_record("ns-an.example.net", Ipv4Addr::new(3, 3, 3, 3)),
-                a_record("ns-ns.example.net", Ipv4Addr::new(3, 3, 3, 3)),
+                a_record("ns-an.example.net.", Ipv4Addr::new(3, 3, 3, 3)),
+                a_record("ns-ns.example.net.", Ipv4Addr::new(3, 3, 3, 3)),
             ],
         );
 
@@ -1469,12 +1491,12 @@ mod tests {
                 delegation: _,
             }) => {
                 let mut expected_rrs = vec![
-                    ns_record("example.com", "ns-an.example.net"),
-                    ns_record("example.com", "ns-ns.example.net"),
-                    a_record("ns-an.example.net", Ipv4Addr::new(1, 1, 1, 1)),
-                    a_record("ns-ns.example.net", Ipv4Addr::new(1, 1, 1, 1)),
-                    a_record("ns-an.example.net", Ipv4Addr::new(3, 3, 3, 3)),
-                    a_record("ns-ns.example.net", Ipv4Addr::new(3, 3, 3, 3)),
+                    ns_record("example.com.", "ns-an.example.net."),
+                    ns_record("example.com.", "ns-ns.example.net."),
+                    a_record("ns-an.example.net.", Ipv4Addr::new(1, 1, 1, 1)),
+                    a_record("ns-ns.example.net.", Ipv4Addr::new(1, 1, 1, 1)),
+                    a_record("ns-an.example.net.", Ipv4Addr::new(3, 3, 3, 3)),
+                    a_record("ns-ns.example.net.", Ipv4Addr::new(3, 3, 3, 3)),
                 ];
 
                 expected_rrs.sort();
@@ -1493,8 +1515,8 @@ mod tests {
         let cache = SharedCache::new();
 
         for name in names {
-            cache.insert(&ns_record(name, "ns1.example.com"));
-            cache.insert(&ns_record(name, "ns2.example.com"));
+            cache.insert(&ns_record(name, "ns1.example.com."));
+            cache.insert(&ns_record(name, "ns2.example.com."));
         }
 
         cache
@@ -1503,46 +1525,46 @@ mod tests {
     fn zones() -> Zones {
         let mut zone_na = Zone::default();
         zone_na.insert(
-            &domain("blocked.example.com"),
+            &domain("blocked.example.com."),
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(0, 0, 0, 0),
             },
             300,
         );
         zone_na.insert(
-            &domain("cname-and-a.example.com"),
+            &domain("cname-and-a.example.com."),
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(1, 1, 1, 1),
             },
             300,
         );
         zone_na.insert(
-            &domain("cname-and-a.example.com"),
+            &domain("cname-and-a.example.com."),
             RecordTypeWithData::CNAME {
-                cname: domain("cname-target.example.com"),
+                cname: domain("cname-target.example.com."),
             },
             300,
         );
         zone_na.insert(
-            &domain("a.example.com"),
+            &domain("a.example.com."),
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(1, 1, 1, 1),
             },
             300,
         );
         zone_na.insert(
-            &domain("delegated.example.com"),
+            &domain("delegated.example.com."),
             RecordTypeWithData::NS {
-                nsdname: domain("ns.delegated.example.com"),
+                nsdname: domain("ns.delegated.example.com."),
             },
             300,
         );
 
         let mut zone_a = Zone::new(
-            domain("authoritative.example.com"),
+            domain("authoritative.example.com."),
             Some(SOA {
-                mname: domain("mname"),
-                rname: domain("rname"),
+                mname: domain("mname."),
+                rname: domain("rname."),
                 serial: 0,
                 refresh: 0,
                 retry: 0,
@@ -1551,30 +1573,30 @@ mod tests {
             }),
         );
         zone_a.insert(
-            &domain("authoritative.example.com"),
+            &domain("authoritative.example.com."),
             RecordTypeWithData::A {
                 address: Ipv4Addr::new(1, 1, 1, 1),
             },
             300,
         );
         zone_a.insert(
-            &domain("cname-a.authoritative.example.com"),
+            &domain("cname-a.authoritative.example.com."),
             RecordTypeWithData::CNAME {
-                cname: domain("authoritative.example.com"),
+                cname: domain("authoritative.example.com."),
             },
             300,
         );
         zone_a.insert(
-            &domain("cname-na.authoritative.example.com"),
+            &domain("cname-na.authoritative.example.com."),
             RecordTypeWithData::CNAME {
-                cname: domain("a.example.com"),
+                cname: domain("a.example.com."),
             },
             300,
         );
         zone_a.insert(
-            &domain("delegated.authoritative.example.com"),
+            &domain("delegated.authoritative.example.com."),
             RecordTypeWithData::NS {
-                nsdname: domain("ns.delegated.authoritative.example.com"),
+                nsdname: domain("ns.delegated.authoritative.example.com."),
             },
             300,
         );
@@ -1588,7 +1610,7 @@ mod tests {
 
     fn zones_soa_rr() -> ResourceRecord {
         zones()
-            .get(&domain("authoritative.example.com"))
+            .get(&domain("authoritative.example.com."))
             .unwrap()
             .soa_rr()
             .unwrap()
@@ -1596,8 +1618,8 @@ mod tests {
 
     fn matching_nameserver_response() -> (Message, Message) {
         nameserver_response(
-            "www.example.com",
-            &[a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))],
+            "www.example.com.",
+            &[a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
             &[],
             &[],
         )

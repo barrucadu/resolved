@@ -69,7 +69,8 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 
             (State::ReadingName { start }, ' ') => {
                 let name_str = &line[*start..i];
-                match DomainName::from_dotted_string(name_str) {
+                match DomainName::from_relative_dotted_string(&DomainName::root_domain(), name_str)
+                {
                     Some(name) => {
                         new_names.insert(name);
                     }
@@ -87,7 +88,7 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 
     if let State::ReadingName { start } = state {
         let name_str = &line[start..];
-        match DomainName::from_dotted_string(name_str) {
+        match DomainName::from_relative_dotted_string(&DomainName::root_domain(), name_str) {
             Some(name) => {
                 new_names.insert(name);
             }
@@ -137,21 +138,21 @@ mod tests {
                           1.2.3.4 one two three four\n\
                           0.0.0.0 blocked\n
                           \n\
-                          127.0.0.1 localhost\n\
+                          127.0.0.1 localhost.\n\
                           ::1 localhost";
 
         let hosts = Hosts::deserialise(hosts_data).unwrap();
 
         let expected_a_records = &[
-            ("one", Ipv4Addr::new(1, 2, 3, 4)),
-            ("two", Ipv4Addr::new(1, 2, 3, 4)),
-            ("three", Ipv4Addr::new(1, 2, 3, 4)),
-            ("four", Ipv4Addr::new(1, 2, 3, 4)),
-            ("blocked", Ipv4Addr::new(0, 0, 0, 0)),
-            ("localhost", Ipv4Addr::new(127, 0, 0, 1)),
+            ("one.", Ipv4Addr::new(1, 2, 3, 4)),
+            ("two.", Ipv4Addr::new(1, 2, 3, 4)),
+            ("three.", Ipv4Addr::new(1, 2, 3, 4)),
+            ("four.", Ipv4Addr::new(1, 2, 3, 4)),
+            ("blocked.", Ipv4Addr::new(0, 0, 0, 0)),
+            ("localhost.", Ipv4Addr::new(127, 0, 0, 1)),
         ];
 
-        let expected_aaaa_records = &[("localhost", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))];
+        let expected_aaaa_records = &[("localhost.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))];
 
         for (name, addr) in expected_a_records {
             assert_eq!(
@@ -179,7 +180,7 @@ mod tests {
             assert_eq!(
                 Some((
                     IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)),
-                    [domain("foo"), domain("bar")].into_iter().collect()
+                    [domain("foo."), domain("bar.")].into_iter().collect()
                 )),
                 parsed
             );
@@ -203,7 +204,7 @@ mod tests {
             assert_eq!(
                 Some((
                     IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 1, 2, 3)),
-                    [domain("foo"), domain("bar")].into_iter().collect()
+                    [domain("foo."), domain("bar.")].into_iter().collect()
                 )),
                 parsed
             );
