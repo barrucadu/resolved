@@ -105,6 +105,11 @@ impl Zone {
         &self.apex
     }
 
+    /// Return the SOA if the zone is authoritative.
+    pub fn get_soa(&self) -> &Option<SOA> {
+        &self.soa
+    }
+
     /// Returns true if the zone is authoritative.
     pub fn is_authoritative(&self) -> bool {
         self.soa.is_some()
@@ -469,8 +474,8 @@ impl SOA {
 /// A single record
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ZoneRecord {
-    rtype_with_data: RecordTypeWithData,
-    ttl: u32,
+    pub rtype_with_data: RecordTypeWithData,
+    pub ttl: u32,
 }
 
 impl ZoneRecord {

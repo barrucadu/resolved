@@ -1,3 +1,4 @@
+use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 /// Basic DNS message format, used for both queries and responses.
@@ -797,6 +798,10 @@ impl DomainName {
         }
     }
 
+    pub fn is_root(&self) -> bool {
+        self.octets.len() == 1 && self.labels.len() == 1
+    }
+
     pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
         self.labels.ends_with(&other.labels)
     }
@@ -899,8 +904,8 @@ impl DomainName {
     }
 }
 
-impl std::fmt::Debug for DomainName {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for DomainName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DomainName")
             .field("to_dotted_string()", &self.to_dotted_string())
             .finish()
@@ -1064,6 +1069,31 @@ impl RecordType {
             QueryType::Wildcard => true,
             QueryType::Record(rtype) => rtype == self,
             _ => false,
+        }
+    }
+}
+
+impl fmt::Display for RecordType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RecordType::A => write!(f, "A"),
+            RecordType::NS => write!(f, "NS"),
+            RecordType::MD => write!(f, "MD"),
+            RecordType::MF => write!(f, "MF"),
+            RecordType::CNAME => write!(f, "CNAME"),
+            RecordType::SOA => write!(f, "SOA"),
+            RecordType::MB => write!(f, "MB"),
+            RecordType::MG => write!(f, "MG"),
+            RecordType::MR => write!(f, "MR"),
+            RecordType::NULL => write!(f, "NULL"),
+            RecordType::WKS => write!(f, "WKS"),
+            RecordType::PTR => write!(f, "PTR"),
+            RecordType::HINFO => write!(f, "HINFO"),
+            RecordType::MINFO => write!(f, "MINFO"),
+            RecordType::MX => write!(f, "MX"),
+            RecordType::TXT => write!(f, "TXT"),
+            RecordType::AAAA => write!(f, "AAAA"),
+            RecordType::Unknown(RecordTypeUnknown(n)) => write!(f, "{}", n),
         }
     }
 }

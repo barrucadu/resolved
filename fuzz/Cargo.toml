@@ -31,3 +31,9 @@ name = "wire_serialise_round_trip"
 path = "fuzz_targets/wire_serialise_round_trip.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "zone_deserialise_round_trip"
+path = "fuzz_targets/zone_deserialise_round_trip.rs"
+test = false
+doc = false
