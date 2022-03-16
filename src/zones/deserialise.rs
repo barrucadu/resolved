@@ -186,9 +186,9 @@ fn parse_entry<I: Iterator<Item = char>>(
             if stream.peek() == None {
                 return Ok(None);
             }
-        } else if tokens[0] == "$ORIGIN" {
+        } else if tokens[0].0 == "$ORIGIN" {
             return Ok(Some(parse_origin(origin, tokens)?));
-        } else if tokens[0] == "$INCLUDE" {
+        } else if tokens[0].0 == "$INCLUDE" {
             return Ok(Some(parse_include(origin, tokens)?));
         } else {
             return Ok(Some(parse_rr(
@@ -204,40 +204,46 @@ fn parse_entry<I: Iterator<Item = char>>(
 /// ```text
 /// $ORIGIN <domain-name>
 /// ```
-fn parse_origin(origin: &Option<DomainName>, tokens: Vec<String>) -> Result<Entry, Error> {
+fn parse_origin(
+    origin: &Option<DomainName>,
+    tokens: Vec<(String, Vec<u8>)>,
+) -> Result<Entry, Error> {
     if tokens.len() != 2 {
         return Err(Error::WrongLen { tokens });
     }
 
-    if tokens[0] != "$ORIGIN" {
+    if tokens[0].0 != "$ORIGIN" {
         return Err(Error::Unexpected {
             expected: "$ORIGIN".to_string(),
             tokens,
         });
     }
 
-    let name = parse_domain(origin, &tokens[1])?;
+    let name = parse_domain(origin, &tokens[1].0)?;
     Ok(Entry::Origin { name })
 }
 
 /// ```text
 /// $INCLUDE <file-name> [<domain-name>]
 /// ```
-fn parse_include(origin: &Option<DomainName>, tokens: Vec<String>) -> Result<Entry, Error> {
+fn parse_include(
+    origin: &Option<DomainName>,
+    tokens: Vec<(String, Vec<u8>)>,
+) -> Result<Entry, Error> {
     if tokens.len() != 2 && tokens.len() != 3 {
         return Err(Error::WrongLen { tokens });
     }
 
-    if tokens[0] != "$INCLUDE" {
+    if tokens[0].0 != "$INCLUDE" {
         return Err(Error::Unexpected {
             expected: "$INCLUDE".to_string(),
             tokens,
         });
     }
 
-    let path = tokens[1].clone();
+    let path = tokens[1].0.clone();
     let name = if tokens.len() == 3 {
-        Some(parse_domain(origin, &tokens[2])?)
+        Some(parse_domain(origin, &tokens[2].0)?)
     } else {
         None
     };
@@ -260,7 +266,7 @@ fn parse_rr(
     origin: &Option<DomainName>,
     previous_domain: &Option<MaybeWildcard>,
     previous_ttl: &Option<u32>,
-    tokens: Vec<String>,
+    tokens: Vec<(String, Vec<u8>)>,
 ) -> Result<Entry, Error> {
     if tokens.is_empty() {
         return Err(Error::WrongLen { tokens });
@@ -270,11 +276,11 @@ fn parse_rr(
         if let Some(rtype_with_data) = try_parse_rtype_with_data(origin, &tokens[3..]) {
             // <domain-name> <ttl>   <class> <type> <rdata>
             // <domain-name> <class> <ttl>   <type> <rdata>
-            let wname = parse_domain_or_wildcard(origin, &tokens[0])?;
-            let ttl = if tokens[2] == "IN" {
-                parse_u32(&tokens[1])?
-            } else if tokens[1] == "IN" {
-                parse_u32(&tokens[2])?
+            let wname = parse_domain_or_wildcard(origin, &tokens[0].0)?;
+            let ttl = if tokens[2].0 == "IN" {
+                parse_u32(&tokens[1].0)?
+            } else if tokens[1].0 == "IN" {
+                parse_u32(&tokens[2].0)?
             } else {
                 return Err(Error::Unexpected {
                     expected: "IN".to_string(),
@@ -292,16 +298,16 @@ fn parse_rr(
             // <domain-name>         <class> <type> <rdata>
             //               <ttl>   <class> <type> <rdata>
             //               <class> <ttl>   <type> <rdata>
-            return if tokens[1] == "IN" {
-                if tokens[0].chars().all(|c| c.is_ascii_digit()) {
-                    let ttl = parse_u32(&tokens[0])?;
+            return if tokens[1].0 == "IN" {
+                if tokens[0].0.chars().all(|c| c.is_ascii_digit()) {
+                    let ttl = parse_u32(&tokens[0].0)?;
                     if let Some(wname) = previous_domain {
                         Ok(to_rr(wname.clone(), rtype_with_data, ttl))
                     } else {
                         Err(Error::MissingDomainName { tokens })
                     }
                 } else {
-                    let wname = parse_domain_or_wildcard(origin, &tokens[0])?;
+                    let wname = parse_domain_or_wildcard(origin, &tokens[0].0)?;
                     if let Some(ttl) = previous_ttl {
                         Ok(to_rr(wname, rtype_with_data, *ttl))
                     } else if rtype_with_data.rtype() == RecordType::SOA {
@@ -310,16 +316,16 @@ fn parse_rr(
                         Err(Error::MissingTTL { tokens })
                     }
                 }
-            } else if tokens[0] == "IN" {
-                let ttl = parse_u32(&tokens[1])?;
+            } else if tokens[0].0 == "IN" {
+                let ttl = parse_u32(&tokens[1].0)?;
                 if let Some(wname) = previous_domain {
                     Ok(to_rr(wname.clone(), rtype_with_data, ttl))
                 } else {
                     Err(Error::MissingDomainName { tokens })
                 }
             } else {
-                let wname = parse_domain_or_wildcard(origin, &tokens[0])?;
-                let ttl = parse_u32(&tokens[1])?;
+                let wname = parse_domain_or_wildcard(origin, &tokens[0].0)?;
+                let ttl = parse_u32(&tokens[1].0)?;
                 Ok(to_rr(wname, rtype_with_data, ttl))
             };
         }
@@ -330,7 +336,7 @@ fn parse_rr(
             // <domain-name>                 <type> <rdata>
             //               <ttl>           <type> <rdata>
             //                       <class> <type> <rdata>
-            return if tokens[0] == "IN" {
+            return if tokens[0].0 == "IN" {
                 if let Some(wname) = previous_domain {
                     if let Some(ttl) = previous_ttl {
                         Ok(to_rr(wname.clone(), rtype_with_data, *ttl))
@@ -342,15 +348,15 @@ fn parse_rr(
                 } else {
                     Err(Error::MissingDomainName { tokens })
                 }
-            } else if tokens[0].chars().all(|c| c.is_ascii_digit()) {
-                let ttl = parse_u32(&tokens[0])?;
+            } else if tokens[0].0.chars().all(|c| c.is_ascii_digit()) {
+                let ttl = parse_u32(&tokens[0].0)?;
                 if let Some(wname) = previous_domain {
                     Ok(to_rr(wname.clone(), rtype_with_data, ttl))
                 } else {
                     Err(Error::MissingDomainName { tokens })
                 }
             } else {
-                let wname = parse_domain_or_wildcard(origin, &tokens[0])?;
+                let wname = parse_domain_or_wildcard(origin, &tokens[0].0)?;
                 if let Some(ttl) = previous_ttl {
                     Ok(to_rr(wname, rtype_with_data, *ttl))
                 } else if rtype_with_data.rtype() == RecordType::SOA {
@@ -386,41 +392,41 @@ fn parse_rr(
 /// no parse, since this does not necessarily indicate a fatal error.
 fn try_parse_rtype_with_data(
     origin: &Option<DomainName>,
-    tokens: &[String],
+    tokens: &[(String, Vec<u8>)],
 ) -> Option<RecordTypeWithData> {
     if tokens.is_empty() {
         return None;
     }
 
-    match tokens[0].as_str() {
-        "A" if tokens.len() == 2 => match Ipv4Addr::from_str(&tokens[1]) {
+    match tokens[0].0.as_str() {
+        "A" if tokens.len() == 2 => match Ipv4Addr::from_str(&tokens[1].0) {
             Ok(address) => Some(RecordTypeWithData::A { address }),
             _ => None,
         },
-        "NS" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "NS" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(nsdname) => Some(RecordTypeWithData::NS { nsdname }),
             _ => None,
         },
-        "MD" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "MD" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(madname) => Some(RecordTypeWithData::MD { madname }),
             _ => None,
         },
-        "MF" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "MF" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(madname) => Some(RecordTypeWithData::MF { madname }),
             _ => None,
         },
-        "CNAME" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "CNAME" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(cname) => Some(RecordTypeWithData::CNAME { cname }),
             _ => None,
         },
         "SOA" if tokens.len() == 8 => match (
-            parse_domain(origin, &tokens[1]),
-            parse_domain(origin, &tokens[2]),
-            u32::from_str(&tokens[3]),
-            u32::from_str(&tokens[4]),
-            u32::from_str(&tokens[5]),
-            u32::from_str(&tokens[6]),
-            u32::from_str(&tokens[7]),
+            parse_domain(origin, &tokens[1].0),
+            parse_domain(origin, &tokens[2].0),
+            u32::from_str(&tokens[3].0),
+            u32::from_str(&tokens[4].0),
+            u32::from_str(&tokens[5].0),
+            u32::from_str(&tokens[6].0),
+            u32::from_str(&tokens[7].0),
         ) {
             (Ok(mname), Ok(rname), Ok(serial), Ok(refresh), Ok(retry), Ok(expire), Ok(minimum)) => {
                 Some(RecordTypeWithData::SOA {
@@ -435,40 +441,43 @@ fn try_parse_rtype_with_data(
             }
             _ => None,
         },
-        "MB" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "MB" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(madname) => Some(RecordTypeWithData::MB { madname }),
             _ => None,
         },
-        "MG" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "MG" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(mdmname) => Some(RecordTypeWithData::MG { mdmname }),
             _ => None,
         },
-        "MR" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "MR" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(newname) => Some(RecordTypeWithData::MR { newname }),
             _ => None,
         },
         "NULL" if tokens.len() == 2 => Some(RecordTypeWithData::NULL {
-            octets: tokens[1].as_bytes().to_vec(),
+            octets: tokens[1].1.clone(),
         }),
         "WKS" if tokens.len() == 2 => Some(RecordTypeWithData::WKS {
-            octets: tokens[1].as_bytes().to_vec(),
+            octets: tokens[1].1.clone(),
         }),
-        "PTR" if tokens.len() == 2 => match parse_domain(origin, &tokens[1]) {
+        "PTR" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(ptrdname) => Some(RecordTypeWithData::PTR { ptrdname }),
             _ => None,
         },
         "HINFO" if tokens.len() == 2 => Some(RecordTypeWithData::HINFO {
-            octets: tokens[1].as_bytes().to_vec(),
+            octets: tokens[1].1.clone(),
         }),
         "MINFO" if tokens.len() == 3 => match (
-            parse_domain(origin, &tokens[1]),
-            parse_domain(origin, &tokens[2]),
+            parse_domain(origin, &tokens[1].0),
+            parse_domain(origin, &tokens[2].0),
         ) {
             (Ok(rmailbx), Ok(emailbx)) => Some(RecordTypeWithData::MINFO { rmailbx, emailbx }),
             _ => None,
         },
         "MX" if tokens.len() == 3 => {
-            match (u16::from_str(&tokens[1]), parse_domain(origin, &tokens[2])) {
+            match (
+                u16::from_str(&tokens[1].0),
+                parse_domain(origin, &tokens[2].0),
+            ) {
                 (Ok(preference), Ok(exchange)) => Some(RecordTypeWithData::MX {
                     preference,
                     exchange,
@@ -477,9 +486,9 @@ fn try_parse_rtype_with_data(
             }
         }
         "TXT" if tokens.len() == 2 => Some(RecordTypeWithData::TXT {
-            octets: tokens[1].as_bytes().to_vec(),
+            octets: tokens[1].1.clone(),
         }),
-        "AAAA" if tokens.len() == 2 => match Ipv6Addr::from_str(&tokens[1]) {
+        "AAAA" if tokens.len() == 2 => match Ipv6Addr::from_str(&tokens[1].0) {
             Ok(address) => Some(RecordTypeWithData::AAAA { address }),
             _ => None,
         },
@@ -599,9 +608,10 @@ fn to_rr(wname: MaybeWildcard, rtype_with_data: RecordTypeWithData, ttl: u32) ->
 /// the matched delimiter.
 fn tokenise_entry<I: Iterator<Item = char>>(
     stream: &mut Peekable<I>,
-) -> Result<Vec<String>, Error> {
+) -> Result<Vec<(String, Vec<u8>)>, Error> {
     let mut tokens = Vec::new();
-    let mut token = String::new();
+    let mut token_string = String::new();
+    let mut token_octets = Vec::new();
     let mut state = State::Initial;
     let mut line_continuation = false;
 
@@ -633,22 +643,28 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             }
             (State::Initial, '"') => State::QuotedString,
             (State::Initial, '\\') => {
-                token.push(tokenise_escape(stream)?);
+                let octet = tokenise_escape(stream)?;
+                token_string.push(octet as char);
+                token_octets.push(octet);
                 State::UnquotedString
             }
             (State::Initial, c) => {
                 if c.is_whitespace() {
                     State::Initial
-                } else {
-                    token.push(c);
+                } else if c.is_ascii() {
+                    token_string.push(c);
+                    token_octets.push(c as u8);
                     State::UnquotedString
+                } else {
+                    return Err(Error::TokeniserUnexpected { unexpected: c });
                 }
             }
 
             (State::UnquotedString, '\n') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
+                if !token_string.is_empty() {
+                    tokens.push((token_string, token_octets));
+                    token_string = String::new();
+                    token_octets = Vec::new();
                 }
                 if line_continuation {
                     State::Initial
@@ -657,26 +673,33 @@ fn tokenise_entry<I: Iterator<Item = char>>(
                 }
             }
             (State::UnquotedString, ';') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
+                if !token_string.is_empty() {
+                    tokens.push((token_string, token_octets));
+                    token_string = String::new();
+                    token_octets = Vec::new();
                 }
                 State::SkipToEndOfComment
             }
             (State::UnquotedString, '\\') => {
-                token.push(tokenise_escape(stream)?);
+                let octet = tokenise_escape(stream)?;
+                token_string.push(octet as char);
+                token_octets.push(octet);
                 State::UnquotedString
             }
             (State::UnquotedString, c) => {
                 if c.is_whitespace() {
-                    if !token.is_empty() {
-                        tokens.push(token);
-                        token = String::new();
+                    if !token_string.is_empty() {
+                        tokens.push((token_string, token_octets));
+                        token_string = String::new();
+                        token_octets = Vec::new();
                     }
                     State::Initial
-                } else {
-                    token.push(c);
+                } else if c.is_ascii() {
+                    token_string.push(c);
+                    token_octets.push(c as u8);
                     State::UnquotedString
+                } else {
+                    return Err(Error::TokeniserUnexpected { unexpected: c });
                 }
             }
 
@@ -690,32 +713,40 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             (State::SkipToEndOfComment, _) => State::SkipToEndOfComment,
 
             (State::QuotedString, '"') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
+                if !token_string.is_empty() {
+                    tokens.push((token_string, token_octets));
+                    token_string = String::new();
+                    token_octets = Vec::new();
                 }
                 State::Initial
             }
             (State::QuotedString, '\\') => {
-                token.push(tokenise_escape(stream)?);
+                let octet = tokenise_escape(stream)?;
+                token_string.push(octet as char);
+                token_octets.push(octet);
                 State::QuotedString
             }
-            (State::QuotedString, raw) => {
-                token.push(raw);
+            (State::QuotedString, c) => {
+                if c.is_ascii() {
+                    token_string.push(c);
+                    token_octets.push(c as u8);
+                } else {
+                    return Err(Error::TokeniserUnexpected { unexpected: c });
+                }
                 State::QuotedString
             }
         }
     }
 
-    if !token.is_empty() {
-        tokens.push(token);
+    if !token_string.is_empty() {
+        tokens.push((token_string, token_octets));
     }
 
     Ok(tokens)
 }
 
 /// Tokenise an escape sequence
-fn tokenise_escape<I: Iterator<Item = char>>(stream: &mut I) -> Result<char, Error> {
+fn tokenise_escape<I: Iterator<Item = char>>(stream: &mut I) -> Result<u8, Error> {
     if let Some(c1) = stream.next() {
         match c1.to_digit(10) {
             Some(d1) => {
@@ -725,7 +756,7 @@ fn tokenise_escape<I: Iterator<Item = char>>(stream: &mut I) -> Result<char, Err
                             if let Some(c3) = stream.next() {
                                 match c3.to_digit(10) {
                                     Some(d3) => match u8::try_from(d1 * 100 + d2 * 10 + d3) {
-                                        Ok(num) => Ok(num as char),
+                                        Ok(num) => Ok(num),
                                         _ => Err(Error::TokeniserUnexpectedEscape {
                                             unexpected: vec![c1, c2, c3],
                                         }),
@@ -750,7 +781,13 @@ fn tokenise_escape<I: Iterator<Item = char>>(stream: &mut I) -> Result<char, Err
                     })
                 }
             }
-            _ => Ok(c1),
+            _ => {
+                if c1.is_ascii() {
+                    Ok(c1 as u8)
+                } else {
+                    Err(Error::TokeniserUnexpected { unexpected: c1 })
+                }
+            }
         }
     } else {
         Err(Error::TokeniserUnexpectedEscape {
@@ -816,7 +853,7 @@ pub enum Error {
     },
     Unexpected {
         expected: String,
-        tokens: Vec<String>,
+        tokens: Vec<(String, Vec<u8>)>,
     },
     ExpectedU32 {
         digits: String,
@@ -826,16 +863,16 @@ pub enum Error {
         dotted_string: String,
     },
     WrongLen {
-        tokens: Vec<String>,
+        tokens: Vec<(String, Vec<u8>)>,
     },
     MissingType {
-        tokens: Vec<String>,
+        tokens: Vec<(String, Vec<u8>)>,
     },
     MissingTTL {
-        tokens: Vec<String>,
+        tokens: Vec<(String, Vec<u8>)>,
     },
     MissingDomainName {
-        tokens: Vec<String>,
+        tokens: Vec<(String, Vec<u8>)>,
     },
 }
 
@@ -902,13 +939,7 @@ mod tests {
 
     #[test]
     fn parse_rr_origin() {
-        let tokens = vec![
-            "*".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "A".to_string(),
-            "10.0.0.2".to_string(),
-        ];
+        let tokens = tokenise_str("* IN 300 A 10.0.0.2");
 
         assert!(matches!(
             parse_rr(&None, &None, &None, tokens.clone()),
@@ -936,12 +967,7 @@ mod tests {
 
     #[test]
     fn parse_rr_previous_domain() {
-        let tokens = vec![
-            "IN".to_string(),
-            "300".to_string(),
-            "A".to_string(),
-            "10.0.0.2".to_string(),
-        ];
+        let tokens = tokenise_str("IN 300 A 10.0.0.2");
 
         assert!(matches!(
             parse_rr(&None, &None, &None, tokens.clone()),
@@ -976,12 +1002,7 @@ mod tests {
 
     #[test]
     fn parse_rr_previous_ttl() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "A".to_string(),
-            "10.0.0.2".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN A 10.0.0.2");
 
         assert!(matches!(
             parse_rr(&None, &None, &None, tokens.clone()),
@@ -1009,13 +1030,7 @@ mod tests {
 
     #[test]
     fn parse_rr_a() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "A".to_string(),
-            "10.0.0.2".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 A 10.0.0.2");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1037,13 +1052,7 @@ mod tests {
 
     #[test]
     fn parse_rr_ns() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "NS".to_string(),
-            "ns1.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 NS ns1.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1065,13 +1074,7 @@ mod tests {
 
     #[test]
     fn parse_rr_md() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MD".to_string(),
-            "madname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MD madname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1093,13 +1096,7 @@ mod tests {
 
     #[test]
     fn parse_rr_mf() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MF".to_string(),
-            "madname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MF madname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1121,13 +1118,7 @@ mod tests {
 
     #[test]
     fn parse_rr_cname() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "CNAME".to_string(),
-            "cname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 CNAME cname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1149,19 +1140,8 @@ mod tests {
 
     #[test]
     fn parse_rr_soa() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "SOA".to_string(),
-            "mname.lan.".to_string(),
-            "rname.lan.".to_string(),
-            "100".to_string(),
-            "200".to_string(),
-            "300".to_string(),
-            "400".to_string(),
-            "500".to_string(),
-        ];
+        let tokens =
+            tokenise_str("nyarlathotep.lan. IN 300 SOA mname.lan. rname.lan. 100 200 300 400 500");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1189,13 +1169,7 @@ mod tests {
 
     #[test]
     fn parse_rr_mb() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MB".to_string(),
-            "madname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MB madname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1217,13 +1191,7 @@ mod tests {
 
     #[test]
     fn parse_rr_mg() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MG".to_string(),
-            "mdmname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MG mdmname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1245,13 +1213,7 @@ mod tests {
 
     #[test]
     fn parse_rr_mr() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MR".to_string(),
-            "newname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MR newname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1273,13 +1235,7 @@ mod tests {
 
     #[test]
     fn parse_rr_null() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "NULL".to_string(),
-            "123".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 NULL 123");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1301,13 +1257,7 @@ mod tests {
 
     #[test]
     fn parse_rr_wks() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "WKS".to_string(),
-            "123".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 WKS 123");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1329,13 +1279,7 @@ mod tests {
 
     #[test]
     fn parse_rr_ptr() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "PTR".to_string(),
-            "ptrdname.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 PTR ptrdname.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1357,13 +1301,7 @@ mod tests {
 
     #[test]
     fn parse_rr_hinfo() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "HINFO".to_string(),
-            "123".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 HINFO 123");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1385,14 +1323,7 @@ mod tests {
 
     #[test]
     fn parse_rr_minfo() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MINFO".to_string(),
-            "rmailbx.lan.".to_string(),
-            "emailbx.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MINFO rmailbx.lan. emailbx.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1415,14 +1346,7 @@ mod tests {
 
     #[test]
     fn parse_rr_mx() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "MX".to_string(),
-            "42".to_string(),
-            "exchange.lan.".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 MX 42 exchange.lan.");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1445,13 +1369,7 @@ mod tests {
 
     #[test]
     fn parse_rr_txt() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "TXT".to_string(),
-            "123".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 TXT 123");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1473,13 +1391,7 @@ mod tests {
 
     #[test]
     fn parse_rr_aaaa() {
-        let tokens = vec![
-            "nyarlathotep.lan.".to_string(),
-            "IN".to_string(),
-            "300".to_string(),
-            "AAAA".to_string(),
-            "::1:2:3".to_string(),
-        ];
+        let tokens = tokenise_str("nyarlathotep.lan. IN 300 AAAA ::1:2:3");
         if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
             assert_eq!(
                 Entry::RR {
@@ -1648,19 +1560,15 @@ mod tests {
             .chars()
             .peekable();
         if let Ok(tokens) = tokenise_entry(&mut stream) {
-            assert_eq!(
-                vec![
-                    "a".to_string(),
-                    "b".to_string(),
-                    "c".to_string(),
-                    " quoted string 1 ".to_string(),
-                    "quoted string 2".to_string(),
-                    "\"".to_string(),
-                    "unquoted!".to_string(),
-                    "(".to_string()
-                ],
-                tokens
-            );
+            assert_eq!(8, tokens.len());
+            assert_eq!("a".to_string(), tokens[0].0);
+            assert_eq!("b".to_string(), tokens[1].0);
+            assert_eq!("c".to_string(), tokens[2].0);
+            assert_eq!(" quoted string 1 ".to_string(), tokens[3].0);
+            assert_eq!("quoted string 2".to_string(), tokens[4].0);
+            assert_eq!("\"".to_string(), tokens[5].0);
+            assert_eq!("unquoted!".to_string(), tokens[6].0);
+            assert_eq!("(".to_string(), tokens[7].0);
             assert_eq!(None, stream.next());
         } else {
             panic!("expected tokenisation");
@@ -1671,9 +1579,15 @@ mod tests {
     fn tokenise_entry_multi() {
         let mut stream = "entry one\nentry two".chars().peekable();
         if let Ok(tokens1) = tokenise_entry(&mut stream) {
-            assert_eq!(vec!["entry".to_string(), "one".to_string(),], tokens1);
+            assert_eq!(2, tokens1.len());
+            assert_eq!("entry".to_string(), tokens1[0].0);
+            assert_eq!("one".to_string(), tokens1[1].0);
+
             if let Ok(tokens2) = tokenise_entry(&mut stream) {
-                assert_eq!(vec!["entry".to_string(), "two".to_string(),], tokens2);
+                assert_eq!(2, tokens2.len());
+                assert_eq!("entry".to_string(), tokens2[0].0);
+                assert_eq!("two".to_string(), tokens2[1].0);
+
                 assert_eq!(None, stream.next());
             } else {
                 panic!("expected tokenisation of entry 1");
@@ -1687,14 +1601,10 @@ mod tests {
     fn tokenise_entry_multiline_continuation() {
         let mut stream = "line ( with \n continuation )".chars().peekable();
         if let Ok(tokens) = tokenise_entry(&mut stream) {
-            assert_eq!(
-                vec![
-                    "line".to_string(),
-                    "with".to_string(),
-                    "continuation".to_string()
-                ],
-                tokens
-            );
+            assert_eq!(3, tokens.len());
+            assert_eq!("line".to_string(), tokens[0].0);
+            assert_eq!("with".to_string(), tokens[1].0);
+            assert_eq!("continuation".to_string(), tokens[2].0);
         } else {
             panic!("expected tokenisation");
         }
@@ -1704,10 +1614,9 @@ mod tests {
     fn tokenise_entry_multiline_string() {
         let mut stream = "line \"with \n continuation\"".chars().peekable();
         if let Ok(tokens) = tokenise_entry(&mut stream) {
-            assert_eq!(
-                vec!["line".to_string(), "with \n continuation".to_string()],
-                tokens
-            );
+            assert_eq!(2, tokens.len());
+            assert_eq!("line".to_string(), tokens[0].0);
+            assert_eq!("with \n continuation".to_string(), tokens[1].0);
         } else {
             panic!("expected tokenisation");
         }
@@ -1717,7 +1626,8 @@ mod tests {
     fn tokenise_entry_handles_embedded_quotes() {
         let entry = "foo\"bar\"baz";
         if let Ok(tokens) = tokenise_entry(&mut entry.chars().peekable()) {
-            assert_eq!(vec![entry], tokens);
+            assert!(!tokens.is_empty());
+            assert_eq!(entry, tokens[0].0);
         } else {
             panic!("expected tokenisation");
         }
@@ -1727,7 +1637,7 @@ mod tests {
     fn tokenise_escape_non_numeric() {
         let mut stream = "ab".chars().peekable();
         if let Ok(c) = tokenise_escape(&mut stream) {
-            assert_eq!('a', c);
+            assert_eq!(b'a', c);
             assert_eq!(Some('b'), stream.next());
         } else {
             panic!("expected tokenisation");
@@ -1754,7 +1664,7 @@ mod tests {
     fn tokenise_escape_three_digits() {
         let mut stream = "123".chars().peekable();
         if let Ok(c) = tokenise_escape(&mut stream) {
-            assert_eq!(123 as char, c);
+            assert_eq!(123, c);
             assert_eq!(None, stream.next());
         } else {
             panic!("expected tokenisation");
@@ -1773,10 +1683,14 @@ mod tests {
     fn tokenise_escape_four_digits() {
         let mut stream = "1234".chars().peekable();
         if let Ok(c) = tokenise_escape(&mut stream) {
-            assert_eq!(123 as char, c);
+            assert_eq!(123, c);
             assert_eq!(Some('4'), stream.next());
         } else {
             panic!("expected tokenisation");
         }
+    }
+
+    fn tokenise_str(s: &str) -> Vec<(String, Vec<u8>)> {
+        tokenise_entry(&mut s.chars().peekable()).unwrap()
     }
 }
