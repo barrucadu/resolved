@@ -504,7 +504,9 @@ fn parse_domain_or_wildcard(
     let dotted_string_vec = dotted_string.chars().collect::<Vec<char>>();
 
     if dotted_string_vec.is_empty() {
-        panic!("reached parse_domain_or_wildcard with an empty string");
+        return Err(Error::ExpectedDomainName {
+            dotted_string: dotted_string.to_string(),
+        });
     }
 
     if dotted_string == "*" {
@@ -534,7 +536,9 @@ fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<Doma
     let dotted_string_vec = dotted_string.chars().collect::<Vec<char>>();
 
     if dotted_string_vec.is_empty() {
-        panic!("reached parse_domain with an empty string");
+        return Err(Error::ExpectedDomainName {
+            dotted_string: dotted_string.to_string(),
+        });
     }
 
     if dotted_string == "@" {
@@ -713,11 +717,9 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             (State::SkipToEndOfComment, _) => State::SkipToEndOfComment,
 
             (State::QuotedString, '"') => {
-                if !token_string.is_empty() {
-                    tokens.push((token_string, token_octets));
-                    token_string = String::new();
-                    token_octets = Vec::new();
-                }
+                tokens.push((token_string, token_octets));
+                token_string = String::new();
+                token_octets = Vec::new();
                 State::Initial
             }
             (State::QuotedString, '\\') => {
