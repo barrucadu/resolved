@@ -508,7 +508,11 @@ fn parse_domain_or_wildcard(
         && dotted_string_vec[0] == '*'
         && dotted_string_vec[1] == '.'
     {
-        let name = parse_domain(origin, &dotted_string_vec[2..].iter().collect::<String>())?;
+        let name = if dotted_string_vec.len() == 2 {
+            DomainName::root_domain()
+        } else {
+            parse_domain(origin, &dotted_string_vec[2..].iter().collect::<String>())?
+        };
         Ok(MaybeWildcard::Wildcard { name })
     } else {
         let name = parse_domain(origin, dotted_string)?;
@@ -1616,6 +1620,20 @@ mod tests {
             assert_eq!(
                 MaybeWildcard::Wildcard {
                     name: domain("example.com.")
+                },
+                name
+            );
+        } else {
+            panic!("expected parse");
+        }
+    }
+
+    #[test]
+    fn parse_domain_or_wildcard_wildcard_root() {
+        if let Ok(name) = parse_domain_or_wildcard(&None, "*.") {
+            assert_eq!(
+                MaybeWildcard::Wildcard {
+                    name: DomainName::root_domain()
                 },
                 name
             );
