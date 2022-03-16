@@ -920,7 +920,7 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
             let bs = u.bytes(label_len.into())?;
             for b in bs {
                 let ascii_byte = if b.is_ascii() { *b } else { *b % 128 };
-                let octet = if ascii_byte == b'.' {
+                let octet = if ascii_byte == b'.' || ascii_byte == b'*' {
                     b'x'
                 } else {
                     ascii_byte.to_ascii_lowercase()
@@ -1305,7 +1305,7 @@ mod tests {
                 for _ in 0..label_len {
                     let mut chr = (32..126).fake::<u8>();
 
-                    if chr == b'.' {
+                    if chr == b'.' || chr == b'*' {
                         chr = b'X';
                     }
 
