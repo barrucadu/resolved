@@ -603,28 +603,45 @@ fn tokenise_entry<I: Iterator<Item = char>>(
 
     while let Some(c) = stream.next() {
         state = match (state, c) {
-            (State::Initial, ' ') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
-                }
-                State::Initial
-            }
-            (State::Initial, '\t') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
-                }
-                State::Initial
-            }
-            (State::Initial, '\r') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
-                }
-                State::Initial
-            }
             (State::Initial, '\n') => {
+                if line_continuation {
+                    State::Initial
+                } else {
+                    break;
+                }
+            }
+            (State::Initial, ';') => State::SkipToEndOfComment,
+            (State::Initial, '(') => {
+                if line_continuation {
+                    return Err(Error::TokeniserUnexpected { unexpected: '(' });
+                } else {
+                    line_continuation = true;
+                    State::Initial
+                }
+            }
+            (State::Initial, ')') => {
+                if line_continuation {
+                    line_continuation = false;
+                    State::Initial
+                } else {
+                    return Err(Error::TokeniserUnexpected { unexpected: ')' });
+                }
+            }
+            (State::Initial, '"') => State::QuotedString,
+            (State::Initial, '\\') => {
+                token.push(tokenise_escape(stream)?);
+                State::UnquotedString
+            }
+            (State::Initial, c) => {
+                if c.is_whitespace() {
+                    State::Initial
+                } else {
+                    token.push(c);
+                    State::UnquotedString
+                }
+            }
+
+            (State::UnquotedString, '\n') => {
                 if !token.is_empty() {
                     tokens.push(token);
                     token = String::new();
@@ -635,51 +652,28 @@ fn tokenise_entry<I: Iterator<Item = char>>(
                     break;
                 }
             }
-            (State::Initial, ';') => {
+            (State::UnquotedString, ';') => {
                 if !token.is_empty() {
                     tokens.push(token);
                     token = String::new();
                 }
                 State::SkipToEndOfComment
             }
-            (State::Initial, '(') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
-                }
-                if line_continuation {
-                    return Err(Error::TokeniserUnexpected { unexpected: '(' });
-                } else {
-                    line_continuation = true;
-                    State::Initial
-                }
-            }
-            (State::Initial, ')') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
-                }
-                if !line_continuation {
-                    return Err(Error::TokeniserUnexpected { unexpected: ')' });
-                } else {
-                    line_continuation = false;
-                    State::Initial
-                }
-            }
-            (State::Initial, '"') => {
-                if !token.is_empty() {
-                    tokens.push(token);
-                    token = String::new();
-                }
-                State::QuotedString
-            }
-            (State::Initial, '\\') => {
+            (State::UnquotedString, '\\') => {
                 token.push(tokenise_escape(stream)?);
-                State::Initial
+                State::UnquotedString
             }
-            (State::Initial, raw) => {
-                token.push(raw);
-                State::Initial
+            (State::UnquotedString, c) => {
+                if c.is_whitespace() {
+                    if !token.is_empty() {
+                        tokens.push(token);
+                        token = String::new();
+                    }
+                    State::Initial
+                } else {
+                    token.push(c);
+                    State::UnquotedString
+                }
             }
 
             (State::SkipToEndOfComment, '\n') => {
@@ -765,6 +759,7 @@ fn tokenise_escape<I: Iterator<Item = char>>(stream: &mut I) -> Result<char, Err
 enum State {
     Initial,
     SkipToEndOfComment,
+    UnquotedString,
     QuotedString,
 }
 
@@ -1695,6 +1690,16 @@ mod tests {
                 vec!["line".to_string(), "with \n continuation".to_string()],
                 tokens
             );
+        } else {
+            panic!("expected tokenisation");
+        }
+    }
+
+    #[test]
+    fn tokenise_entry_handles_embedded_quotes() {
+        let entry = "foo\"bar\"baz";
+        if let Ok(tokens) = tokenise_entry(&mut entry.chars().peekable()) {
+            assert_eq!(vec![entry], tokens);
         } else {
             panic!("expected tokenisation");
         }
