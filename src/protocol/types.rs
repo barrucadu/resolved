@@ -761,8 +761,9 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
             let label_len = u.int_in_range::<u8>(1..=20)?;
             let mut label = Vec::new();
             octets.push(label_len);
-            let os = u.bytes(label_len.into())?;
-            for o in os {
+            let bs = u.bytes(label_len.into())?;
+            for b in bs {
+                let o = if b.is_ascii() { *b } else { *b % 128 };
                 label.push(o.to_ascii_lowercase());
                 octets.push(o.to_ascii_lowercase());
             }

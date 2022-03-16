@@ -131,6 +131,10 @@ impl DomainName {
                     octets.push(n);
                     let mut label = Vec::<u8>::with_capacity(mc_label.len());
                     for octet in mc_label {
+                        if !octet.is_ascii() {
+                            return None;
+                        }
+
                         let octet = octet.to_ascii_lowercase();
                         label.push(octet);
                         octets.push(octet);
