@@ -919,9 +919,14 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
             octets.push(label_len);
             let bs = u.bytes(label_len.into())?;
             for b in bs {
-                let o = if b.is_ascii() { *b } else { *b % 128 };
-                label.push(o.to_ascii_lowercase());
-                octets.push(o.to_ascii_lowercase());
+                let ascii_byte = if b.is_ascii() { *b } else { *b % 128 };
+                let octet = if ascii_byte == b'.' {
+                    b'x'
+                } else {
+                    ascii_byte.to_ascii_lowercase()
+                };
+                label.push(octet);
+                octets.push(octet);
             }
             labels.push(label);
         }
@@ -1300,9 +1305,8 @@ mod tests {
                 for _ in 0..label_len {
                     let mut chr = (32..126).fake::<u8>();
 
-                    // turn '.' to 'X'
-                    if chr == 46 {
-                        chr = 88;
+                    if chr == b'.' {
+                        chr = b'X';
                     }
 
                     label.push(chr);
