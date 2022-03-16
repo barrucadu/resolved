@@ -65,19 +65,21 @@ impl Message {
 
 impl DomainName {
     pub fn to_dotted_string(&self) -> String {
+        if self.octets == vec![0] {
+            return ".".to_string();
+        }
+
         let mut out = String::with_capacity(self.octets.len());
-        let mut dot = false;
+        let mut first = true;
         for label in &self.labels {
+            if first {
+                first = false;
+            } else {
+                out.push('.');
+            }
             for octet in label {
                 out.push(*octet as char);
             }
-            if !label.is_empty() {
-                out.push('.');
-                dot = true;
-            }
-        }
-        if !dot {
-            out.push('.');
         }
 
         out
