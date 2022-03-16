@@ -8,7 +8,7 @@ fn bench__question(c: &mut Criterion) {
     let message = Message::from_question(
         1234,
         Question {
-            name: DomainName::from_dotted_string("www.example.com").unwrap(),
+            name: domain("www.example.com."),
             qtype: QueryType::Record(RecordType::A),
             qclass: QueryClass::Record(RecordClass::IN),
         },
@@ -40,7 +40,7 @@ fn bench__answer__small(c: &mut Criterion) {
     )
     .make_response();
 
-    message.answers = vec![a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1))];
+    message.answers = vec![a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))];
 
     c.bench_function("serialise/answer/small", |b| {
         b.iter_batched(
@@ -72,19 +72,19 @@ fn bench__answer__big(c: &mut Criterion) {
 
     for i in 0..count {
         message.answers.push(cname_record(
-            "www.example.com",
-            &format!("www.cname-target-{:?}.example.com", i),
+            "www.example.com.",
+            &format!("www.cname-target-{:?}.example.com.", i),
         ));
     }
     for i in 0..count {
         message.authority.push(ns_record(
-            &format!("cname-target-{:?}.example.com", i),
-            &format!("ns-{:?}.example.com", i),
+            &format!("cname-target-{:?}.example.com.", i),
+            &format!("ns-{:?}.example.com.", i),
         ));
     }
     for i in 0..count {
         message.additional.push(a_record(
-            &format!("ns-{:?}.example.com", i),
+            &format!("ns-{:?}.example.com.", i),
             Ipv4Addr::new(1, 1, 1, 1),
         ));
     }

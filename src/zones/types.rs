@@ -580,10 +580,10 @@ mod tests {
 
     #[test]
     fn zones_build_get_get() {
-        let apex = domain("example.com");
-        let subdomain = "foo.bar.baz.example.com";
+        let apex = domain("example.com.");
+        let subdomain = "foo.bar.baz.example.com.";
         let a_rr = a_record(subdomain, Ipv4Addr::new(1, 1, 1, 1));
-        let ns_rr = ns_record(subdomain, "ns1.example.com");
+        let ns_rr = ns_record(subdomain, "ns1.example.com.");
 
         let mut zone = Zone::new(apex, None);
         zone.insert(&a_rr.name, a_rr.rtype_with_data.clone(), a_rr.ttl);
@@ -592,18 +592,18 @@ mod tests {
         let mut zones = Zones::new();
         zones.insert(zone.clone());
 
-        assert_eq!(None, zones.get(&domain("")));
-        assert_eq!(None, zones.get(&domain("com")));
-        assert_eq!(Some(&zone), zones.get(&domain("example.com")));
-        assert_eq!(Some(&zone), zones.get(&domain("www.example.com")));
+        assert_eq!(None, zones.get(&domain(".")));
+        assert_eq!(None, zones.get(&domain("com.")));
+        assert_eq!(Some(&zone), zones.get(&domain("example.com.")));
+        assert_eq!(Some(&zone), zones.get(&domain("www.example.com.")));
     }
 
     #[test]
     fn zone_merge_prefers_leftmost_some_authority() {
-        let name = domain("example.com");
+        let name = domain("example.com.");
         let soa1 = SOA {
-            mname: domain("mname"),
-            rname: domain("rname"),
+            mname: domain("mname."),
+            rname: domain("rname."),
             serial: 1,
             refresh: 2,
             retry: 3,
@@ -611,8 +611,8 @@ mod tests {
             minimum: 300,
         };
         let soa2 = SOA {
-            mname: domain("mname"),
-            rname: domain("rname"),
+            mname: domain("mname."),
+            rname: domain("rname."),
             serial: 100,
             refresh: 200,
             retry: 300,
@@ -637,22 +637,22 @@ mod tests {
 
     #[test]
     fn zone_merge_checks_apex_consistency() {
-        assert!(Zone::new(domain("example.com"), None)
-            .merge(Zone::new(domain("example.com"), None))
+        assert!(Zone::new(domain("example.com."), None)
+            .merge(Zone::new(domain("example.com."), None))
             .is_ok());
 
-        assert!(Zone::new(domain("example.com"), None)
-            .merge(Zone::new(domain("example.net"), None))
+        assert!(Zone::new(domain("example.com."), None)
+            .merge(Zone::new(domain("example.net."), None))
             .is_err());
     }
 
     #[test]
     fn zone_merge_combines_and_deduplicates() {
-        let mut zone1 = Zone::new(domain("example.com"), None);
-        let mut zone2 = Zone::new(domain("example.com"), None);
+        let mut zone1 = Zone::new(domain("example.com."), None);
+        let mut zone2 = Zone::new(domain("example.com."), None);
 
-        let a_rr1 = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
-        let a_rr2 = a_record("www.example.com", Ipv4Addr::new(2, 2, 2, 2));
+        let a_rr1 = a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+        let a_rr2 = a_record("www.example.com.", Ipv4Addr::new(2, 2, 2, 2));
         zone1.insert(&a_rr1.name, a_rr1.rtype_with_data.clone(), a_rr1.ttl);
         zone2.insert(&a_rr1.name, a_rr1.rtype_with_data.clone(), a_rr1.ttl);
         zone2.insert(&a_rr2.name, a_rr2.rtype_with_data.clone(), a_rr2.ttl);
@@ -660,7 +660,7 @@ mod tests {
         zone1.merge(zone2).unwrap();
 
         if let Some(ZoneResult::Answer { mut rrs }) =
-            zone1.resolve(&domain("www.example.com"), QueryType::Wildcard)
+            zone1.resolve(&domain("www.example.com."), QueryType::Wildcard)
         {
             let mut expected = vec![a_rr1, a_rr2];
             expected.sort();
@@ -675,10 +675,10 @@ mod tests {
     #[test]
     fn zone_authoritative_minimum_ttl() {
         let zone = Zone::new(
-            domain("example.com"),
+            domain("example.com."),
             Some(SOA {
-                mname: domain("mname"),
-                rname: domain("rname"),
+                mname: domain("mname."),
+                rname: domain("rname."),
                 serial: 1,
                 refresh: 2,
                 retry: 3,
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn zone_nonauthoritative_minimum_ttl() {
-        let zone = Zone::new(domain("example.com"), None);
+        let zone = Zone::new(domain("example.com."), None);
 
         assert_eq!(30, zone.actual_ttl(30));
         assert_eq!(301, zone.actual_ttl(301));
@@ -701,10 +701,10 @@ mod tests {
 
     #[test]
     fn zone_resolve_soa() {
-        let apex = domain("example.com");
+        let apex = domain("example.com.");
         let soa = SOA {
-            mname: domain("mname"),
-            rname: domain("rname"),
+            mname: domain("mname."),
+            rname: domain("rname."),
             serial: 1,
             refresh: 2,
             retry: 3,
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn zone_insert_resolve() {
         for _ in 0..100 {
-            let mut zone = Zone::new(domain("example.com"), None);
+            let mut zone = Zone::new(domain("example.com."), None);
             let mut rr = arbitrary_resourcerecord();
             rr.rclass = RecordClass::IN;
             make_subdomain(&zone.apex, &mut rr.name);
@@ -746,14 +746,14 @@ mod tests {
     #[test]
     fn zone_insert_wildcard_resolve() {
         for _ in 0..100 {
-            let mut zone = Zone::new(domain("example.com"), None);
+            let mut zone = Zone::new(domain("example.com."), None);
             let mut rr = arbitrary_resourcerecord();
             rr.rclass = RecordClass::IN;
             make_subdomain(&zone.apex, &mut rr.name);
 
             zone.insert_wildcard(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
 
-            let mut subdomain = domain("foo");
+            let mut subdomain = domain("foo.");
             make_subdomain(&rr.name, &mut subdomain);
             rr.name = subdomain;
 
@@ -771,7 +771,7 @@ mod tests {
 
     #[test]
     fn zone_insert_all_records() {
-        let mut zone = Zone::new(domain("example.com"), None);
+        let mut zone = Zone::new(domain("example.com."), None);
         let mut expected = Vec::with_capacity(100);
         for _ in 0..expected.capacity() {
             let mut rr = arbitrary_resourcerecord();
@@ -796,7 +796,7 @@ mod tests {
 
     #[test]
     fn zone_insert_all_wildcard_records() {
-        let mut zone = Zone::new(domain("example.com"), None);
+        let mut zone = Zone::new(domain("example.com."), None);
         let mut expected = Vec::with_capacity(100);
         for _ in 0..expected.capacity() {
             let mut rr = arbitrary_resourcerecord();
@@ -821,8 +821,8 @@ mod tests {
 
     #[test]
     fn zone_resolve_cname() {
-        let mut zone = Zone::new(domain("example.com"), None);
-        let rr = cname_record("www.example.com", "example.com");
+        let mut zone = Zone::new(domain("example.com."), None);
+        let rr = cname_record("www.example.com.", "example.com.");
         zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
 
         assert_eq!(
@@ -847,9 +847,9 @@ mod tests {
 
     #[test]
     fn zone_resolve_cname_wildcard() {
-        let mut zone = Zone::new(domain("example.com"), None);
-        let wildcard_rr = cname_record("example.com", "example.com"); // *.example.com
-        let rr = cname_record("www.example.com", "example.com");
+        let mut zone = Zone::new(domain("example.com."), None);
+        let wildcard_rr = cname_record("example.com.", "example.com."); // *.example.com
+        let rr = cname_record("www.example.com.", "example.com.");
         zone.insert_wildcard(
             &wildcard_rr.name,
             wildcard_rr.rtype_with_data.clone(),
@@ -878,8 +878,8 @@ mod tests {
 
     #[test]
     fn zone_resolve_delegation() {
-        let mut zone = Zone::new(domain("example.com"), None);
-        let rr = ns_record("www.example.com", "ns.example.com");
+        let mut zone = Zone::new(domain("example.com."), None);
+        let rr = ns_record("www.example.com.", "ns.example.com.");
         zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
 
         assert_eq!(
@@ -904,9 +904,9 @@ mod tests {
 
     #[test]
     fn zone_resolve_delegation_wildcard() {
-        let mut zone = Zone::new(domain("example.com"), None);
-        let wildcard_rr = ns_record("example.com", "ns.example.com");
-        let rr = ns_record("www.example.com", "ns.example.com");
+        let mut zone = Zone::new(domain("example.com."), None);
+        let wildcard_rr = ns_record("example.com.", "ns.example.com.");
+        let rr = ns_record("www.example.com.", "ns.example.com.");
         zone.insert_wildcard(
             &wildcard_rr.name,
             wildcard_rr.rtype_with_data.clone(),
@@ -935,8 +935,8 @@ mod tests {
 
     #[test]
     fn zone_resolve_delegation_wildcard_multilabel() {
-        let mut zone = Zone::new(domain("example.com"), None);
-        let wildcard_rr = ns_record("example.com", "ns.example.com");
+        let mut zone = Zone::new(domain("example.com."), None);
+        let wildcard_rr = ns_record("example.com.", "ns.example.com.");
         zone.insert_wildcard(
             &wildcard_rr.name,
             wildcard_rr.rtype_with_data.clone(),
@@ -945,10 +945,10 @@ mod tests {
 
         assert_eq!(
             Some(ZoneResult::Delegation {
-                ns_rrs: vec![ns_record("www.example.com", "ns.example.com")]
+                ns_rrs: vec![ns_record("www.example.com.", "ns.example.com.")]
             }),
             zone.resolve(
-                &domain("some.long.subdomain.of.www.example.com"),
+                &domain("some.long.subdomain.of.www.example.com."),
                 QueryType::Record(RecordType::A),
             )
         );
@@ -956,25 +956,25 @@ mod tests {
 
     #[test]
     fn zone_resolve_nameerror() {
-        let mut zone = Zone::new(domain("example.com"), None);
-        let rr = a_record("www.example.com", Ipv4Addr::new(1, 1, 1, 1));
+        let mut zone = Zone::new(domain("example.com."), None);
+        let rr = a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1));
         zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
 
         assert_eq!(
             Some(ZoneResult::NameError),
-            zone.resolve(&domain("subdomain.www.example.com"), QueryType::Wildcard)
+            zone.resolve(&domain("subdomain.www.example.com."), QueryType::Wildcard)
         );
         assert_eq!(
             Some(ZoneResult::NameError),
-            zone.resolve(&domain("sibling.example.com"), QueryType::Wildcard)
+            zone.resolve(&domain("sibling.example.com."), QueryType::Wildcard)
         );
     }
 
     #[test]
     fn zone_resolve_empty_answer_not_nameerror_for_subdomain() {
-        let mut zone = Zone::new(domain("example.com"), None);
+        let mut zone = Zone::new(domain("example.com."), None);
         let rr = a_record(
-            "long.chain.of.subdomains.example.com",
+            "long.chain.of.subdomains.example.com.",
             Ipv4Addr::new(1, 1, 1, 1),
         );
         zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
@@ -982,21 +982,21 @@ mod tests {
         assert_eq!(
             Some(ZoneResult::Answer { rrs: Vec::new() }),
             zone.resolve(
-                &domain("chain.of.subdomains.example.com"),
+                &domain("chain.of.subdomains.example.com."),
                 QueryType::Wildcard,
             )
         );
         assert_eq!(
             Some(ZoneResult::Answer { rrs: Vec::new() }),
-            zone.resolve(&domain("of.subdomains.example.com"), QueryType::Wildcard)
+            zone.resolve(&domain("of.subdomains.example.com."), QueryType::Wildcard)
         );
         assert_eq!(
             Some(ZoneResult::Answer { rrs: Vec::new() }),
-            zone.resolve(&domain("subdomains.example.com"), QueryType::Wildcard)
+            zone.resolve(&domain("subdomains.example.com."), QueryType::Wildcard)
         );
         assert_eq!(
             Some(ZoneResult::Answer { rrs: Vec::new() }),
-            zone.resolve(&domain("example.com"), QueryType::Wildcard)
+            zone.resolve(&domain("example.com."), QueryType::Wildcard)
         );
     }
 

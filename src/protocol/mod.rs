@@ -85,28 +85,35 @@ impl DomainName {
         out
     }
 
-    // todo: change this to require the trailing dot, for consistency
-    // with zone files.
-    pub fn from_dotted_string(s: &str) -> Option<Self> {
-        let mut labels = Vec::<Vec<u8>>::with_capacity(5);
-        let mut blank_label = false;
-
-        for label in s.split('.') {
-            if blank_label {
-                if label.is_empty() {
-                    continue;
-                } else {
-                    return None;
-                }
+    pub fn from_relative_dotted_string(origin: &Self, s: &str) -> Option<Self> {
+        if s.is_empty() {
+            Some(origin.clone())
+        } else if s.to_string().ends_with('.') {
+            Self::from_dotted_string(s)
+        } else {
+            let suffix = origin.to_dotted_string();
+            if suffix.starts_with('.') {
+                Self::from_dotted_string(&format!("{}{}", s, suffix))
+            } else {
+                Self::from_dotted_string(&format!("{}.{}", s, suffix))
             }
+        }
+    }
 
-            let label = label.as_bytes();
-            blank_label = label.is_empty();
-            labels.push(label.into());
+    pub fn from_dotted_string(s: &str) -> Option<Self> {
+        if s == "." {
+            return Some(DomainName::root_domain());
         }
 
-        if !blank_label {
-            labels.push(Vec::new());
+        let chunks = s.split('.').collect::<Vec<_>>();
+        let mut labels = Vec::with_capacity(chunks.len());
+
+        for (i, label) in chunks.iter().enumerate() {
+            if label.is_empty() && i != chunks.len() - 1 {
+                return None;
+            }
+
+            labels.push(label.as_bytes().into());
         }
 
         Self::from_labels(labels)
@@ -157,17 +164,12 @@ impl DomainName {
 
 #[cfg(test)]
 mod tests {
-    use fake::{Fake, Faker};
+    use fake::Fake;
 
     use super::*;
 
     #[test]
     fn domainname_root_conversions() {
-        assert_eq!(
-            Some(DomainName::root_domain()),
-            DomainName::from_dotted_string("")
-        );
-
         assert_eq!(
             Some(DomainName::root_domain()),
             DomainName::from_dotted_string(".")
@@ -179,6 +181,33 @@ mod tests {
         );
 
         assert_eq!(".", DomainName::root_domain().to_dotted_string())
+    }
+
+    #[test]
+    fn from_relative_dotted_string_empty() {
+        let origin = DomainName::from_dotted_string("com.").unwrap();
+        assert_eq!(
+            Some(DomainName::from_dotted_string("com.").unwrap()),
+            DomainName::from_relative_dotted_string(&origin, "")
+        );
+    }
+
+    #[test]
+    fn from_relative_dotted_string_absolute() {
+        let origin = DomainName::from_dotted_string("com.").unwrap();
+        assert_eq!(
+            Some(DomainName::from_dotted_string("www.example.com.").unwrap()),
+            DomainName::from_relative_dotted_string(&origin, "www.example.com.")
+        );
+    }
+
+    #[test]
+    fn from_relative_dotted_string_relative() {
+        let origin = DomainName::from_dotted_string("com.").unwrap();
+        assert_eq!(
+            Some(DomainName::from_dotted_string("www.example.com.").unwrap()),
+            DomainName::from_relative_dotted_string(&origin, "www.example")
+        );
     }
 
     #[test]
@@ -215,9 +244,7 @@ mod tests {
             }
 
             labels_input.push(Vec::new());
-            if Faker.fake() && !output.is_empty() {
-                dotted_string_input.push('.');
-            }
+            dotted_string_input.push('.');
             output.push('.');
 
             assert_eq!(

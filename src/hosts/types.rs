@@ -109,8 +109,8 @@ mod tests {
     #[test]
     fn hosts_merge_zone_merge_equiv_when_disjoint() {
         for _ in 0..100 {
-            let hosts1 = arbitrary_hosts_with_apex(domain("hosts1"));
-            let hosts2 = arbitrary_hosts_with_apex(domain("hosts2"));
+            let hosts1 = arbitrary_hosts_with_apex(domain("hosts1."));
+            let hosts2 = arbitrary_hosts_with_apex(domain("hosts2."));
 
             let mut combined_hosts = hosts1.clone();
             combined_hosts.merge(hosts2.clone());

@@ -539,11 +539,7 @@ fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<Doma
             })
         }
     } else if let Some(name) = origin {
-        if let Some(mut domain) = DomainName::from_dotted_string(dotted_string) {
-            domain.labels.pop();
-            domain.octets.pop();
-            domain.labels.append(&mut name.labels.clone());
-            domain.octets.append(&mut name.octets.clone());
+        if let Some(domain) = DomainName::from_relative_dotted_string(name, dotted_string) {
             Ok(domain)
         } else {
             Err(Error::ExpectedDomainName {
@@ -861,10 +857,10 @@ mod tests {
         let zone = Zone::deserialise(zone_data).unwrap();
 
         let soa_record = ResourceRecord {
-            name: domain("lan"),
+            name: domain("lan."),
             rtype_with_data: RecordTypeWithData::SOA {
-                mname: domain("nyarlathotep.lan"),
-                rname: domain("barrucadu.nyarlathotep.lan"),
+                mname: domain("nyarlathotep.lan."),
+                rname: domain("barrucadu.nyarlathotep.lan."),
                 serial: 1,
                 refresh: 30,
                 retry: 30,
@@ -877,12 +873,12 @@ mod tests {
 
         let mut expected_all_records = vec![
             soa_record,
-            a_record("nyarlathotep.lan", Ipv4Addr::new(10, 0, 0, 3)),
+            a_record("nyarlathotep.lan.", Ipv4Addr::new(10, 0, 0, 3)),
         ];
         expected_all_records.sort();
 
         let expected_all_wildcard_records =
-            vec![cname_record("nyarlathotep.lan", "nyarlathotep.lan")];
+            vec![cname_record("nyarlathotep.lan.", "nyarlathotep.lan.")];
 
         let mut actual_all_records = Vec::with_capacity(expected_all_records.capacity());
         for (name, zrs) in zone.all_records().iter() {
@@ -920,11 +916,11 @@ mod tests {
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(parsed) = parse_rr(&Some(domain("example.com")), &None, &None, tokens) {
+        if let Ok(parsed) = parse_rr(&Some(domain("example.com.")), &None, &None, tokens) {
             assert_eq!(
                 Entry::WildcardRR {
                     rr: ResourceRecord {
-                        name: domain("example.com"),
+                        name: domain("example.com."),
                         rtype_with_data: RecordTypeWithData::A {
                             address: Ipv4Addr::new(10, 0, 0, 2)
                         },
@@ -956,7 +952,7 @@ mod tests {
         if let Ok(parsed) = parse_rr(
             &None,
             &Some(MaybeWildcard::Normal {
-                name: domain("example.com"),
+                name: domain("example.com."),
             }),
             &None,
             tokens,
@@ -964,7 +960,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("example.com"),
+                        name: domain("example.com."),
                         rtype_with_data: RecordTypeWithData::A {
                             address: Ipv4Addr::new(10, 0, 0, 2)
                         },
@@ -997,7 +993,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::A {
                             address: Ipv4Addr::new(10, 0, 0, 2)
                         },
@@ -1025,7 +1021,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::A {
                             address: Ipv4Addr::new(10, 0, 0, 2)
                         },
@@ -1053,9 +1049,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::NS {
-                            nsdname: domain("ns1.lan"),
+                            nsdname: domain("ns1.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1081,9 +1077,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MD {
-                            madname: domain("madname.lan"),
+                            madname: domain("madname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1109,9 +1105,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MF {
-                            madname: domain("madname.lan"),
+                            madname: domain("madname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1137,9 +1133,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::CNAME {
-                            cname: domain("cname.lan"),
+                            cname: domain("cname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1171,10 +1167,10 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::SOA {
-                            mname: domain("mname.lan"),
-                            rname: domain("rname.lan"),
+                            mname: domain("mname.lan."),
+                            rname: domain("rname.lan."),
                             serial: 100,
                             refresh: 200,
                             retry: 300,
@@ -1205,9 +1201,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MB {
-                            madname: domain("madname.lan"),
+                            madname: domain("madname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1233,9 +1229,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MG {
-                            mdmname: domain("mdmname.lan"),
+                            mdmname: domain("mdmname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1261,9 +1257,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MR {
-                            newname: domain("newname.lan"),
+                            newname: domain("newname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1289,7 +1285,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::NULL {
                             octets: vec![b'1', b'2', b'3'],
                         },
@@ -1317,7 +1313,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::WKS {
                             octets: vec![b'1', b'2', b'3'],
                         },
@@ -1345,9 +1341,9 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::PTR {
-                            ptrdname: domain("ptrdname.lan"),
+                            ptrdname: domain("ptrdname.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1373,7 +1369,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::HINFO {
                             octets: vec![b'1', b'2', b'3'],
                         },
@@ -1402,10 +1398,10 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MINFO {
-                            rmailbx: domain("rmailbx.lan"),
-                            emailbx: domain("emailbx.lan"),
+                            rmailbx: domain("rmailbx.lan."),
+                            emailbx: domain("emailbx.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1432,10 +1428,10 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::MX {
                             preference: 42,
-                            exchange: domain("exchange.lan"),
+                            exchange: domain("exchange.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1461,7 +1457,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::TXT {
                             octets: vec![b'1', b'2', b'3'],
                         },
@@ -1489,7 +1485,7 @@ mod tests {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
-                        name: domain("nyarlathotep.lan"),
+                        name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::AAAA {
                             address: Ipv6Addr::new(0, 0, 0, 0, 0, 1, 2, 3)
                         },
@@ -1511,10 +1507,10 @@ mod tests {
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com")), "@") {
+        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "@") {
             assert_eq!(
                 MaybeWildcard::Normal {
-                    name: domain("example.com")
+                    name: domain("example.com.")
                 },
                 name
             );
@@ -1530,10 +1526,10 @@ mod tests {
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com")), "*.@") {
+        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "*.@") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
-                    name: domain("example.com")
+                    name: domain("example.com.")
                 },
                 name
             );
@@ -1549,10 +1545,10 @@ mod tests {
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com")), "www") {
+        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "www") {
             assert_eq!(
                 MaybeWildcard::Normal {
-                    name: domain("www.example.com")
+                    name: domain("www.example.com.")
                 },
                 name
             );
@@ -1568,10 +1564,10 @@ mod tests {
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com")), "*") {
+        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "*") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
-                    name: domain("example.com")
+                    name: domain("example.com.")
                 },
                 name
             );
@@ -1585,7 +1581,7 @@ mod tests {
         if let Ok(name) = parse_domain_or_wildcard(&None, "www.example.com.") {
             assert_eq!(
                 MaybeWildcard::Normal {
-                    name: domain("www.example.com")
+                    name: domain("www.example.com.")
                 },
                 name
             );
@@ -1593,11 +1589,12 @@ mod tests {
             panic!("expected parse");
         }
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com")), "www.example.com.")
+        if let Ok(name) =
+            parse_domain_or_wildcard(&Some(domain("example.com.")), "www.example.com.")
         {
             assert_eq!(
                 MaybeWildcard::Normal {
-                    name: domain("www.example.com")
+                    name: domain("www.example.com.")
                 },
                 name
             );
@@ -1611,7 +1608,7 @@ mod tests {
         if let Ok(name) = parse_domain_or_wildcard(&None, "*.example.com.") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
-                    name: domain("example.com")
+                    name: domain("example.com.")
                 },
                 name
             );
@@ -1619,10 +1616,11 @@ mod tests {
             panic!("expected parse");
         }
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com")), "*.example.com.") {
+        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "*.example.com.")
+        {
             assert_eq!(
                 MaybeWildcard::Wildcard {
-                    name: domain("example.com")
+                    name: domain("example.com.")
                 },
                 name
             );
