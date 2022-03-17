@@ -12,7 +12,6 @@ bytes = "1"
 clap = { version = "3", features = ["derive"] }
 priority-queue = "1"
 rand = "0.8.5"
-serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "sync", "fs", "time"] }
 
 [dev-dependencies]
