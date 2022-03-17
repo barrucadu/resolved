@@ -1,21 +1,11 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::Path;
 use std::str::FromStr;
-use tokio::fs::read_to_string;
 
 use crate::hosts::types::*;
 use crate::protocol::types::*;
 
 impl Hosts {
-    /// Read a hosts file, for example /etc/hosts.
-    pub async fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        match read_to_string(path).await {
-            Ok(data) => Self::deserialise(&data),
-            Err(error) => Err(Error::IO { error }),
-        }
-    }
-
     /// Parse a string of hosts data
     pub fn deserialise(data: &str) -> Result<Self, Error> {
         let mut hosts = Self::new();
@@ -113,9 +103,8 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 }
 
 /// An error that can occur reading a hosts file.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    IO { error: std::io::Error },
     ExpectedAscii,
     CouldNotParseAddress { address: String },
     CouldNotParseName { name: String },

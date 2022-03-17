@@ -6,7 +6,7 @@ use crate::zones::types::*;
 
 /// A collection of A records.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
 pub struct Hosts {
     pub v4: HashMap<DomainName, Ipv4Addr>,
     pub v6: HashMap<DomainName, Ipv6Addr>,
@@ -148,7 +148,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(feature = "test-util", test))]
 pub mod test_util {
     use super::*;
 

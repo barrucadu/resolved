@@ -1,21 +1,21 @@
 use bytes::BytesMut;
 use clap::Parser;
-use std::io;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Duration;
-use tokio::fs::read_dir;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 
-use resolved::hosts::types::Hosts;
-use resolved::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes_to, TcpError};
-use resolved::protocol::types::*;
+use dns_types::hosts::types::Hosts;
+use dns_types::protocol::types::*;
+use dns_types::zones::types::*;
+
+use resolved::fs_util::*;
+use resolved::net_util::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::{resolve, ResolvedRecord};
-use resolved::zones::types::*;
 
 async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: Message) -> Message {
     let mut response = query.make_response();
@@ -193,22 +193,6 @@ async fn prune_cache_task(cache: SharedCache) {
     }
 }
 
-/// Get files from a directory, sorted.
-async fn get_files_from_dir(dir: &Path) -> io::Result<Vec<PathBuf>> {
-    let mut out = Vec::new();
-
-    let mut reader = read_dir(dir).await?;
-    while let Some(entry) = reader.next_entry().await? {
-        let path = entry.path();
-        if !path.is_dir() {
-            out.push(path);
-        }
-    }
-
-    out.sort();
-    Ok(out)
-}
-
 // the doc comments for this struct turn into the CLI help text
 #[derive(Debug, Parser)]
 /// A simple DNS server for home networks.
@@ -266,8 +250,12 @@ async fn main() {
         }
     }
     for path in args.zone_file.iter() {
-        match Zone::from_file(Path::new(path)).await {
-            Ok(zone) => zones.insert_merge(zone),
+        match zone_from_file(Path::new(path)).await {
+            Ok(Ok(zone)) => zones.insert_merge(zone),
+            Ok(Err(err)) => {
+                eprintln!("error parsing zone file \"{:?}\": {:?}", path, err);
+                process::exit(1);
+            }
             Err(err) => {
                 eprintln!("error reading zone file \"{:?}\": {:?}", path, err);
                 process::exit(1);
@@ -286,8 +274,12 @@ async fn main() {
         }
     }
     for path in args.hosts_file.iter() {
-        match Hosts::from_file(Path::new(path)).await {
-            Ok(hosts) => combined_hosts.merge(hosts),
+        match hosts_from_file(Path::new(path)).await {
+            Ok(Ok(hosts)) => combined_hosts.merge(hosts),
+            Ok(Err(err)) => {
+                eprintln!("error parsing hosts file \"{:?}\": {:?}", path, err);
+                process::exit(1);
+            }
             Err(err) => {
                 eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
                 process::exit(1);

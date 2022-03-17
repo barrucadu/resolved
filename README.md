@@ -36,11 +36,12 @@ Development
 The project structure should hopefully be fairly straightforward.  The
 modules are:
 
-- `hosts`    - hosts files
-- `net_util` - shared utilities used by both the `main.rs` file and the `resolver` module
-- `protocol` - the DNS message types and serialisation / deserialisation logic
-- `resolver` - the resolution and caching logic
-- `zones`    - authoritative and non-authoritative zones
+- `lib-dns-types` - basic types used in other packages
+  - `hosts`       - hosts files
+  - `protocol`    - the DNS message types and serialisation / deserialisation logic
+  - `zones`       - authoritative and non-authoritative zones
+
+- `bin-resolved` - the DNS server
 
 ### Testing
 

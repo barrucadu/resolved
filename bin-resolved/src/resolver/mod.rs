@@ -9,12 +9,13 @@ use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
-use self::cache::SharedCache;
-use self::rr_util::*;
+use dns_types::protocol::types::*;
+use dns_types::zones::types::*;
 
 use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
-use crate::protocol::types::*;
-use crate::zones::types::*;
+
+use self::cache::SharedCache;
+use self::rr_util::*;
 
 /// Resolve a question using the standard DNS algorithms.
 pub async fn resolve(
@@ -845,9 +846,10 @@ pub enum NameserverResponse {
 
 #[cfg(test)]
 mod tests {
+    use dns_types::protocol::types::test_util::*;
+
     use super::cache::test_util::*;
     use super::*;
-    use crate::protocol::types::test_util::*;
 
     #[test]
     fn resolve_nonrecursive_is_authoritative_for_zones_with_soa() {

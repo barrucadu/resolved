@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 
-use resolved::protocol::types::*;
+use dns_types::protocol::types::*;
 use resolved::resolver::cache::Cache;
 
 #[allow(non_snake_case)]

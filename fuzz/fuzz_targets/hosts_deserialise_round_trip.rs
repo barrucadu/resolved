@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use resolved::hosts::types::Hosts;
+use dns_types::hosts::types::Hosts;
 
 fuzz_target!(|data: &str| {
     if let Ok(deserialised) = Hosts::deserialise(data) {

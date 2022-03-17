@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::protocol::types::*;
+use dns_types::protocol::types::*;
 
 /// A convenience wrapper around a `Cache` which lets it be shared
 /// between threads.
@@ -438,9 +438,10 @@ fn to_rrs(
 
 #[cfg(test)]
 mod tests {
+    use dns_types::protocol::types::test_util::*;
+
     use super::test_util::*;
     use super::*;
-    use crate::protocol::types::test_util::*;
 
     #[test]
     fn cache_put_can_get() {

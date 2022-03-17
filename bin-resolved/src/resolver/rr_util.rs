@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 
-use crate::protocol::types::*;
+use dns_types::protocol::types::*;
 
 /// Given a set of RRs and a domain name we're looking for, follow
 /// `CNAME`s in the response and return the final name (which is the
@@ -98,8 +98,9 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
 
 #[cfg(test)]
 mod tests {
+    use dns_types::protocol::types::test_util::*;
+
     use super::*;
-    use crate::protocol::types::test_util::*;
 
     #[test]
     fn follow_cnames_empty() {

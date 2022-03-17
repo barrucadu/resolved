@@ -85,7 +85,7 @@ impl Default for Zone {
     }
 }
 
-#[cfg(any(feature = "arbitrary", test))]
+#[cfg(any(feature = "test-util", test))]
 impl<'a> arbitrary::Arbitrary<'a> for Zone {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let mut zone = if u.arbitrary()? {
@@ -492,7 +492,7 @@ impl ZoneRecords {
 
 /// A SOA record.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
 pub struct SOA {
     pub mname: DomainName,
     pub rname: DomainName,

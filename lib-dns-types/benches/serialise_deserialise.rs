@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use std::net::Ipv4Addr;
 
-use resolved::protocol::types::*;
+use dns_types::protocol::types::*;
 
 #[allow(non_snake_case)]
 fn bench__question(c: &mut Criterion) {
