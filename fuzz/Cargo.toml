@@ -49,3 +49,9 @@ name = "hosts_deserialise_round_trip"
 path = "fuzz_targets/hosts_deserialise_round_trip.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "hosts_serialise_round_trip"
+path = "fuzz_targets/hosts_serialise_round_trip.rs"
+test = false
+doc = false
