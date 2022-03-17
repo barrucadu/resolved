@@ -45,6 +45,8 @@ modules are:
 
 - `bin-htoh` - utility to normalise hosts files
 
+- `bin-htoz` - utility to convert hosts files to zone files
+
 ### Testing
 
 Run the unit and integration tests with:

@@ -2,6 +2,7 @@
 
 members = [
         "bin-htoh",
+        "bin-htoz",
         "bin-resolved",
         "lib-dns-types",
 ]
