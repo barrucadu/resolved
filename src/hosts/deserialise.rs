@@ -44,13 +44,18 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
     let mut new_names = HashSet::new();
 
     for (i, octet) in line.chars().enumerate() {
-        state = match (&state, octet) {
-            (_, '#') => break,
+        if !octet.is_ascii() {
+            return Err(Error::ExpectedAscii);
+        }
 
-            (State::SkipToAddress, ' ') => state,
+        state = match (&state, octet) {
+            (_, '#') => State::CommentToEndOfLine,
+            (State::CommentToEndOfLine, _) => break,
+
+            (State::SkipToAddress, c) if c.is_whitespace() => state,
             (State::SkipToAddress, _) => State::ReadingAddress { start: i },
 
-            (State::ReadingAddress { start }, ' ') => {
+            (State::ReadingAddress { start }, c) if c.is_whitespace() => {
                 let addr_str = &line[*start..i];
                 match IpAddr::from_str(addr_str) {
                     Ok(addr) => address = addr,
@@ -64,10 +69,10 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
             }
             (State::ReadingAddress { .. }, _) => state,
 
-            (State::SkipToName, ' ') => state,
+            (State::SkipToName, c) if c.is_whitespace() => state,
             (State::SkipToName, _) => State::ReadingName { start: i },
 
-            (State::ReadingName { start }, ' ') => {
+            (State::ReadingName { start }, c) if c.is_whitespace() => {
                 let name_str = &line[*start..i];
                 match DomainName::from_relative_dotted_string(&DomainName::root_domain(), name_str)
                 {
@@ -111,6 +116,7 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 #[derive(Debug)]
 pub enum Error {
     IO { error: std::io::Error },
+    ExpectedAscii,
     CouldNotParseAddress { address: String },
     CouldNotParseName { name: String },
 }
@@ -121,6 +127,7 @@ enum State {
     ReadingAddress { start: usize },
     SkipToName,
     ReadingName { start: usize },
+    CommentToEndOfLine,
 }
 
 #[cfg(test)]
