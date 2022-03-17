@@ -29,6 +29,12 @@ sudo ./target/release/resolved -A config/hosts -Z config/zones
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
 run as root or to have the `CAP_NET_BIND_SERVICE` capability.
 
+There are also four utility programs---`htoh`, `htoz`, `ztoh`, and
+`ztoz`---to convert between hosts files and zone files.  They accept
+any syntactically valid file as input, and output it in a consistent
+format regardless of how the input is structured.  So `htoh` and
+`ztoz` can be used to normalise existing files.
+
 
 Development
 -----------
