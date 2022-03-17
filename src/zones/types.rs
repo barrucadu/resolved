@@ -85,6 +85,57 @@ impl Default for Zone {
     }
 }
 
+#[cfg(any(feature = "arbitrary", test))]
+impl<'a> arbitrary::Arbitrary<'a> for Zone {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let mut zone = if u.arbitrary()? {
+            Self::new(u.arbitrary()?, Some(u.arbitrary()?))
+        } else {
+            Self::new(DomainName::root_domain(), None)
+        };
+
+        let apex = zone.get_apex().clone();
+
+        let len = u.int_in_range::<usize>(0..=128)?;
+        for _ in 0..len {
+            let mut rr: ResourceRecord = u.arbitrary()?;
+            let mut combined_labels = rr.name.labels;
+            combined_labels.pop();
+            // crude shrinking to fit in the 255 octet limit -
+            // generated labels are up to 20 characters long,
+            // `num_labels * 21 <= 255` has to hold
+            while (combined_labels.len() + apex.labels.len()) * 21 > 255 {
+                combined_labels.pop();
+            }
+            combined_labels.append(&mut apex.labels.clone());
+            rr.name = DomainName::from_labels(combined_labels).unwrap();
+
+            if rr.rtype_with_data.rtype() == RecordType::SOA
+                || rr.rtype_with_data.rtype().is_unknown()
+            {
+                rr.rtype_with_data = RecordTypeWithData::A {
+                    address: u.arbitrary()?,
+                };
+            }
+
+            if u.arbitrary()? {
+                zone.insert_wildcard(&rr.name, rr.rtype_with_data, rr.ttl);
+            } else {
+                zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
+            }
+        }
+
+        if zone.get_apex() != &DomainName::root_domain() && !zone.is_authoritative() {
+            panic!(
+                "non-authoritative zone with apex!\n\n{:?}\n\n",
+                zone.get_apex()
+            );
+        }
+
+        Ok(zone)
+    }
+}
+
 impl Zone {
     /// Construct a new zone.
     ///
@@ -441,6 +492,7 @@ impl ZoneRecords {
 
 /// A SOA record.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
 pub struct SOA {
     pub mname: DomainName,
     pub rname: DomainName,
