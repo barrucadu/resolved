@@ -928,6 +928,7 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
                 let octet = if ascii_byte == b'.'
                     || ascii_byte == b'*'
                     || ascii_byte == b'@'
+                    || ascii_byte == b'#'
                     || (ascii_byte as char).is_whitespace()
                 {
                     b'x'
@@ -1339,7 +1340,12 @@ mod tests {
                 for _ in 0..label_len {
                     let mut chr = (32..126).fake::<u8>();
 
-                    if chr == b'.' || chr == b'*' || chr == b'@' || (chr as char).is_whitespace() {
+                    if chr == b'.'
+                        || chr == b'*'
+                        || chr == b'@'
+                        || chr == b'#'
+                        || (chr as char).is_whitespace()
+                    {
                         chr = b'X';
                     }
 
