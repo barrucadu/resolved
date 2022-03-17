@@ -49,7 +49,8 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
         }
 
         state = match (&state, octet) {
-            (_, '#') => break,
+            (_, '#') => State::CommentToEndOfLine,
+            (State::CommentToEndOfLine, _) => break,
 
             (State::SkipToAddress, c) if c.is_whitespace() => state,
             (State::SkipToAddress, _) => State::ReadingAddress { start: i },
@@ -126,6 +127,7 @@ enum State {
     ReadingAddress { start: usize },
     SkipToName,
     ReadingName { start: usize },
+    CommentToEndOfLine,
 }
 
 #[cfg(test)]
