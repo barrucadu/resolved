@@ -239,6 +239,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "dns-types"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "criterion",
+ "fake",
+]
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +298,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62b467343b94ba476dcb2500d242dadbb39557df889310ac77c5d99100aaac33"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "htoh"
+version = "0.1.0"
+dependencies = [
+ "clap 3.1.6",
+ "dns-types",
+]
+
+[[package]]
+name = "htoz"
+version = "0.1.0"
+dependencies = [
+ "clap 3.1.6",
+ "dns-types",
 ]
 
 [[package]]
@@ -604,12 +629,11 @@ checksum = "f497285884f3fcff424ffc933e56d7cbca511def0c9831a7f9b5f6153e3cc89b"
 name = "resolved"
 version = "0.1.0"
 dependencies = [
- "arbitrary",
  "async-recursion",
  "bytes",
  "clap 3.1.6",
  "criterion",
- "fake",
+ "dns-types",
  "priority-queue",
  "rand",
  "tokio",
@@ -907,3 +931,19 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
+
+[[package]]
+name = "ztoh"
+version = "0.1.0"
+dependencies = [
+ "clap 3.1.6",
+ "dns-types",
+]
+
+[[package]]
+name = "ztoz"
+version = "0.1.0"
+dependencies = [
+ "clap 3.1.6",
+ "dns-types",
+]

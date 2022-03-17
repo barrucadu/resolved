@@ -1,28 +1,10 @@
-[package]
-name = "resolved"
-version = "0.1.0"
-edition = "2021"
+[workspace]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-arbitrary = { version = "1", optional = true, features = ["derive"] }
-async-recursion = "1"
-bytes = "1"
-clap = { version = "3", features = ["derive"] }
-priority-queue = "1"
-rand = "0.8.5"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "sync", "fs", "time"] }
-
-[dev-dependencies]
-arbitrary = { version = "1", features = ["derive"] }
-criterion = "0.3.5"
-fake = "2"
-
-[[bench]]
-name = "cache"
-harness = false
-
-[[bench]]
-name = "serialise_deserialise"
-harness = false
+members = [
+        "bin-htoh",
+        "bin-htoz",
+        "bin-resolved",
+        "bin-ztoh",
+        "bin-ztoz",
+        "lib-dns-types",
+]

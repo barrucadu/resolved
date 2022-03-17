@@ -12,9 +12,9 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 
-[dependencies.resolved]
-path = ".."
-features = ["arbitrary"]
+[dependencies.dns-types]
+path = "../lib-dns-types"
+features = ["test-util"]
 
 # Prevent this from interfering with workspaces
 [workspace]

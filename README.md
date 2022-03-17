@@ -29,6 +29,12 @@ sudo ./target/release/resolved -A config/hosts -Z config/zones
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
 run as root or to have the `CAP_NET_BIND_SERVICE` capability.
 
+There are also four utility programs---`htoh`, `htoz`, `ztoh`, and
+`ztoz`---to convert between hosts files and zone files.  They accept
+any syntactically valid file as input, and output it in a consistent
+format regardless of how the input is structured.  So `htoh` and
+`ztoz` can be used to normalise existing files.
+
 
 Development
 -----------
@@ -36,11 +42,20 @@ Development
 The project structure should hopefully be fairly straightforward.  The
 modules are:
 
-- `hosts`    - hosts files
-- `net_util` - shared utilities used by both the `main.rs` file and the `resolver` module
-- `protocol` - the DNS message types and serialisation / deserialisation logic
-- `resolver` - the resolution and caching logic
-- `zones`    - authoritative and non-authoritative zones
+- `lib-dns-types` - basic types used in other packages
+  - `hosts`       - hosts files
+  - `protocol`    - the DNS message types and serialisation / deserialisation logic
+  - `zones`       - authoritative and non-authoritative zones
+
+- `bin-resolved` - the DNS server
+
+- `bin-htoh` - utility to normalise hosts files
+
+- `bin-htoz` - utility to convert hosts files to zone files
+
+- `bin-ztoh` - utility to convert zone files to hosts files
+
+- `bin-ztoz` - utility to normalise zone files
 
 ### Testing
 

@@ -1,7 +1,7 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
 
-use resolved::zones::types::Zone;
+use dns_types::zones::types::Zone;
 
 fuzz_target!(|zone: Zone| {
     let serialised = zone.serialise();

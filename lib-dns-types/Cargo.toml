@@ -1,0 +1,22 @@
+[package]
+name = "dns-types"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"], optional = true }
+fake = { version = "2", optional = true }
+
+[dev-dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+criterion = "0.3.5"
+fake = "2"
+
+[features]
+test-util = ["arbitrary", "fake"]
+
+[[bench]]
+name = "serialise_deserialise"
+harness = false

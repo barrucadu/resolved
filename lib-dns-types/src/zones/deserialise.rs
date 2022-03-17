@@ -1,28 +1,11 @@
 use std::iter::Peekable;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::path::Path;
 use std::str::FromStr;
-use tokio::fs::read_to_string;
 
 use crate::protocol::types::*;
 use crate::zones::types::*;
 
 impl Zone {
-    /// Read a zone file.
-    ///
-    /// If it has a SOA record, it is an authoritative zone: it may
-    /// only have *one* SOA record, and all RRs must be subdomains of
-    /// the SOA domain.
-    ///
-    /// If it does not have a SOA record, it is a non-authoritative
-    /// zone, and the root domain will be used for its apex.
-    pub async fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Error> {
-        match read_to_string(path).await {
-            Ok(data) => Self::deserialise(&data),
-            Err(error) => Err(Error::IO { error }),
-        }
-    }
-
     /// Parse a string of zone data
     ///
     /// This implementation does not support `$INCLUDE` entries or
@@ -832,11 +815,8 @@ enum Entry {
 }
 
 /// An error that can occur reading a zone file.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    IO {
-        error: std::io::Error,
-    },
     TokeniserUnexpected {
         unexpected: char,
     },

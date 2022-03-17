@@ -6,7 +6,7 @@ use crate::zones::types::*;
 
 /// A collection of A records.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(any(feature = "arbitrary", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
 pub struct Hosts {
     pub v4: HashMap<DomainName, Ipv4Addr>,
     pub v6: HashMap<DomainName, Ipv6Addr>,
@@ -29,6 +29,29 @@ impl Hosts {
         for (name, address) in other.v6.into_iter() {
             self.v6.insert(name, address);
         }
+    }
+
+    /// Convert a zone into a hosts file, discarding any non-A and
+    /// non-AAAA records.
+    pub fn from_zone_lossy(zone: Zone) -> Self {
+        let mut v4 = HashMap::new();
+        let mut v6 = HashMap::new();
+        for (name, zrs) in zone.all_records() {
+            for zr in zrs {
+                let rr = zr.to_rr(name);
+                match rr.rtype_with_data {
+                    RecordTypeWithData::A { address } => {
+                        v4.insert(rr.name.clone(), address);
+                    }
+                    RecordTypeWithData::AAAA { address } => {
+                        v6.insert(rr.name.clone(), address);
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        Self { v4, v6 }
     }
 }
 
@@ -148,7 +171,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(feature = "test-util", test))]
 pub mod test_util {
     use super::*;
 
