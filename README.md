@@ -49,6 +49,8 @@ modules are:
 
 - `bin-ztoh` - utility to convert zone files to hosts files
 
+- `bin-ztoz` - utility to normalise zone files
+
 ### Testing
 
 Run the unit and integration tests with:
