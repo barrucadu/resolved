@@ -47,6 +47,8 @@ modules are:
 
 - `bin-htoz` - utility to convert hosts files to zone files
 
+- `bin-ztoh` - utility to convert zone files to hosts files
+
 ### Testing
 
 Run the unit and integration tests with:
