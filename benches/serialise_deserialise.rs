@@ -33,7 +33,7 @@ fn bench__answer__small(c: &mut Criterion) {
     let mut message = Message::from_question(
         1234,
         Question {
-            name: DomainName::from_dotted_string("www.example.com").unwrap(),
+            name: domain("www.example.com."),
             qtype: QueryType::Record(RecordType::A),
             qclass: QueryClass::Record(RecordClass::IN),
         },
@@ -61,7 +61,7 @@ fn bench__answer__big(c: &mut Criterion) {
     let mut message = Message::from_question(
         1234,
         Question {
-            name: DomainName::from_dotted_string("www.example.com").unwrap(),
+            name: domain("www.example.com."),
             qtype: QueryType::Record(RecordType::A),
             qclass: QueryClass::Record(RecordClass::IN),
         },
