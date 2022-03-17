@@ -44,6 +44,10 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
     let mut new_names = HashSet::new();
 
     for (i, octet) in line.chars().enumerate() {
+        if !octet.is_ascii() {
+            return Err(Error::ExpectedAscii);
+        }
+
         state = match (&state, octet) {
             (_, '#') => break,
 
@@ -111,6 +115,7 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 #[derive(Debug)]
 pub enum Error {
     IO { error: std::io::Error },
+    ExpectedAscii,
     CouldNotParseAddress { address: String },
     CouldNotParseName { name: String },
 }
