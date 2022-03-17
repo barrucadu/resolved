@@ -22,8 +22,8 @@ fn bench__insert__duplicate(c: &mut Criterion) {
     for size in [1, 100, 1000] {
         let rrs = {
             let mut out = Vec::with_capacity(size);
-            let name1 = DomainName::from_dotted_string("www.source.example.com").unwrap();
-            let name2 = DomainName::from_dotted_string("www.target.example.com").unwrap();
+            let name1 = DomainName::from_dotted_string("www.source.example.com.").unwrap();
+            let name2 = DomainName::from_dotted_string("www.target.example.com.").unwrap();
             let rr = ResourceRecord {
                 name: name1,
                 rtype_with_data: RecordTypeWithData::CNAME { cname: name2 },
@@ -71,7 +71,7 @@ fn bench__get_without_checking_expiration__miss(c: &mut Criterion) {
     for size in [1, 100, 1000] {
         let (rrs, queries) = make_rrs(size, 0);
         let name = DomainName::from_dotted_string(
-            "name.which.is.unlikely.to.coincidentally.be.randomly.generated",
+            "name.which.is.unlikely.to.coincidentally.be.randomly.generated.",
         )
         .unwrap();
         group.throughput(Throughput::Elements(size as u64));
@@ -137,10 +137,10 @@ fn make_rrs(size: usize, ttl: u32) -> (Vec<ResourceRecord>, Vec<(DomainName, Rec
     let mut queries = Vec::with_capacity(size);
 
     for i in 0..size {
-        let name1 =
-            DomainName::from_dotted_string(&format!("www-{:?}.source.example.com", i / 2)).unwrap();
-        let name2 =
-            DomainName::from_dotted_string(&format!("www-{:?}.target.example.com", i / 2)).unwrap();
+        let name1 = DomainName::from_dotted_string(&format!("www-{:?}.source.example.com.", i / 2))
+            .unwrap();
+        let name2 = DomainName::from_dotted_string(&format!("www-{:?}.target.example.com.", i / 2))
+            .unwrap();
 
         if i % 2 == 0 {
             queries.push((name1.clone(), RecordType::CNAME));
