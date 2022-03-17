@@ -43,6 +43,8 @@ modules are:
 
 - `bin-resolved` - the DNS server
 
+- `bin-htoh` - utility to normalise hosts files
+
 ### Testing
 
 Run the unit and integration tests with:

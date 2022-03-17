@@ -1,6 +1,7 @@
 [workspace]
 
 members = [
+        "bin-htoh",
         "bin-resolved",
         "lib-dns-types",
 ]
