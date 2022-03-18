@@ -50,11 +50,49 @@ async fn resolve_recursive_notimeout(
 ) -> Option<ResolvedRecord> {
     // TODO: bound recursion depth
 
-    if let resolved @ Some(_) = resolve_nonrecursive(zones, cache, question) {
-        return resolved;
+    let mut candidate_delegation = None;
+
+    match resolve_nonrecursive(zones, cache, question) {
+        Some(Ok(answer @ NameserverResponse::Answer { .. })) => {
+            println!("[DEBUG] got response to current query (non-recursive)");
+            return Some(answer.into());
+        }
+        Some(Ok(NameserverResponse::Delegation { delegation, .. })) => {
+            println!("[DEBUG] found better nameserver - restarting current query (non-recursive)");
+            candidate_delegation = Some(delegation);
+        }
+        Some(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
+            let cname_question = Question {
+                name: cname,
+                qclass: question.qclass,
+                qtype: question.qtype,
+            };
+            println!(
+                "[DEBUG] current query is a CNAME - restarting with CNAME target (non-recursive)"
+            );
+            if let Some(resolved) = resolve_recursive_notimeout(zones, cache, &cname_question).await
+            {
+                let mut r_rrs = resolved.rrs();
+                let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
+                combined_rrs.append(&mut rrs.clone());
+                combined_rrs.append(&mut r_rrs);
+                return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+            } else {
+                return None;
+            }
+        }
+        Some(Err(error)) => {
+            println!("[DEBUG] got error response to current query (non-recursive)");
+            return Some(error.into());
+        }
+        None => (),
     }
 
-    if let Some(mut candidates) = candidate_nameservers(zones, cache, &question.name) {
+    if candidate_delegation.is_none() {
+        candidate_delegation = candidate_nameservers(zones, cache, &question.name);
+    }
+
+    if let Some(mut candidates) = candidate_delegation {
         'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
             if let Some(ip) = match candidate {
                 HostOrIP::IP(ip) => Some(ip),
@@ -71,11 +109,11 @@ async fn resolve_recursive_notimeout(
                 .and_then(|res| get_ip(&res.rrs(), &name)),
             } {
                 match query_nameserver(&ip, question, candidates.match_count()).await {
-                    Some(NameserverResponse::Answer { rrs }) => {
+                    Some(NameserverResponse::Answer { rrs, .. }) => {
                         for rr in &rrs {
                             cache.insert(rr);
                         }
-                        println!("[DEBUG] got response to current query");
+                        println!("[DEBUG] got response to current query (recursive)");
                         return Some(ResolvedRecord::NonAuthoritative { rrs });
                     }
                     Some(NameserverResponse::Delegation { rrs, delegation }) => {
@@ -83,10 +121,10 @@ async fn resolve_recursive_notimeout(
                             cache.insert(rr);
                         }
                         candidates = delegation;
-                        println!("[DEBUG] found better nameserver - restarting current query");
+                        println!("[DEBUG] found better nameserver - restarting current query (recursive)");
                         continue 'query_nameservers;
                     }
-                    Some(NameserverResponse::CNAME { rrs, cname }) => {
+                    Some(NameserverResponse::CNAME { rrs, cname, .. }) => {
                         for rr in &rrs {
                             cache.insert(rr);
                         }
@@ -95,7 +133,7 @@ async fn resolve_recursive_notimeout(
                             qclass: question.qclass,
                             qtype: question.qtype,
                         };
-                        println!("[DEBUG] current query is a CNAME - restarting with CNAME target");
+                        println!("[DEBUG] current query is a CNAME - restarting with CNAME target (recursive)");
                         if let Some(resolved) =
                             resolve_recursive_notimeout(zones, cache, &cname_question).await
                         {
@@ -142,8 +180,10 @@ fn candidate_nameservers(
 
             let mut hostnames = Vec::new();
 
-            if let Some(resolved) = resolve_nonrecursive(zones, cache, &ns_q) {
-                for ns_rr in resolved.rrs() {
+            if let Some(Ok(NameserverResponse::Answer { rrs, .. })) =
+                resolve_nonrecursive(zones, cache, &ns_q)
+            {
+                for ns_rr in rrs {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
                         hostnames.push(HostOrIP::Host(nsdname.clone()));
                     }
@@ -395,11 +435,16 @@ fn validate_nameserver_response(
         } else {
             // step 3.1 & 3.2: what sort of answer is this?
             if seen_final_record {
-                Some(NameserverResponse::Answer { rrs: rrs_for_query })
+                Some(NameserverResponse::Answer {
+                    rrs: rrs_for_query,
+                    is_authoritative: false,
+                    authority_rrs: Vec::new(),
+                })
             } else {
                 Some(NameserverResponse::CNAME {
                     rrs: rrs_for_query,
                     cname: final_name,
+                    is_authoritative: false,
                 })
             }
         }
@@ -469,45 +514,6 @@ fn validate_nameserver_response(
             },
         })
     }
-}
-
-/// A set of nameservers for a domain
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct Nameservers {
-    /// Guaranteed to be non-empty.
-    ///
-    /// TODO: find a non-empty-vec type
-    pub hostnames: Vec<HostOrIP>,
-    pub name: DomainName,
-}
-
-impl Nameservers {
-    pub fn match_count(&self) -> usize {
-        self.name.labels.len()
-    }
-}
-
-/// A hostname or an IP
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum HostOrIP {
-    Host(DomainName),
-    IP(Ipv4Addr),
-}
-
-/// A response from a remote nameserver
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum NameserverResponse {
-    Answer {
-        rrs: Vec<ResourceRecord>,
-    },
-    CNAME {
-        rrs: Vec<ResourceRecord>,
-        cname: DomainName,
-    },
-    Delegation {
-        rrs: Vec<ResourceRecord>,
-        delegation: Nameservers,
-    },
 }
 
 #[cfg(test)]
@@ -645,6 +651,8 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
+                is_authoritative: false,
+                authority_rrs: Vec::new(),
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -671,6 +679,8 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
+                is_authoritative: false,
+                authority_rrs: Vec::new(),
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -715,6 +725,8 @@ mod tests {
                     cname_record("www.example.com.", "cname-target.example.com."),
                     a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1))
                 ],
+                is_authoritative: false,
+                authority_rrs: Vec::new(),
             }),
             validate_nameserver_response(&request, response, 0)
         );
@@ -739,6 +751,7 @@ mod tests {
                     "cname-target.example.com."
                 )],
                 cname: domain("cname-target.example.com."),
+                is_authoritative: false,
             }),
             validate_nameserver_response(&request, response, 0)
         );

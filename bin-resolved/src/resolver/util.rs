@@ -34,6 +34,91 @@ impl ResolvedRecord {
     }
 }
 
+/// A set of nameservers for a domain
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Nameservers {
+    /// Guaranteed to be non-empty.
+    ///
+    /// TODO: find a non-empty-vec type
+    pub hostnames: Vec<HostOrIP>,
+    pub name: DomainName,
+}
+
+impl Nameservers {
+    pub fn match_count(&self) -> usize {
+        self.name.labels.len()
+    }
+}
+
+/// A hostname or an IP
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum HostOrIP {
+    Host(DomainName),
+    IP(Ipv4Addr),
+}
+
+/// A response from a remote nameserver
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum NameserverResponse {
+    Answer {
+        rrs: Vec<ResourceRecord>,
+        is_authoritative: bool,
+        authority_rrs: Vec<ResourceRecord>,
+    },
+    CNAME {
+        rrs: Vec<ResourceRecord>,
+        cname: DomainName,
+        is_authoritative: bool,
+    },
+    Delegation {
+        rrs: Vec<ResourceRecord>,
+        delegation: Nameservers,
+    },
+}
+
+impl From<NameserverResponse> for ResolvedRecord {
+    fn from(nsr: NameserverResponse) -> Self {
+        match nsr {
+            NameserverResponse::Answer {
+                is_authoritative: true,
+                rrs,
+                authority_rrs,
+            } => ResolvedRecord::Authoritative { rrs, authority_rrs },
+            NameserverResponse::Answer {
+                is_authoritative: false,
+                rrs,
+                ..
+            } => ResolvedRecord::NonAuthoritative { rrs },
+            NameserverResponse::CNAME { .. } => todo!(),
+            NameserverResponse::Delegation { .. } => todo!(),
+        }
+    }
+}
+
+/// An authoritative name error response, returned by the
+/// non-recursive resolver.
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct AuthoritativeNameError {
+    pub soa_rr: ResourceRecord,
+}
+
+impl From<AuthoritativeNameError> for ResolvedRecord {
+    fn from(error: AuthoritativeNameError) -> Self {
+        ResolvedRecord::AuthoritativeNameError {
+            authority_rrs: vec![error.soa_rr],
+        }
+    }
+}
+
+impl From<Result<NameserverResponse, AuthoritativeNameError>> for ResolvedRecord {
+    fn from(nsr_or_error: Result<NameserverResponse, AuthoritativeNameError>) -> Self {
+        match nsr_or_error {
+            Ok(nsr) => nsr.into(),
+            Err(err) => err.into(),
+        }
+    }
+}
+
 /// Given a set of RRs and a domain name we're looking for, follow
 /// `CNAME`s in the response and return the final name (which is the
 /// name that will have the non-`CNAME` records associated with it).
@@ -322,6 +407,13 @@ pub mod test_util {
             &domain("delegated.example.com."),
             RecordTypeWithData::NS {
                 nsdname: domain("ns.delegated.example.com."),
+            },
+            300,
+        );
+        zone_na.insert(
+            &domain("trailing-cname.example.com."),
+            RecordTypeWithData::CNAME {
+                cname: domain("somewhere-else.example.com."),
             },
             300,
         );

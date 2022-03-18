@@ -21,6 +21,6 @@ pub async fn resolve(
     if is_recursive {
         resolve_recursive(zones, cache, question).await
     } else {
-        resolve_nonrecursive(zones, cache, question)
+        resolve_nonrecursive(zones, cache, question).map(ResolvedRecord::from)
     }
 }
