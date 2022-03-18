@@ -27,11 +27,14 @@ use super::util::*;
 ///
 /// See section 4.3.2 of RFC 1034.
 pub fn resolve_nonrecursive(
+    recursion_limit: usize,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<Result<NameserverResponse, AuthoritativeNameError>> {
-    // TODO: bound recursion depth
+    if recursion_limit == 0 {
+        return None;
+    }
 
     let mut rrs_from_zone = Vec::new();
 
@@ -124,6 +127,7 @@ pub fn resolve_nonrecursive(
                 let mut rrs = vec![cname_rr.clone()];
                 return Some(Ok(
                     match resolve_nonrecursive(
+                        recursion_limit - 1,
                         zones,
                         cache,
                         &Question {
@@ -298,6 +302,7 @@ pub fn resolve_nonrecursive(
 
             if let RecordTypeWithData::CNAME { cname } = cname_rr.rtype_with_data {
                 let resolved_cname = resolve_nonrecursive(
+                    recursion_limit - 1,
                     zones,
                     cache,
                     &Question {
@@ -368,6 +373,7 @@ mod tests {
             authority_rrs,
             is_authoritative: true,
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -392,6 +398,7 @@ mod tests {
             is_authoritative: false,
             ..
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -421,6 +428,7 @@ mod tests {
             is_authoritative: false,
             ..
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &cache,
             &Question {
@@ -455,6 +463,7 @@ mod tests {
             authority_rrs,
             is_authoritative: true,
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -487,6 +496,7 @@ mod tests {
             is_authoritative: false,
             ..
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &cache,
             &Question {
@@ -516,6 +526,7 @@ mod tests {
             authority_rrs,
             is_authoritative: true,
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -548,6 +559,7 @@ mod tests {
             is_authoritative: false,
             ..
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &cache,
             &Question {
@@ -575,6 +587,7 @@ mod tests {
             is_authoritative: false,
             ..
         })) = resolve_nonrecursive(
+            10,
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -603,6 +616,7 @@ mod tests {
                 is_authoritative: false,
             })),
             resolve_nonrecursive(
+                10,
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -630,6 +644,7 @@ mod tests {
                 }
             })),
             resolve_nonrecursive(
+                10,
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -646,6 +661,7 @@ mod tests {
         assert_eq!(
             None,
             resolve_nonrecursive(
+                10,
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -664,6 +680,7 @@ mod tests {
                 soa_rr: zones_soa_rr()
             })),
             resolve_nonrecursive(
+                10,
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -680,6 +697,7 @@ mod tests {
         assert_eq!(
             None,
             resolve_nonrecursive(
+                10,
                 &zones(),
                 &SharedCache::new(),
                 &Question {

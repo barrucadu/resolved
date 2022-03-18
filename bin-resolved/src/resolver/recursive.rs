@@ -26,13 +26,14 @@ use super::util::*;
 ///
 /// See section 5.3.3 of RFC 1034.
 pub async fn resolve_recursive(
+    recursion_limit: usize,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     match timeout(
         Duration::from_secs(60),
-        resolve_recursive_notimeout(zones, cache, question),
+        resolve_recursive_notimeout(recursion_limit, zones, cache, question),
     )
     .await
     {
@@ -44,16 +45,19 @@ pub async fn resolve_recursive(
 /// Timeout-less version of `resolve_recursive`.
 #[async_recursion]
 async fn resolve_recursive_notimeout(
+    recursion_limit: usize,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
-    // TODO: bound recursion depth
+    if recursion_limit == 0 {
+        return None;
+    }
 
     let mut candidate_delegation = None;
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(zones, cache, question) {
+    match resolve_nonrecursive(recursion_limit - 1, zones, cache, question) {
         Some(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
@@ -87,7 +91,9 @@ async fn resolve_recursive_notimeout(
             println!(
                 "[DEBUG] current query is a CNAME - restarting with CNAME target (non-recursive)"
             );
-            if let Some(resolved) = resolve_recursive_notimeout(zones, cache, &cname_question).await
+            if let Some(resolved) =
+                resolve_recursive_notimeout(recursion_limit - 1, zones, cache, &cname_question)
+                    .await
             {
                 let mut r_rrs = resolved.rrs();
                 let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
@@ -106,7 +112,8 @@ async fn resolve_recursive_notimeout(
     }
 
     if candidate_delegation.is_none() {
-        candidate_delegation = candidate_nameservers(zones, cache, &question.name);
+        candidate_delegation =
+            candidate_nameservers(recursion_limit - 1, zones, cache, &question.name);
     }
 
     if let Some(mut candidates) = candidate_delegation {
@@ -114,6 +121,7 @@ async fn resolve_recursive_notimeout(
             if let Some(ip) = match candidate {
                 HostOrIP::IP(ip) => Some(ip),
                 HostOrIP::Host(name) => resolve_recursive_notimeout(
+                    recursion_limit - 1,
                     zones,
                     cache,
                     &Question {
@@ -152,8 +160,13 @@ async fn resolve_recursive_notimeout(
                             qtype: question.qtype,
                         };
                         println!("[DEBUG] current query is a CNAME - restarting with CNAME target (recursive)");
-                        if let Some(resolved) =
-                            resolve_recursive_notimeout(zones, cache, &cname_question).await
+                        if let Some(resolved) = resolve_recursive_notimeout(
+                            recursion_limit - 1,
+                            zones,
+                            cache,
+                            &cname_question,
+                        )
+                        .await
                         {
                             prioritising_merge(&mut combined_rrs, rrs);
                             prioritising_merge(&mut combined_rrs, resolved.rrs());
@@ -181,6 +194,7 @@ async fn resolve_recursive_notimeout(
 ///
 /// This corresponds to step 2 of the standard resolver algorithm.
 fn candidate_nameservers(
+    recursion_limit: usize,
     zones: &Zones,
     cache: &SharedCache,
     question: &DomainName,
@@ -197,7 +211,7 @@ fn candidate_nameservers(
             let mut hostnames = Vec::new();
 
             if let Some(Ok(NameserverResponse::Answer { rrs, .. })) =
-                resolve_nonrecursive(zones, cache, &ns_q)
+                resolve_nonrecursive(recursion_limit - 1, zones, cache, &ns_q)
             {
                 for ns_rr in rrs {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
@@ -550,7 +564,7 @@ mod tests {
                 ],
                 name: qdomain.clone(),
             }),
-            candidate_nameservers(&zones(), &cache_with_nameservers(&["com."]), &qdomain)
+            candidate_nameservers(10, &zones(), &cache_with_nameservers(&["com."]), &qdomain)
         );
     }
 
@@ -565,6 +579,7 @@ mod tests {
                 name: domain("example.com."),
             }),
             candidate_nameservers(
+                10,
                 &zones(),
                 &cache_with_nameservers(&["example.com.", "com."]),
                 &domain("www.example.com.")
@@ -577,6 +592,7 @@ mod tests {
         assert_eq!(
             None,
             candidate_nameservers(
+                10,
                 &zones(),
                 &cache_with_nameservers(&["com."]),
                 &domain("net.")
