@@ -45,6 +45,7 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
             (State::SkipToAddress, c) if c.is_whitespace() => state,
             (State::SkipToAddress, _) => State::ReadingAddress { start: i },
 
+            (State::ReadingAddress { .. }, '%') => break,
             (State::ReadingAddress { start }, c) if c.is_whitespace() => {
                 let addr_str = &line[*start..i];
                 match IpAddr::from_str(addr_str) {
@@ -168,6 +169,11 @@ mod tests {
                     .resolve(&domain(name), QueryType::Record(RecordType::AAAA))
             );
         }
+    }
+
+    #[test]
+    fn parse_line_ignores_iface_address() {
+        assert_eq!(Ok(None), parse_line("fe80::1%lo0 localhost"));
     }
 
     #[test]
