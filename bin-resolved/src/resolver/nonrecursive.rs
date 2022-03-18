@@ -42,13 +42,20 @@ pub fn resolve_nonrecursive(
         match zone.resolve(&question.name, question.qtype) {
             // If we get an answer:
             //
-            // - if the zone is authoritative: we're done; this fully
-            // answers the question, there's no need to consult the
-            // cache for additional records.
+            // - if the zone is authoritative: we're done.
             //
-            // - if the zone is not authoritative: store the RRs but
-            // pass the query onto the cache (handled below), to see
-            // if this fetches any new records.
+            // - if the zone is not authoritative: check if this is a
+            // wildcard query or not:
+            //
+            //    - if it's not a wildcard query, return these results
+            //    as a non-authoritative answer (non-authoritative
+            //    zone records effectively override the wider domain
+            //    name system).
+            //
+            //    - if it is a wildcard query, save these results and
+            //    continue to the cache (handled below), and use a
+            //    prioritising merge to combine the RR sets,
+            //    preserving the override behaviour.
             Some(ZoneResult::Answer { rrs }) => {
                 println!(
                     "[DEBUG] zone {:?} {} ANSWER for {:?} {:?} {:?}",
@@ -68,6 +75,12 @@ pub fn resolve_nonrecursive(
                         rrs,
                         is_authoritative: true,
                         authority_rrs: vec![soa_rr],
+                    }));
+                } else if question.qtype != QueryType::Wildcard && !rrs.is_empty() {
+                    return Some(Ok(NameserverResponse::Answer {
+                        rrs,
+                        is_authoritative: false,
+                        authority_rrs: Vec::new(),
                     }));
                 } else {
                     rrs_from_zone = rrs;
@@ -312,9 +325,8 @@ pub fn resolve_nonrecursive(
         }
     }
 
-    let mut rrs = Vec::with_capacity(rrs_from_zone.len() + rrs_from_cache.len());
-    rrs.append(&mut rrs_from_zone);
-    rrs.append(&mut rrs_from_cache);
+    let mut rrs = rrs_from_zone;
+    prioritising_merge(&mut rrs, rrs_from_cache);
 
     if rrs.is_empty() {
         None
@@ -463,10 +475,12 @@ mod tests {
     #[test]
     fn resolve_nonrecursive_combines_nonauthoritative_zones_with_cache() {
         let zone_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
-        let cache_rr = a_record("a.example.com.", Ipv4Addr::new(8, 8, 8, 8));
+        let cache_rr_dropped = a_record("a.example.com.", Ipv4Addr::new(8, 8, 8, 8));
+        let cache_rr_kept = cname_record("a.example.com.", "b.example.com.");
 
         let cache = SharedCache::new();
-        cache.insert(&cache_rr);
+        cache.insert(&cache_rr_dropped);
+        cache.insert(&cache_rr_kept);
 
         if let Some(Ok(NameserverResponse::Answer {
             rrs,
@@ -482,8 +496,8 @@ mod tests {
             },
         ) {
             assert_eq!(2, rrs.len());
-            assert_cache_response(&zone_rr, vec![rrs[0].clone()]);
-            assert_cache_response(&cache_rr, vec![rrs[1].clone()]);
+            assert_eq!(zone_rr, rrs[0]);
+            assert_cache_response(&cache_rr_kept, vec![rrs[1].clone()]);
         } else {
             panic!("expected non-authoritative answer");
         }
