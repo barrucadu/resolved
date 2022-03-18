@@ -72,6 +72,10 @@ impl SharedCache {
             let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
             cache.insert(record);
             if cache.current_size > cache.desired_size {
+                println!(
+                    "[CACHE] current {:?} greater than desired {:?}, pruning",
+                    cache.current_size, cache.desired_size
+                );
                 cache.prune();
             }
         }
