@@ -1,0 +1,5 @@
+; Special-use "invalid." zone - see RFC 6761 section 6.4
+
+$ORIGIN invalid.
+
+@ IN SOA . . 1 3600 3600 3600 3600

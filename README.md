@@ -102,6 +102,12 @@ Supported standards
 
   Defines the `AAAA` record and query types.
 
+- [RFC 6761: Special-Use Domain Names](https://datatracker.ietf.org/doc/html/rfc6761)
+
+  Defines several zones with special behaviour.  This is RFC
+  implemented as configuration distributed with the DNS server (in
+  `config/zones`) not code.
+
 - [hosts(5)](https://man7.org/linux/man-pages/man5/hosts.5.html)
 
   Defines the Linux hosts file format.
