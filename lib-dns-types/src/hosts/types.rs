@@ -4,6 +4,9 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::protocol::types::*;
 use crate::zones::types::*;
 
+/// TTL used when converting into A / AAAA records.
+pub const TTL: u32 = 5;
+
 /// A collection of A records.
 #[derive(Debug, Clone, Eq, PartialEq)]
 #[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
@@ -65,10 +68,10 @@ impl From<Hosts> for Zone {
     fn from(hosts: Hosts) -> Zone {
         let mut zone = Self::default();
         for (name, address) in hosts.v4.into_iter() {
-            zone.insert(&name, RecordTypeWithData::A { address }, 300);
+            zone.insert(&name, RecordTypeWithData::A { address }, TTL);
         }
         for (name, address) in hosts.v6.into_iter() {
-            zone.insert(&name, RecordTypeWithData::AAAA { address }, 300);
+            zone.insert(&name, RecordTypeWithData::AAAA { address }, TTL);
         }
         zone
     }

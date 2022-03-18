@@ -151,19 +151,19 @@ mod tests {
         let expected_aaaa_records = &[("localhost.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))];
 
         for (name, addr) in expected_a_records {
+            let mut rr = a_record(name, *addr);
+            rr.ttl = TTL;
             assert_eq!(
-                Some(ZoneResult::Answer {
-                    rrs: vec![a_record(name, *addr)]
-                }),
+                Some(ZoneResult::Answer { rrs: vec![rr] }),
                 Zone::from(hosts.clone()).resolve(&domain(name), QueryType::Record(RecordType::A))
             );
         }
 
         for (name, addr) in expected_aaaa_records {
+            let mut rr = aaaa_record(name, *addr);
+            rr.ttl = TTL;
             assert_eq!(
-                Some(ZoneResult::Answer {
-                    rrs: vec![aaaa_record(name, *addr)]
-                }),
+                Some(ZoneResult::Answer { rrs: vec![rr] }),
                 Zone::from(hosts.clone())
                     .resolve(&domain(name), QueryType::Record(RecordType::AAAA))
             );
