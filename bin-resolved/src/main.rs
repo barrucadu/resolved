@@ -6,6 +6,7 @@ use std::process;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
@@ -191,6 +192,70 @@ async fn listen_udp(zones_lock: Arc<RwLock<Zones>>, cache: SharedCache, socket: 
     }
 }
 
+/// Load the hosts and zones from the configuration, generating the
+/// `Zones` parameter for the resolver.
+async fn load_zone_configuration(args: &Args) -> Option<Zones> {
+    let mut is_error = false;
+    let mut hosts_file_paths = args.hosts_file.clone();
+    let mut zone_file_paths = args.zone_file.clone();
+
+    for path in args.zones_dir.iter() {
+        match get_files_from_dir(path).await {
+            Ok(mut paths) => zone_file_paths.append(&mut paths),
+            Err(err) => {
+                eprintln!("error reading zone directory \"{:?}\": {:?}", path, err);
+                is_error = true;
+            }
+        }
+    }
+    for path in args.hosts_dir.iter() {
+        match get_files_from_dir(path).await {
+            Ok(mut paths) => hosts_file_paths.append(&mut paths),
+            Err(err) => {
+                eprintln!("error reading hosts directory \"{:?}\": {:?}", path, err);
+                is_error = true;
+            }
+        }
+    }
+
+    let mut combined_zones = Zones::new();
+    for path in zone_file_paths.iter() {
+        match zone_from_file(Path::new(path)).await {
+            Ok(Ok(zone)) => combined_zones.insert_merge(zone),
+            Ok(Err(err)) => {
+                eprintln!("error parsing zone file \"{:?}\": {:?}", path, err);
+                is_error = true;
+            }
+            Err(err) => {
+                eprintln!("error reading zone file \"{:?}\": {:?}", path, err);
+                is_error = true;
+            }
+        }
+    }
+
+    let mut combined_hosts = Hosts::default();
+    for path in hosts_file_paths.iter() {
+        match hosts_from_file(Path::new(path)).await {
+            Ok(Ok(hosts)) => combined_hosts.merge(hosts),
+            Ok(Err(err)) => {
+                eprintln!("error parsing hosts file \"{:?}\": {:?}", path, err);
+                is_error = true;
+            }
+            Err(err) => {
+                eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
+                is_error = true;
+            }
+        }
+    }
+
+    if is_error {
+        None
+    } else {
+        combined_zones.insert_merge(combined_hosts.into());
+        Some(combined_zones)
+    }
+}
+
 /// Delete expired cache entries every 5 minutes.
 ///
 /// Always removes all expired entries, and then if the cache is still
@@ -206,6 +271,27 @@ async fn prune_cache_task(cache: SharedCache) {
             "[CACHE] expired {:?} and pruned {:?} entries",
             expired, pruned
         );
+    }
+}
+
+/// Reload hosts and zones, and replace the value in the `RwLock`.
+async fn reload_task(zones_lock: Arc<RwLock<Zones>>, args: Args) {
+    let mut stream = match signal(SignalKind::user_defined1()) {
+        Ok(s) => s,
+        Err(err) => panic!("could not subscribe to SIGUSR1: {:?}", err),
+    };
+
+    loop {
+        stream.recv().await;
+
+        println!("[USR1] reloading zones...");
+        if let Some(zones) = load_zone_configuration(&args).await {
+            let mut lock = zones_lock.write().await;
+            *lock = zones;
+            println!("[USR1] reloaded zones");
+        } else {
+            println!("[USR1] could not reload zones");
+        }
     }
 }
 
@@ -253,57 +339,12 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    let mut args = Args::parse();
+    let args = Args::parse();
 
-    let mut zones = Zones::new();
-    for path in args.zones_dir.iter() {
-        match get_files_from_dir(path).await {
-            Ok(mut paths) => args.zone_file.append(&mut paths),
-            Err(err) => {
-                eprintln!("error reading zone directory \"{:?}\": {:?}", path, err);
-                process::exit(1);
-            }
-        }
-    }
-    for path in args.zone_file.iter() {
-        match zone_from_file(Path::new(path)).await {
-            Ok(Ok(zone)) => zones.insert_merge(zone),
-            Ok(Err(err)) => {
-                eprintln!("error parsing zone file \"{:?}\": {:?}", path, err);
-                process::exit(1);
-            }
-            Err(err) => {
-                eprintln!("error reading zone file \"{:?}\": {:?}", path, err);
-                process::exit(1);
-            }
-        }
-    }
-
-    let mut combined_hosts = Hosts::default();
-    for path in args.hosts_dir.iter() {
-        match get_files_from_dir(path).await {
-            Ok(mut paths) => args.hosts_file.append(&mut paths),
-            Err(err) => {
-                eprintln!("error reading hosts directory \"{:?}\": {:?}", path, err);
-                process::exit(1);
-            }
-        }
-    }
-    for path in args.hosts_file.iter() {
-        match hosts_from_file(Path::new(path)).await {
-            Ok(Ok(hosts)) => combined_hosts.merge(hosts),
-            Ok(Err(err)) => {
-                eprintln!("error parsing hosts file \"{:?}\": {:?}", path, err);
-                process::exit(1);
-            }
-            Err(err) => {
-                eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
-                process::exit(1);
-            }
-        }
-    }
-
-    zones.insert_merge(combined_hosts.into());
+    let zones = match load_zone_configuration(&args).await {
+        Some(zs) => zs,
+        None => process::exit(1),
+    };
 
     println!("binding to {:?}", args.interface);
 
@@ -328,6 +369,7 @@ async fn main() {
 
     tokio::spawn(listen_tcp(zones_lock.clone(), cache.clone(), tcp));
     tokio::spawn(listen_udp(zones_lock.clone(), cache.clone(), udp));
+    tokio::spawn(reload_task(zones_lock.clone(), args));
 
     prune_cache_task(cache).await;
 }

@@ -35,6 +35,10 @@ any syntactically valid file as input, and output it in a consistent
 format regardless of how the input is structured.  So `htoh` and
 `ztoz` can be used to normalise existing files.
 
+**Signals:**
+
+- `SIGUSR1` - reload the configuration
+
 
 Development
 -----------
