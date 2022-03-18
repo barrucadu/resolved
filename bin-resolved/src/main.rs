@@ -320,6 +320,10 @@ struct Args {
     #[clap(short, long, default_value_t = Ipv4Addr::UNSPECIFIED)]
     interface: Ipv4Addr,
 
+    /// How many records to hold in the cache
+    #[clap(short = 's', long, default_value_t = 512)]
+    cache_size: usize,
+
     /// Path to a hosts file, can be specified more than once
     #[clap(short = 'a', long)]
     hosts_file: Vec<PathBuf>,
@@ -365,7 +369,7 @@ async fn main() {
     };
 
     let zones_lock = Arc::new(RwLock::new(zones));
-    let cache = SharedCache::new();
+    let cache = SharedCache::with_desired_size(std::cmp::max(1, args.cache_size));
 
     tokio::spawn(listen_tcp(zones_lock.clone(), cache.clone(), tcp));
     tokio::spawn(listen_udp(zones_lock.clone(), cache.clone(), udp));

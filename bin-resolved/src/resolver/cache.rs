@@ -27,6 +27,13 @@ impl SharedCache {
         }
     }
 
+    /// Create a new cache with the given desired size.
+    pub fn with_desired_size(desired_size: usize) -> Self {
+        SharedCache {
+            cache: Arc::new(Mutex::new(Cache::with_desired_size(desired_size))),
+        }
+    }
+
     /// Get an entry from the cache.
     ///
     /// The TTL in the returned `ResourceRecord` is relative to the
@@ -65,6 +72,10 @@ impl SharedCache {
             let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
             cache.insert(record);
             if cache.current_size > cache.desired_size {
+                println!(
+                    "[CACHE] current {:?} greater than desired {:?}, pruning",
+                    cache.current_size, cache.desired_size
+                );
                 cache.prune();
             }
         }
