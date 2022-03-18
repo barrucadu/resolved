@@ -4,6 +4,36 @@ use std::net::Ipv4Addr;
 
 use dns_types::protocol::types::*;
 
+/// The result of a name resolution attempt.
+///
+/// If this is a `CNAME`, it should be added to the answer section of
+/// the response message, and resolution repeated for the CNAME.  This
+/// may build up a chain of `CNAME`s for some names.
+///
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub enum ResolvedRecord {
+    Authoritative {
+        rrs: Vec<ResourceRecord>,
+        authority_rrs: Vec<ResourceRecord>,
+    },
+    AuthoritativeNameError {
+        authority_rrs: Vec<ResourceRecord>,
+    },
+    NonAuthoritative {
+        rrs: Vec<ResourceRecord>,
+    },
+}
+
+impl ResolvedRecord {
+    pub fn rrs(self) -> Vec<ResourceRecord> {
+        match self {
+            ResolvedRecord::Authoritative { rrs, .. } => rrs,
+            ResolvedRecord::AuthoritativeNameError { .. } => Vec::new(),
+            ResolvedRecord::NonAuthoritative { rrs } => rrs,
+        }
+    }
+}
+
 /// Given a set of RRs and a domain name we're looking for, follow
 /// `CNAME`s in the response and return the final name (which is the
 /// name that will have the non-`CNAME` records associated with it).
@@ -247,5 +277,108 @@ mod tests {
             Some(Ipv4Addr::new(127, 0, 0, 1)),
             get_ip(&[cname_rr, a_rr], &domain("www.example.com."))
         );
+    }
+}
+
+#[cfg(test)]
+pub mod test_util {
+    use dns_types::protocol::types::test_util::*;
+    use dns_types::zones::types::*;
+    use std::net::Ipv4Addr;
+
+    use super::*;
+
+    pub fn zones() -> Zones {
+        let mut zone_na = Zone::default();
+        zone_na.insert(
+            &domain("blocked.example.com."),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(0, 0, 0, 0),
+            },
+            300,
+        );
+        zone_na.insert(
+            &domain("cname-and-a.example.com."),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(1, 1, 1, 1),
+            },
+            300,
+        );
+        zone_na.insert(
+            &domain("cname-and-a.example.com."),
+            RecordTypeWithData::CNAME {
+                cname: domain("cname-target.example.com."),
+            },
+            300,
+        );
+        zone_na.insert(
+            &domain("a.example.com."),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(1, 1, 1, 1),
+            },
+            300,
+        );
+        zone_na.insert(
+            &domain("delegated.example.com."),
+            RecordTypeWithData::NS {
+                nsdname: domain("ns.delegated.example.com."),
+            },
+            300,
+        );
+
+        let mut zone_a = Zone::new(
+            domain("authoritative.example.com."),
+            Some(SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            }),
+        );
+        zone_a.insert(
+            &domain("authoritative.example.com."),
+            RecordTypeWithData::A {
+                address: Ipv4Addr::new(1, 1, 1, 1),
+            },
+            300,
+        );
+        zone_a.insert(
+            &domain("cname-a.authoritative.example.com."),
+            RecordTypeWithData::CNAME {
+                cname: domain("authoritative.example.com."),
+            },
+            300,
+        );
+        zone_a.insert(
+            &domain("cname-na.authoritative.example.com."),
+            RecordTypeWithData::CNAME {
+                cname: domain("a.example.com."),
+            },
+            300,
+        );
+        zone_a.insert(
+            &domain("delegated.authoritative.example.com."),
+            RecordTypeWithData::NS {
+                nsdname: domain("ns.delegated.authoritative.example.com."),
+            },
+            300,
+        );
+
+        let mut zones = Zones::new();
+        zones.insert(zone_na);
+        zones.insert(zone_a);
+
+        zones
+    }
+
+    pub fn zones_soa_rr() -> ResourceRecord {
+        zones()
+            .get(&domain("authoritative.example.com."))
+            .unwrap()
+            .soa_rr()
+            .unwrap()
     }
 }
