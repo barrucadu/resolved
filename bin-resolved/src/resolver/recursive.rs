@@ -51,11 +51,28 @@ async fn resolve_recursive_notimeout(
     // TODO: bound recursion depth
 
     let mut candidate_delegation = None;
+    let mut combined_rrs = Vec::new();
 
     match resolve_nonrecursive(zones, cache, question) {
-        Some(Ok(answer @ NameserverResponse::Answer { .. })) => {
-            println!("[DEBUG] got response to current query (non-recursive)");
-            return Some(answer.into());
+        Some(Ok(NameserverResponse::Answer {
+            rrs,
+            authority_rrs,
+            is_authoritative,
+        })) => {
+            if is_authoritative || question.qtype != QueryType::Wildcard {
+                println!("[DEBUG] got response to current query (non-recursive)");
+                return Some(
+                    NameserverResponse::Answer {
+                        rrs,
+                        authority_rrs,
+                        is_authoritative,
+                    }
+                    .into(),
+                );
+            } else {
+                println!("[DEBUG] got non-authoritative response to current wildcard query - continuing (non-recursive)");
+                combined_rrs = rrs;
+            }
         }
         Some(Ok(NameserverResponse::Delegation { delegation, .. })) => {
             println!("[DEBUG] found better nameserver - restarting current query (non-recursive)");
@@ -114,7 +131,8 @@ async fn resolve_recursive_notimeout(
                             cache.insert(rr);
                         }
                         println!("[DEBUG] got response to current query (recursive)");
-                        return Some(ResolvedRecord::NonAuthoritative { rrs });
+                        prioritising_merge(&mut combined_rrs, rrs);
+                        return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                     }
                     Some(NameserverResponse::Delegation { rrs, delegation }) => {
                         for rr in &rrs {
@@ -137,10 +155,8 @@ async fn resolve_recursive_notimeout(
                         if let Some(resolved) =
                             resolve_recursive_notimeout(zones, cache, &cname_question).await
                         {
-                            let mut r_rrs = resolved.rrs();
-                            let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
-                            combined_rrs.append(&mut rrs.clone());
-                            combined_rrs.append(&mut r_rrs);
+                            prioritising_merge(&mut combined_rrs, rrs);
+                            prioritising_merge(&mut combined_rrs, resolved.rrs());
                             return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         } else {
                             return None;
