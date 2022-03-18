@@ -3,9 +3,11 @@ use clap::Parser;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::time::sleep;
 
 use dns_types::hosts::types::Hosts;
@@ -17,7 +19,17 @@ use resolved::net_util::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::{resolve, ResolvedRecord};
 
-async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: Message) -> Message {
+async fn resolve_and_build_response(
+    zones_lock: Arc<RwLock<Zones>>,
+    cache: &SharedCache,
+    query: Message,
+) -> Message {
+    // lock zones here, rather than where they're used in
+    // `resolve_nonrecursive`, so that this whole request sees a
+    // consistent version of the zones even if they get updated in the
+    // middle of processing.
+    let zones = zones_lock.read().await;
+
     let mut response = query.make_response();
     response.header.is_authoritative = true;
 
@@ -29,7 +41,7 @@ async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: M
     }
 
     for question in &query.questions {
-        if let Some(rr) = resolve(query.header.recursion_desired, zones, cache, question).await {
+        if let Some(rr) = resolve(query.header.recursion_desired, &zones, cache, question).await {
             match rr {
                 ResolvedRecord::Authoritative {
                     mut rrs,
@@ -68,7 +80,11 @@ async fn resolve_and_build_response(zones: &Zones, cache: &SharedCache, query: M
     response
 }
 
-async fn handle_raw_message<'a>(zones: &Zones, cache: &SharedCache, buf: &[u8]) -> Option<Message> {
+async fn handle_raw_message<'a>(
+    zones_lock: Arc<RwLock<Zones>>,
+    cache: &SharedCache,
+    buf: &[u8],
+) -> Option<Message> {
     let res = Message::from_octets(buf);
     println!("{:?}", res);
 
@@ -77,7 +93,7 @@ async fn handle_raw_message<'a>(zones: &Zones, cache: &SharedCache, buf: &[u8]) 
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == Opcode::Standard {
-                Some(resolve_and_build_response(zones, cache, msg).await)
+                Some(resolve_and_build_response(zones_lock, cache, msg).await)
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = Rcode::NotImplemented;
@@ -88,16 +104,16 @@ async fn handle_raw_message<'a>(zones: &Zones, cache: &SharedCache, buf: &[u8]) 
     }
 }
 
-async fn listen_tcp(zones: Zones, cache: SharedCache, socket: TcpListener) {
+async fn listen_tcp(zones_lock: Arc<RwLock<Zones>>, cache: SharedCache, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
-                let zones = zones.clone();
+                let zones_lock = zones_lock.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
-                        Ok(bytes) => handle_raw_message(&zones, &cache, bytes.as_ref()).await,
+                        Ok(bytes) => handle_raw_message(zones_lock, &cache, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
                             id,
                             expected,
@@ -137,7 +153,7 @@ async fn listen_tcp(zones: Zones, cache: SharedCache, socket: TcpListener) {
     }
 }
 
-async fn listen_udp(zones: Zones, cache: SharedCache, socket: UdpSocket) {
+async fn listen_udp(zones_lock: Arc<RwLock<Zones>>, cache: SharedCache, socket: UdpSocket) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut buf = vec![0u8; 512];
 
@@ -147,10 +163,10 @@ async fn listen_udp(zones: Zones, cache: SharedCache, socket: UdpSocket) {
                 println!("[{:?}] udp request ok", peer);
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
-                let zones = zones.clone();
+                let zones_lock = zones_lock.clone();
                 let cache = cache.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(&zones, &cache, bytes.as_ref()).await {
+                    if let Some(response_message) = handle_raw_message(zones_lock, &cache, bytes.as_ref()).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
@@ -307,10 +323,11 @@ async fn main() {
         }
     };
 
+    let zones_lock = Arc::new(RwLock::new(zones));
     let cache = SharedCache::new();
 
-    tokio::spawn(listen_tcp(zones.clone(), cache.clone(), tcp));
-    tokio::spawn(listen_udp(zones.clone(), cache.clone(), udp));
+    tokio::spawn(listen_tcp(zones_lock.clone(), cache.clone(), tcp));
+    tokio::spawn(listen_udp(zones_lock.clone(), cache.clone(), udp));
 
     prune_cache_task(cache).await;
 }
