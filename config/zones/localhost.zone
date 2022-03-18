@@ -1,0 +1,8 @@
+; Special-use "localhost." zone - see RFC 6761 section 6.3
+
+$ORIGIN localhost.
+
+@ IN SOA . . 1 3600 3600 3600 3600
+
+@ IN A 127.0.0.1
+* IN A 127.0.0.1

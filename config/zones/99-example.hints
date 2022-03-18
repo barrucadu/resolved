@@ -1,9 +1,0 @@
-$ORIGIN test.barrucadu.co.uk.
-
-a.static              IN 300 A     116.203.34.201
-a.static-subdomains   IN 300 A     116.203.34.201
-*.a.static-subdomains IN 300 A     116.203.34.201
-
-cname-1               IN 300 CNAME cname-2
-cname-2               IN 300 CNAME cname-3
-cname-3               IN 300 CNAME target.a.static-subdomains

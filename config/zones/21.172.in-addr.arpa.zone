@@ -1,0 +1,10 @@
+; Special-use "21.172.in-addr.arpa." zone - see RFC 6761 section 6.1
+
+$ORIGIN 21.172.in-addr.arpa.
+
+@ IN SOA . . 1 3600 3600 3600 3600
+
+; add PTR records below for IPs in the 172.21.0.0/16 space, for
+; example:
+;
+; 3.0.0 IN PTR nyarlathotep.lan. ; 172.21.0.3 is nyarlathotep.lan.

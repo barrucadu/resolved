@@ -23,7 +23,7 @@ maybe even exploits.**
 
 ```
 cargo build --release
-sudo ./target/release/resolved -A config/hosts -Z config/zones
+sudo ./target/release/resolved -Z config/zones
 ```
 
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
@@ -101,6 +101,12 @@ Supported standards
 - [RFC 3596: DNS Extensions to Support IP Version 6](https://datatracker.ietf.org/doc/html/rfc3596)
 
   Defines the `AAAA` record and query types.
+
+- [RFC 6761: Special-Use Domain Names](https://datatracker.ietf.org/doc/html/rfc6761)
+
+  Defines several zones with special behaviour.  This is RFC
+  implemented as configuration distributed with the DNS server (in
+  `config/zones`) not code.
 
 - [hosts(5)](https://man7.org/linux/man-pages/man5/hosts.5.html)
 

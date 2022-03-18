@@ -1,0 +1,9 @@
+; Special-use "test." zone - see RFC 6761 section 6.2
+
+$ORIGIN test.
+
+@ IN SOA . . 1 3600 3600 3600 3600
+
+; add records below for test hostnames, for example:
+;
+; google IN CNAME google.com ; google.test resolves to google.com - probably won't do anything useful
