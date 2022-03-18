@@ -18,7 +18,8 @@ use dns_types::zones::types::*;
 use resolved::fs_util::*;
 use resolved::net_util::*;
 use resolved::resolver::cache::SharedCache;
-use resolved::resolver::{resolve, ResolvedRecord};
+use resolved::resolver::resolve;
+use resolved::resolver::util::ResolvedRecord;
 
 async fn resolve_and_build_response(
     zones_lock: Arc<RwLock<Zones>>,
