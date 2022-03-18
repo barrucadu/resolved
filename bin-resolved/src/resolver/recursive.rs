@@ -3,13 +3,10 @@ use rand::Rng;
 use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 use std::time::Duration;
-use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
 
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
-
-use crate::net_util::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
 
 use super::cache::SharedCache;
 use super::nonrecursive::resolve_nonrecursive;
@@ -133,7 +130,7 @@ async fn resolve_recursive_notimeout(
                 .await
                 .and_then(|res| get_ip(&res.rrs(), &name)),
             } {
-                match query_nameserver(&ip, question, candidates.match_count()).await {
+                match query_nameserver(ip, question, candidates.match_count()).await {
                     Some(NameserverResponse::Answer { rrs, .. }) => {
                         for rr in &rrs {
                             cache.insert(rr);
@@ -239,7 +236,7 @@ fn candidate_nameservers(
 ///
 /// This corresponds to step 3 of the standard resolver algorithm.
 async fn query_nameserver(
-    address: &Ipv4Addr,
+    address: Ipv4Addr,
     question: &Question,
     current_match_count: usize,
 ) -> Option<NameserverResponse> {
@@ -275,96 +272,6 @@ async fn query_nameserver(
             );
             None
         }
-    }
-}
-
-/// Send a message to a remote nameserver over UDP, returning the
-/// response.  If the message would be truncated, or an error occurs
-/// while sending it, `None` is returned.  Otherwise the deserialised
-/// response message is: but this response is NOT validated -
-/// consumers MUST validate the response before using it!
-///
-/// This has a 5s timeout.
-async fn query_nameserver_udp(
-    address: &Ipv4Addr,
-    serialised_request: &mut [u8],
-) -> Option<Message> {
-    match timeout(
-        Duration::from_secs(5),
-        query_nameserver_udp_notimeout(address, serialised_request),
-    )
-    .await
-    {
-        Ok(res) => res,
-        Err(_) => None,
-    }
-}
-
-/// Timeout-less version of `query_nameserver_udp`.
-async fn query_nameserver_udp_notimeout(
-    address: &Ipv4Addr,
-    serialised_request: &mut [u8],
-) -> Option<Message> {
-    if serialised_request.len() > 512 {
-        return None;
-    }
-
-    let mut buf = vec![0u8; 512];
-    match UdpSocket::bind("0.0.0.0:0").await {
-        Ok(sock) => match sock.connect((*address, 53)).await {
-            Ok(_) => match send_udp_bytes(&sock, serialised_request).await {
-                Ok(_) => match sock.recv(&mut buf).await {
-                    Ok(_) => match Message::from_octets(&buf) {
-                        Ok(response) => Some(response),
-                        _ => None,
-                    },
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        },
-        _ => None,
-    }
-}
-
-/// Send a message to a remote nameserver over TCP, returning the
-/// response.  This has the same return value caveats as
-/// `query_nameserver_udp`.
-///
-/// This has a 5s timeout.
-async fn query_nameserver_tcp(
-    address: &Ipv4Addr,
-    serialised_request: &mut [u8],
-) -> Option<Message> {
-    match timeout(
-        Duration::from_secs(5),
-        query_nameserver_tcp_notimeout(address, serialised_request),
-    )
-    .await
-    {
-        Ok(res) => res,
-        Err(_) => None,
-    }
-}
-
-/// Timeout-less version of `query_nameserver_tcp`.
-async fn query_nameserver_tcp_notimeout(
-    address: &Ipv4Addr,
-    serialised_request: &mut [u8],
-) -> Option<Message> {
-    match TcpStream::connect((*address, 53)).await {
-        Ok(mut stream) => match send_tcp_bytes(&mut stream, serialised_request).await {
-            Ok(_) => match read_tcp_bytes(&mut stream).await {
-                Ok(bytes) => match Message::from_octets(bytes.as_ref()) {
-                    Ok(response) => Some(response),
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        },
-        _ => None,
     }
 }
 
@@ -410,26 +317,10 @@ fn validate_nameserver_response(
     if request.questions.len() != 1 {
         panic!("validate_nameserver_response only works for single-question messages");
     }
-
-    // step 1: validation
     let question = &request.questions[0];
 
-    if request.header.id != response.header.id {
-        return None;
-    }
-    if !response.header.is_response {
-        return None;
-    }
-    if request.header.opcode != response.header.opcode {
-        return None;
-    }
-    if response.header.is_truncated {
-        return None;
-    }
-    if response.header.rcode != Rcode::NoError {
-        return None;
-    }
-    if request.questions != response.questions {
+    // step 1: validation
+    if !response_matches_request(request, &response) {
         return None;
     }
 
@@ -598,77 +489,6 @@ mod tests {
                 &domain("net.")
             )
         );
-    }
-
-    #[test]
-    fn validate_nameserver_response_accepts() {
-        let (request, response) = matching_nameserver_response();
-
-        assert!(validate_nameserver_response(&request, response, 0).is_some());
-    }
-
-    #[test]
-    fn validate_nameserver_response_checks_id() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.id += 1;
-
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
-    }
-
-    #[test]
-    fn validate_nameserver_response_checks_qr() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.is_response = false;
-
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
-    }
-
-    #[test]
-    fn validate_nameserver_response_checks_opcode() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.opcode = Opcode::Status;
-
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
-    }
-
-    #[test]
-    fn validate_nameserver_response_does_not_check_aa() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.is_authoritative = !response.header.is_authoritative;
-
-        assert!(validate_nameserver_response(&request, response, 0).is_some());
-    }
-
-    #[test]
-    fn validate_nameserver_response_checks_tc() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.is_truncated = true;
-
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
-    }
-
-    #[test]
-    fn validate_nameserver_response_does_not_check_rd() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.recursion_desired = !response.header.recursion_desired;
-
-        assert!(validate_nameserver_response(&request, response, 0).is_some());
-    }
-
-    #[test]
-    fn validate_nameserver_response_does_not_check_ra() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.recursion_available = !response.header.recursion_available;
-
-        assert!(validate_nameserver_response(&request, response, 0).is_some());
-    }
-
-    #[test]
-    fn validate_nameserver_response_checks_rcode() {
-        let (request, mut response) = matching_nameserver_response();
-        response.header.rcode = Rcode::ServerFailure;
-
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
     }
 
     #[test]
@@ -954,37 +774,5 @@ mod tests {
         }
 
         cache
-    }
-
-    fn matching_nameserver_response() -> (Message, Message) {
-        nameserver_response(
-            "www.example.com.",
-            &[a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
-            &[],
-            &[],
-        )
-    }
-
-    fn nameserver_response(
-        name: &str,
-        answers: &[ResourceRecord],
-        authority: &[ResourceRecord],
-        additional: &[ResourceRecord],
-    ) -> (Message, Message) {
-        let request = Message::from_question(
-            1234,
-            Question {
-                name: domain(name),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Record(RecordClass::IN),
-            },
-        );
-
-        let mut response = request.make_response();
-        response.answers = answers.into();
-        response.authority = authority.into();
-        response.additional = additional.into();
-
-        (request, response)
     }
 }
