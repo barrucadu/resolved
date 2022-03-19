@@ -76,7 +76,7 @@ impl Message {
                 is_authoritative: false,
                 is_truncated: false,
                 recursion_desired: false,
-                recursion_available: true,
+                recursion_available: false,
                 rcode: Rcode::NoError,
             },
             questions: vec![question],
