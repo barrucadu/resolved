@@ -21,17 +21,12 @@ use resolved::resolver::cache::SharedCache;
 use resolved::resolver::resolve;
 use resolved::resolver::util::ResolvedRecord;
 
-async fn resolve_and_build_response(
-    forward_address: Option<Ipv4Addr>,
-    zones_lock: Arc<RwLock<Zones>>,
-    cache: &SharedCache,
-    query: Message,
-) -> Message {
+async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
     // lock zones here, rather than where they're used in
     // `resolve_nonrecursive`, so that this whole request sees a
     // consistent version of the zones even if they get updated in the
     // middle of processing.
-    let zones = zones_lock.read().await;
+    let zones = args.zones_lock.read().await;
 
     let mut response = query.make_response();
     response.header.is_authoritative = true;
@@ -46,9 +41,9 @@ async fn resolve_and_build_response(
     for question in &query.questions {
         if let Some(rr) = resolve(
             query.header.recursion_desired,
-            forward_address,
+            args.forward_address,
             &zones,
-            cache,
+            &args.cache,
             question,
         )
         .await
@@ -91,12 +86,7 @@ async fn resolve_and_build_response(
     response
 }
 
-async fn handle_raw_message<'a>(
-    forward_address: Option<Ipv4Addr>,
-    zones_lock: Arc<RwLock<Zones>>,
-    cache: &SharedCache,
-    buf: &[u8],
-) -> Option<Message> {
+async fn handle_raw_message<'a>(args: ListenArgs, buf: &[u8]) -> Option<Message> {
     let res = Message::from_octets(buf);
     println!("{:?}", res);
 
@@ -105,7 +95,7 @@ async fn handle_raw_message<'a>(
             if msg.header.is_response {
                 Some(Message::make_format_error_response(msg.header.id))
             } else if msg.header.opcode == Opcode::Standard {
-                Some(resolve_and_build_response(forward_address, zones_lock, cache, msg).await)
+                Some(resolve_and_build_response(args, msg).await)
             } else {
                 let mut response = msg.make_response();
                 response.header.rcode = Rcode::NotImplemented;
@@ -116,24 +106,15 @@ async fn handle_raw_message<'a>(
     }
 }
 
-async fn listen_tcp(
-    forward_address: Option<Ipv4Addr>,
-    zones_lock: Arc<RwLock<Zones>>,
-    cache: SharedCache,
-    socket: TcpListener,
-) {
+async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
-                let zones_lock = zones_lock.clone();
-                let cache = cache.clone();
+                let args = args.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
-                        Ok(bytes) => {
-                            handle_raw_message(forward_address, zones_lock, &cache, bytes.as_ref())
-                                .await
-                        }
+                        Ok(bytes) => handle_raw_message(args, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
                             id,
                             expected,
@@ -173,12 +154,7 @@ async fn listen_tcp(
     }
 }
 
-async fn listen_udp(
-    forward_address: Option<Ipv4Addr>,
-    zones_lock: Arc<RwLock<Zones>>,
-    cache: SharedCache,
-    socket: UdpSocket,
-) {
+async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
     let (tx, mut rx) = mpsc::channel(32);
     let mut buf = vec![0u8; 512];
 
@@ -188,10 +164,9 @@ async fn listen_udp(
                 println!("[{:?}] udp request ok", peer);
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
-                let zones_lock = zones_lock.clone();
-                let cache = cache.clone();
+                let args = args.clone();
                 tokio::spawn(async move {
-                    if let Some(response_message) = handle_raw_message(forward_address, zones_lock, &cache, bytes.as_ref()).await {
+                    if let Some(response_message) = handle_raw_message(args, bytes.as_ref()).await {
                         match reply.send((response_message, peer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
@@ -214,6 +189,14 @@ async fn listen_udp(
             }
         }
     }
+}
+
+/// Arguments for `listen_udp` and `listen_tcp` and the resolvers.
+#[derive(Debug, Clone)]
+struct ListenArgs {
+    forward_address: Option<Ipv4Addr>,
+    zones_lock: Arc<RwLock<Zones>>,
+    cache: SharedCache,
 }
 
 /// Load the hosts and zones from the configuration, generating the
@@ -398,22 +381,15 @@ async fn main() {
         }
     };
 
-    let zones_lock = Arc::new(RwLock::new(zones));
-    let cache = SharedCache::with_desired_size(std::cmp::max(1, args.cache_size));
+    let listen_args = ListenArgs {
+        forward_address: args.forward_address,
+        zones_lock: Arc::new(RwLock::new(zones)),
+        cache: SharedCache::with_desired_size(std::cmp::max(1, args.cache_size)),
+    };
 
-    tokio::spawn(listen_tcp(
-        args.forward_address,
-        zones_lock.clone(),
-        cache.clone(),
-        tcp,
-    ));
-    tokio::spawn(listen_udp(
-        args.forward_address,
-        zones_lock.clone(),
-        cache.clone(),
-        udp,
-    ));
-    tokio::spawn(reload_task(zones_lock.clone(), args));
+    tokio::spawn(listen_tcp_task(listen_args.clone(), tcp));
+    tokio::spawn(listen_udp_task(listen_args.clone(), udp));
+    tokio::spawn(reload_task(listen_args.zones_lock.clone(), args));
 
-    prune_cache_task(cache).await;
+    prune_cache_task(listen_args.cache).await;
 }
