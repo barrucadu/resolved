@@ -30,6 +30,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
 
     let mut response = query.make_response();
     response.header.is_authoritative = true;
+    response.header.recursion_available = !args.authoritative_only;
 
     if query.questions.iter().any(|q| q.is_unknown()) {
         response.header.rcode = Rcode::Refused;
@@ -40,7 +41,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
 
     for question in &query.questions {
         if let Some(rr) = resolve(
-            query.header.recursion_desired,
+            query.header.recursion_desired && response.header.recursion_available,
             args.forward_address,
             &zones,
             &args.cache,
@@ -194,6 +195,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
 /// Arguments for `listen_udp` and `listen_tcp` and the resolvers.
 #[derive(Debug, Clone)]
 struct ListenArgs {
+    authoritative_only: bool,
     forward_address: Option<Ipv4Addr>,
     zones_lock: Arc<RwLock<Zones>>,
     cache: SharedCache,
@@ -327,6 +329,11 @@ struct Args {
     #[clap(short, long, default_value_t = Ipv4Addr::UNSPECIFIED)]
     interface: Ipv4Addr,
 
+    /// Only answer queries for which this server is authoritative: do
+    /// not perform recursive or forwarding resolution
+    #[clap(long)]
+    authoritative_only: bool,
+
     /// Act as a forwarding resolver, not a recursive resolver:
     /// forward queries which can't be answered from local state to
     /// this nameserver and cache the result
@@ -382,6 +389,7 @@ async fn main() {
     };
 
     let listen_args = ListenArgs {
+        authoritative_only: args.authoritative_only,
         forward_address: args.forward_address,
         zones_lock: Arc::new(RwLock::new(zones)),
         cache: SharedCache::with_desired_size(std::cmp::max(1, args.cache_size)),
