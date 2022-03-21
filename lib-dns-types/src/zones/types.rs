@@ -104,7 +104,7 @@ impl<'a> arbitrary::Arbitrary<'a> for Zone {
             // crude shrinking to fit in the 255 octet limit -
             // generated labels are up to 20 characters long,
             // `num_labels * 21 <= 255` has to hold
-            while (combined_labels.len() + apex.labels.len()) * 21 > 255 {
+            while (combined_labels.len() + apex.labels.len()) * 21 > DOMAINNAME_MAX_LEN {
                 combined_labels.pop();
             }
             combined_labels.append(&mut apex.labels.clone());
@@ -216,7 +216,7 @@ impl Zone {
     /// apex of this zone.
     ///
     /// Returns `None` if the given domain does not match the apex.
-    pub fn relative_domain<'a>(&self, name: &'a DomainName) -> Option<&'a [Vec<u8>]> {
+    pub fn relative_domain<'a>(&self, name: &'a DomainName) -> Option<&'a [Label]> {
         if name.is_subdomain_of(&self.apex) {
             Some(&name.labels[0..name.labels.len() - self.apex.labels.len()])
         } else {
@@ -292,7 +292,7 @@ struct ZoneRecords {
     wildcards: Option<HashMap<RecordType, Vec<ZoneRecord>>>,
 
     /// Child domains, with their own records.
-    children: HashMap<Vec<u8>, ZoneRecords>,
+    children: HashMap<Label, ZoneRecords>,
 }
 
 impl ZoneRecords {
@@ -310,7 +310,7 @@ impl ZoneRecords {
         &self,
         name: &DomainName,
         qtype: QueryType,
-        relative_domain: &[Vec<u8>],
+        relative_domain: &[Label],
     ) -> ZoneResult {
         if relative_domain.is_empty() {
             // Name matched entirely - this is either case 3.b (if
@@ -359,7 +359,7 @@ impl ZoneRecords {
     /// Add a record.  This will create children as needed.
     pub fn insert(
         &mut self,
-        relative_domain: &[Vec<u8>],
+        relative_domain: &[Label],
         rtype_with_data: RecordTypeWithData,
         ttl: u32,
     ) {
@@ -397,7 +397,7 @@ impl ZoneRecords {
     /// Add a wildcard record.  This will create children as needed.
     pub fn insert_wildcard(
         &mut self,
-        relative_domain: &[Vec<u8>],
+        relative_domain: &[Label],
         rtype_with_data: RecordTypeWithData,
         ttl: u32,
     ) {

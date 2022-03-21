@@ -1,5 +1,13 @@
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::slice::Iter;
+
+/// Maximum encoded length of a domain name.  The number of labels
+/// plus sum of the lengths of the labels.
+pub const DOMAINNAME_MAX_LEN: usize = 255;
+
+/// Maximum length of a single label in a domain name.
+pub const LABEL_MAX_LEN: usize = 63;
 
 /// Basic DNS message format, used for both queries and responses.
 ///
@@ -828,14 +836,14 @@ impl<'a> arbitrary::Arbitrary<'a> for Rcode {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DomainName {
     pub octets: Vec<u8>,
-    pub labels: Vec<Vec<u8>>,
+    pub labels: Vec<Label>,
 }
 
 impl DomainName {
     pub fn root_domain() -> Self {
         DomainName {
             octets: vec![0],
-            labels: vec![vec![]],
+            labels: vec![Label::new()],
         }
     }
 
@@ -860,7 +868,7 @@ impl DomainName {
             } else {
                 out.push('.');
             }
-            for octet in label {
+            for octet in &label.octets {
                 out.push(*octet as char);
             }
         }
@@ -891,53 +899,40 @@ impl DomainName {
         let chunks = s.split('.').collect::<Vec<_>>();
         let mut labels = Vec::with_capacity(chunks.len());
 
-        for (i, label) in chunks.iter().enumerate() {
-            if label.is_empty() && i != chunks.len() - 1 {
+        for (i, label_chars) in chunks.iter().enumerate() {
+            if label_chars.is_empty() && i != chunks.len() - 1 {
                 return None;
             }
 
-            labels.push(label.as_bytes().into());
+            match label_chars.as_bytes().try_into() {
+                Ok(label) => labels.push(label),
+                Err(_) => return None,
+            }
         }
 
         Self::from_labels(labels)
     }
 
-    pub fn from_labels(mixed_case_labels: Vec<Vec<u8>>) -> Option<Self> {
-        if mixed_case_labels.is_empty() {
+    pub fn from_labels(labels: Vec<Label>) -> Option<Self> {
+        if labels.is_empty() {
             return None;
         }
 
-        let mut labels = Vec::<Vec<u8>>::with_capacity(mixed_case_labels.len());
-        let mut octets = Vec::<u8>::with_capacity(255);
+        let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
         let mut blank_label = false;
 
-        for mc_label in &mixed_case_labels {
+        for label in &labels {
             if blank_label {
                 return None;
             }
 
-            blank_label = mc_label.is_empty();
+            blank_label |= label.is_empty();
 
-            match mc_label.len().try_into() {
-                Ok(n) if n <= 63 => {
-                    octets.push(n);
-                    let mut label = Vec::<u8>::with_capacity(mc_label.len());
-                    for octet in mc_label {
-                        if !octet.is_ascii() {
-                            return None;
-                        }
-
-                        let octet = octet.to_ascii_lowercase();
-                        label.push(octet);
-                        octets.push(octet);
-                    }
-                    labels.push(label);
-                }
-                _ => return None,
-            }
+            octets.push(label.len());
+            octets.append(&mut label.iter().cloned().collect());
         }
 
-        if blank_label && octets.len() <= 255 {
+        if blank_label && octets.len() <= DOMAINNAME_MAX_LEN {
             Some(Self { octets, labels })
         } else {
             None
@@ -957,16 +952,78 @@ impl fmt::Debug for DomainName {
 impl<'a> arbitrary::Arbitrary<'a> for DomainName {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let num_labels = u.int_in_range::<usize>(0..=10)?;
-        let mut octets = Vec::new();
         let mut labels = Vec::new();
         for _ in 0..num_labels {
-            let label_len = u.int_in_range::<u8>(1..=20)?;
-            let mut label = Vec::new();
-            octets.push(label_len);
-            let bs = u.bytes(label_len.into())?;
-            for b in bs {
-                let ascii_byte = if b.is_ascii() { *b } else { *b % 128 };
-                let octet = if ascii_byte == b'.'
+            labels.push(u.arbitrary()?);
+        }
+        labels.push(Label::new());
+        Ok(DomainName::from_labels(labels).unwrap())
+    }
+}
+
+/// A label is just a sequence of octets, which are compared as
+/// case-insensitive ASCII.  A label can be no longer than 63 octets.
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub struct Label {
+    /// Private to this module so constructing an invalid `Label` is
+    /// impossible.
+    octets: Vec<u8>,
+}
+
+impl Label {
+    /// Create a new, empty, label.
+    pub fn new() -> Self {
+        Self { octets: Vec::new() }
+    }
+
+    pub fn len(&self) -> u8 {
+        // safe as the `TryFrom` ensures a label is <= 63 bytes
+        self.octets.len().try_into().unwrap()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.octets.is_empty()
+    }
+
+    pub fn iter(&self) -> Iter<'_, u8> {
+        self.octets.iter()
+    }
+}
+
+impl Default for Label {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TryFrom<&[u8]> for Label {
+    type Error = LabelTryFromOctetsError;
+
+    fn try_from(mixed_case_octets: &[u8]) -> Result<Self, Self::Error> {
+        if mixed_case_octets.len() > LABEL_MAX_LEN {
+            return Err(LabelTryFromOctetsError::TooLong);
+        }
+
+        let mut octets = Vec::with_capacity(mixed_case_octets.len());
+        for o in mixed_case_octets {
+            octets.push(o.to_ascii_lowercase())
+        }
+
+        Ok(Self { octets })
+    }
+}
+
+#[cfg(any(feature = "test-util", test))]
+impl<'a> arbitrary::Arbitrary<'a> for Label {
+    // only generates non-empty labels
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Label> {
+        let label_len = u.int_in_range::<u8>(1..=20)?;
+        let mut octets = Vec::with_capacity(label_len.into());
+        let bs = u.bytes(label_len.into())?;
+        for b in bs {
+            let ascii_byte = if b.is_ascii() { *b } else { *b % 128 };
+            octets.push(
+                if ascii_byte == b'.'
                     || ascii_byte == b'*'
                     || ascii_byte == b'@'
                     || ascii_byte == b'#'
@@ -975,16 +1032,17 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
                     b'x'
                 } else {
                     ascii_byte.to_ascii_lowercase()
-                };
-                label.push(octet);
-                octets.push(octet);
-            }
-            labels.push(label);
+                },
+            );
         }
-        octets.push(0);
-        labels.push(Vec::new());
-        Ok(Self { octets, labels })
+        Ok(Self { octets })
     }
+}
+
+/// Errors that can arise when converting a `[u8]` into a `Label`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum LabelTryFromOctetsError {
+    TooLong,
 }
 
 /// Query types are a superset of record types.
@@ -1332,7 +1390,7 @@ mod tests {
 
         assert_eq!(
             Some(DomainName::root_domain()),
-            DomainName::from_labels(vec![Vec::new()])
+            DomainName::from_labels(vec![Label::new()])
         );
 
         assert_eq!(".", DomainName::root_domain().to_dotted_string())
@@ -1382,7 +1440,7 @@ mod tests {
                     output.push('.');
                 }
 
-                let mut label = Vec::with_capacity(label_len);
+                let mut octets = Vec::with_capacity(label_len);
                 for _ in 0..label_len {
                     let mut chr = (32..126).fake::<u8>();
 
@@ -1395,14 +1453,14 @@ mod tests {
                         chr = b'X';
                     }
 
-                    label.push(chr);
+                    octets.push(chr);
                     dotted_string_input.push(chr as char);
                     output.push(chr.to_ascii_lowercase() as char);
                 }
-                labels_input.push(label);
+                labels_input.push(octets.as_slice().try_into().unwrap());
             }
 
-            labels_input.push(Vec::new());
+            labels_input.push(Label::new());
             dotted_string_input.push('.');
             output.push('.');
 
