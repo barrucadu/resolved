@@ -381,28 +381,28 @@ fn try_parse_rtype_with_data(
         return None;
     }
 
-    match tokens[0].0.as_str() {
-        "A" if tokens.len() == 2 => match Ipv4Addr::from_str(&tokens[1].0) {
+    match RecordType::from_str(tokens[0].0.as_str()) {
+        Ok(RecordType::A) if tokens.len() == 2 => match Ipv4Addr::from_str(&tokens[1].0) {
             Ok(address) => Some(RecordTypeWithData::A { address }),
             _ => None,
         },
-        "NS" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::NS) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(nsdname) => Some(RecordTypeWithData::NS { nsdname }),
             _ => None,
         },
-        "MD" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::MD) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(madname) => Some(RecordTypeWithData::MD { madname }),
             _ => None,
         },
-        "MF" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::MF) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(madname) => Some(RecordTypeWithData::MF { madname }),
             _ => None,
         },
-        "CNAME" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::CNAME) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(cname) => Some(RecordTypeWithData::CNAME { cname }),
             _ => None,
         },
-        "SOA" if tokens.len() == 8 => match (
+        Ok(RecordType::SOA) if tokens.len() == 8 => match (
             parse_domain(origin, &tokens[1].0),
             parse_domain(origin, &tokens[2].0),
             u32::from_str(&tokens[3].0),
@@ -424,39 +424,39 @@ fn try_parse_rtype_with_data(
             }
             _ => None,
         },
-        "MB" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::MB) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(madname) => Some(RecordTypeWithData::MB { madname }),
             _ => None,
         },
-        "MG" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::MG) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(mdmname) => Some(RecordTypeWithData::MG { mdmname }),
             _ => None,
         },
-        "MR" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::MR) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(newname) => Some(RecordTypeWithData::MR { newname }),
             _ => None,
         },
-        "NULL" if tokens.len() == 2 => Some(RecordTypeWithData::NULL {
+        Ok(RecordType::NULL) if tokens.len() == 2 => Some(RecordTypeWithData::NULL {
             octets: tokens[1].1.clone(),
         }),
-        "WKS" if tokens.len() == 2 => Some(RecordTypeWithData::WKS {
+        Ok(RecordType::WKS) if tokens.len() == 2 => Some(RecordTypeWithData::WKS {
             octets: tokens[1].1.clone(),
         }),
-        "PTR" if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
+        Ok(RecordType::PTR) if tokens.len() == 2 => match parse_domain(origin, &tokens[1].0) {
             Ok(ptrdname) => Some(RecordTypeWithData::PTR { ptrdname }),
             _ => None,
         },
-        "HINFO" if tokens.len() == 2 => Some(RecordTypeWithData::HINFO {
+        Ok(RecordType::HINFO) if tokens.len() == 2 => Some(RecordTypeWithData::HINFO {
             octets: tokens[1].1.clone(),
         }),
-        "MINFO" if tokens.len() == 3 => match (
+        Ok(RecordType::MINFO) if tokens.len() == 3 => match (
             parse_domain(origin, &tokens[1].0),
             parse_domain(origin, &tokens[2].0),
         ) {
             (Ok(rmailbx), Ok(emailbx)) => Some(RecordTypeWithData::MINFO { rmailbx, emailbx }),
             _ => None,
         },
-        "MX" if tokens.len() == 3 => {
+        Ok(RecordType::MX) if tokens.len() == 3 => {
             match (
                 u16::from_str(&tokens[1].0),
                 parse_domain(origin, &tokens[2].0),
@@ -468,14 +468,14 @@ fn try_parse_rtype_with_data(
                 _ => None,
             }
         }
-        "TXT" if tokens.len() == 2 => Some(RecordTypeWithData::TXT {
+        Ok(RecordType::TXT) if tokens.len() == 2 => Some(RecordTypeWithData::TXT {
             octets: tokens[1].1.clone(),
         }),
-        "AAAA" if tokens.len() == 2 => match Ipv6Addr::from_str(&tokens[1].0) {
+        Ok(RecordType::AAAA) if tokens.len() == 2 => match Ipv6Addr::from_str(&tokens[1].0) {
             Ok(address) => Some(RecordTypeWithData::AAAA { address }),
             _ => None,
         },
-        "SRV" if tokens.len() == 5 => match (
+        Ok(RecordType::SRV) if tokens.len() == 5 => match (
             u16::from_str(&tokens[1].0),
             u16::from_str(&tokens[2].0),
             u16::from_str(&tokens[3].0),
