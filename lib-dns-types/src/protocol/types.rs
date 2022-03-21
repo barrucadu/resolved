@@ -2,6 +2,13 @@ use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::slice::Iter;
 
+/// Maximum encoded length of a domain name.  The number of labels
+/// plus sum of the lengths of the labels.
+pub const DOMAINNAME_MAX_LEN: usize = 255;
+
+/// Maximum length of a single label in a domain name.
+pub const LABEL_MAX_LEN: usize = 63;
+
 /// Basic DNS message format, used for both queries and responses.
 ///
 /// ```text
@@ -911,7 +918,7 @@ impl DomainName {
             return None;
         }
 
-        let mut octets = Vec::<u8>::with_capacity(255);
+        let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
         let mut blank_label = false;
 
         for label in &labels {
@@ -925,7 +932,7 @@ impl DomainName {
             octets.append(&mut label.iter().cloned().collect());
         }
 
-        if blank_label && octets.len() <= 255 {
+        if blank_label && octets.len() <= DOMAINNAME_MAX_LEN {
             Some(Self { octets, labels })
         } else {
             None
@@ -993,7 +1000,7 @@ impl TryFrom<&[u8]> for Label {
     type Error = LabelTryFromOctetsError;
 
     fn try_from(mixed_case_octets: &[u8]) -> Result<Self, Self::Error> {
-        if mixed_case_octets.len() > 63 {
+        if mixed_case_octets.len() > LABEL_MAX_LEN {
             return Err(LabelTryFromOctetsError::TooLong);
         }
 

@@ -104,7 +104,7 @@ impl<'a> arbitrary::Arbitrary<'a> for Zone {
             // crude shrinking to fit in the 255 octet limit -
             // generated labels are up to 20 characters long,
             // `num_labels * 21 <= 255` has to hold
-            while (combined_labels.len() + apex.labels.len()) * 21 > 255 {
+            while (combined_labels.len() + apex.labels.len()) * 21 > DOMAINNAME_MAX_LEN {
                 combined_labels.pop();
             }
             combined_labels.append(&mut apex.labels.clone());

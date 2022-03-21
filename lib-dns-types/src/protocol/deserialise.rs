@@ -203,14 +203,14 @@ impl ResourceRecord {
 
 impl DomainName {
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
-        let mut octets = Vec::<u8>::with_capacity(255);
+        let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
         let mut labels = Vec::<Label>::with_capacity(5);
         let start = buffer.position;
 
         'outer: loop {
             let size = buffer.next_u8().ok_or(Error::DomainTooShort(id))?;
 
-            if size <= 63 {
+            if usize::from(size) <= LABEL_MAX_LEN {
                 octets.push(size);
 
                 if size == 0 {
@@ -229,7 +229,7 @@ impl DomainName {
                     return Err(Error::DomainTooShort(id));
                 }
 
-                if octets.len() > 255 {
+                if octets.len() > DOMAINNAME_MAX_LEN {
                     break 'outer;
                 }
             } else if size >= 192 {
@@ -255,7 +255,7 @@ impl DomainName {
             }
         }
 
-        if octets.len() <= 255 {
+        if octets.len() <= DOMAINNAME_MAX_LEN {
             Ok(DomainName { octets, labels })
         } else {
             Err(Error::DomainTooLong(id))
