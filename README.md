@@ -98,6 +98,10 @@ Supported standards
   Defines the wire format and discusses implementation concerns of the
   algorithms from RFC 1034.
 
+- [RFC 2782: A DNS RR for specifying the location of services (DNS SRV)](https://datatracker.ietf.org/doc/html/rfc2782)
+
+  Defines the `SRV` record and query types.
+
 - [RFC 3596: DNS Extensions to Support IP Version 6](https://datatracker.ietf.org/doc/html/rfc3596)
 
   Defines the `AAAA` record and query types.

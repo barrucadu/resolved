@@ -475,6 +475,20 @@ fn try_parse_rtype_with_data(
             Ok(address) => Some(RecordTypeWithData::AAAA { address }),
             _ => None,
         },
+        "SRV" if tokens.len() == 5 => match (
+            u16::from_str(&tokens[1].0),
+            u16::from_str(&tokens[2].0),
+            u16::from_str(&tokens[3].0),
+            parse_domain(origin, &tokens[4].0),
+        ) {
+            (Ok(priority), Ok(weight), Ok(port), Ok(target)) => Some(RecordTypeWithData::SRV {
+                priority,
+                weight,
+                port,
+                target,
+            }),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -1381,6 +1395,32 @@ mod tests {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::AAAA {
                             address: Ipv6Addr::new(0, 0, 0, 0, 0, 1, 2, 3)
+                        },
+                        rclass: RecordClass::IN,
+                        ttl: 300
+                    }
+                },
+                parsed
+            )
+        } else {
+            panic!("expected successful parse");
+        }
+    }
+
+    #[test]
+    fn parse_rr_srv() {
+        let tokens =
+            tokenise_str("_service._tcp.nyarlathotep.lan. IN 300 SRV 0 0 8080 game-server.lan.");
+        if let Ok(parsed) = parse_rr(&None, &None, &None, tokens) {
+            assert_eq!(
+                Entry::RR {
+                    rr: ResourceRecord {
+                        name: domain("_service._tcp.nyarlathotep.lan."),
+                        rtype_with_data: RecordTypeWithData::SRV {
+                            priority: 0,
+                            weight: 0,
+                            port: 8080,
+                            target: domain("game-server.lan."),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300

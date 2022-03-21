@@ -141,6 +141,18 @@ impl Zone {
             } => format!("{} {}", preference, self.serialise_domain(exchange)),
             RecordTypeWithData::TXT { octets } => serialise_octets(octets, true),
             RecordTypeWithData::AAAA { address } => format!("{}", address),
+            RecordTypeWithData::SRV {
+                priority,
+                weight,
+                port,
+                target,
+            } => format!(
+                "{} {} {} {}",
+                priority,
+                weight,
+                port,
+                self.serialise_domain(target)
+            ),
             RecordTypeWithData::Unknown { octets, .. } => serialise_octets(octets, true),
         }
     }

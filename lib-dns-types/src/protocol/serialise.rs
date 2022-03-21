@@ -162,6 +162,27 @@ impl ResourceRecord {
             }
             RecordTypeWithData::TXT { octets } => (RecordType::TXT, octets),
             RecordTypeWithData::AAAA { address } => (RecordType::AAAA, Vec::from(address.octets())),
+            RecordTypeWithData::SRV {
+                priority,
+                weight,
+                port,
+                target,
+            } => {
+                let mut octets = Vec::with_capacity(2 + 2 + 2 + target.octets.len());
+                for octet in priority.to_be_bytes() {
+                    octets.push(octet);
+                }
+                for octet in weight.to_be_bytes() {
+                    octets.push(octet);
+                }
+                for octet in port.to_be_bytes() {
+                    octets.push(octet);
+                }
+                for octet in target.octets {
+                    octets.push(octet);
+                }
+                (RecordType::SRV, octets)
+            }
             RecordTypeWithData::Unknown { tag, octets } => (RecordType::Unknown(tag), octets),
         };
 

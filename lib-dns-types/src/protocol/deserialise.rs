@@ -174,6 +174,12 @@ impl ResourceRecord {
                     buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
                 ),
             },
+            RecordType::SRV => RecordTypeWithData::SRV {
+                priority: buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                weight: buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                port: buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?,
+                target: DomainName::deserialise(id, buffer)?,
+            },
             RecordType::Unknown(tag) => RecordTypeWithData::Unknown {
                 tag,
                 octets: raw_rdata()?,
