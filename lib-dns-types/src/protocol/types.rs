@@ -1335,6 +1335,43 @@ impl RecordClass {
     }
 }
 
+impl fmt::Display for RecordClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RecordClass::IN => write!(f, "IN"),
+            RecordClass::Unknown(RecordClassUnknown(n)) => write!(f, "CLASS{}", n),
+        }
+    }
+}
+
+impl FromStr for RecordClass {
+    type Err = RecordClassFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "IN" => Ok(RecordClass::IN),
+            _ => {
+                if let Some(class_str) = s.strip_prefix("CLASS") {
+                    if let Ok(class_num) = u16::from_str(class_str) {
+                        Ok(RecordClass::from(class_num))
+                    } else {
+                        Err(RecordClassFromStr::BadClass)
+                    }
+                } else {
+                    Err(RecordClassFromStr::NoParse)
+                }
+            }
+        }
+    }
+}
+
+/// Errors that can arise when converting a `&str` into a `RecordClass`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum RecordClassFromStr {
+    BadClass,
+    NoParse,
+}
+
 impl From<u16> for RecordClass {
     fn from(value: u16) -> Self {
         match value {
