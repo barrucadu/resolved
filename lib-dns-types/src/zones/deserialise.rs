@@ -538,6 +538,12 @@ fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<Doma
         });
     }
 
+    if !dotted_string_vec.iter().all(|c| c.is_ascii()) {
+        return Err(Error::ExpectedDomainName {
+            dotted_string: dotted_string.to_string(),
+        });
+    }
+
     if dotted_string == "@" {
         if let Some(name) = origin {
             Ok(name.clone())
