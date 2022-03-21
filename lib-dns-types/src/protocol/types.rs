@@ -562,6 +562,40 @@ pub enum RecordTypeWithData {
     /// Where `ADDRESS` is a 128 bit Internet address.
     AAAA { address: Ipv6Addr },
 
+    /// ```text
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                   PRIORITY                    |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                    WEIGHT                     |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     |                     PORT                      |
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    ///     /                    TARGET                     /
+    ///     /                                               /
+    ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+    /// ```
+    ///
+    /// Where `PRIORITY` is a 16 bit integer which specifies the order
+    /// (lowest first) in which clients must attempt to use these RRs.
+    ///
+    /// Where `WEIGHT` is a 16 bit integer which specifies the
+    /// preference given to this RR amongst others of the same
+    /// priority.
+    ///
+    /// Where `PORT` is a 16 bit integer defining the port to contact
+    /// the service on.
+    ///
+    /// Where `TARGET` is the domain name the service may be found at.
+    /// This should point to a domain name that has an address record
+    /// (A or AAAA) directly, rather than a domain name which has a
+    /// CNAME or other alias type.  But this is not enforced.
+    SRV {
+        priority: u16,
+        weight: u16,
+        port: u16,
+        target: DomainName,
+    },
+
     /// Any other record.
     Unknown {
         tag: RecordTypeUnknown,
@@ -597,6 +631,7 @@ impl RecordTypeWithData {
             RecordTypeWithData::MX { .. } => RecordType::MX,
             RecordTypeWithData::TXT { .. } => RecordType::TXT,
             RecordTypeWithData::AAAA { .. } => RecordType::AAAA,
+            RecordTypeWithData::SRV { .. } => RecordType::SRV,
             RecordTypeWithData::Unknown { tag, .. } => RecordType::Unknown(*tag),
         }
     }
@@ -662,6 +697,12 @@ impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
             RecordType::TXT => RecordTypeWithData::TXT { octets },
             RecordType::AAAA => RecordTypeWithData::AAAA {
                 address: u.arbitrary()?,
+            },
+            RecordType::SRV => RecordTypeWithData::SRV {
+                priority: u.arbitrary()?,
+                weight: u.arbitrary()?,
+                port: u.arbitrary()?,
+                target: u.arbitrary()?,
             },
             RecordType::Unknown(tag) => RecordTypeWithData::Unknown { tag, octets },
         };
@@ -1057,6 +1098,7 @@ pub enum RecordType {
     MX,
     TXT,
     AAAA,
+    SRV,
     Unknown(RecordTypeUnknown),
 }
 
@@ -1099,6 +1141,7 @@ impl fmt::Display for RecordType {
             RecordType::MX => write!(f, "MX"),
             RecordType::TXT => write!(f, "TXT"),
             RecordType::AAAA => write!(f, "AAAA"),
+            RecordType::SRV => write!(f, "SRV"),
             RecordType::Unknown(RecordTypeUnknown(n)) => write!(f, "{}", n),
         }
     }
@@ -1124,6 +1167,7 @@ impl From<u16> for RecordType {
             15 => RecordType::MX,
             16 => RecordType::TXT,
             28 => RecordType::AAAA,
+            33 => RecordType::SRV,
             _ => RecordType::Unknown(RecordTypeUnknown(value)),
         }
     }
@@ -1149,6 +1193,7 @@ impl From<RecordType> for u16 {
             RecordType::MX => 15,
             RecordType::TXT => 16,
             RecordType::AAAA => 28,
+            RecordType::SRV => 33,
             RecordType::Unknown(RecordTypeUnknown(value)) => value,
         }
     }
