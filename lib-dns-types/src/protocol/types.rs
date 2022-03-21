@@ -1,6 +1,7 @@
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::slice::Iter;
+use std::str::FromStr;
 
 /// Maximum encoded length of a domain name.  The number of labels
 /// plus sum of the lengths of the labels.
@@ -1200,9 +1201,54 @@ impl fmt::Display for RecordType {
             RecordType::TXT => write!(f, "TXT"),
             RecordType::AAAA => write!(f, "AAAA"),
             RecordType::SRV => write!(f, "SRV"),
-            RecordType::Unknown(RecordTypeUnknown(n)) => write!(f, "{}", n),
+            RecordType::Unknown(RecordTypeUnknown(n)) => write!(f, "TYPE{}", n),
         }
     }
+}
+
+impl FromStr for RecordType {
+    type Err = RecordTypeFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "A" => Ok(RecordType::A),
+            "NS" => Ok(RecordType::NS),
+            "MD" => Ok(RecordType::MD),
+            "MF" => Ok(RecordType::MF),
+            "CNAME" => Ok(RecordType::CNAME),
+            "SOA" => Ok(RecordType::SOA),
+            "MB" => Ok(RecordType::MB),
+            "MG" => Ok(RecordType::MG),
+            "MR" => Ok(RecordType::MR),
+            "NULL" => Ok(RecordType::NULL),
+            "WKS" => Ok(RecordType::WKS),
+            "PTR" => Ok(RecordType::PTR),
+            "HINFO" => Ok(RecordType::HINFO),
+            "MINFO" => Ok(RecordType::MINFO),
+            "MX" => Ok(RecordType::MX),
+            "TXT" => Ok(RecordType::TXT),
+            "AAAA" => Ok(RecordType::AAAA),
+            "SRV" => Ok(RecordType::SRV),
+            _ => {
+                if let Some(type_str) = s.strip_prefix("TYPE") {
+                    if let Ok(type_num) = u16::from_str(type_str) {
+                        Ok(RecordType::from(type_num))
+                    } else {
+                        Err(RecordTypeFromStr::BadType)
+                    }
+                } else {
+                    Err(RecordTypeFromStr::NoParse)
+                }
+            }
+        }
+    }
+}
+
+/// Errors that can arise when converting a `&str` into a `RecordType`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum RecordTypeFromStr {
+    BadType,
+    NoParse,
 }
 
 impl From<u16> for RecordType {
@@ -1287,6 +1333,43 @@ impl RecordClass {
             QueryClass::Record(rclass) => rclass == self,
         }
     }
+}
+
+impl fmt::Display for RecordClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RecordClass::IN => write!(f, "IN"),
+            RecordClass::Unknown(RecordClassUnknown(n)) => write!(f, "CLASS{}", n),
+        }
+    }
+}
+
+impl FromStr for RecordClass {
+    type Err = RecordClassFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "IN" => Ok(RecordClass::IN),
+            _ => {
+                if let Some(class_str) = s.strip_prefix("CLASS") {
+                    if let Ok(class_num) = u16::from_str(class_str) {
+                        Ok(RecordClass::from(class_num))
+                    } else {
+                        Err(RecordClassFromStr::BadClass)
+                    }
+                } else {
+                    Err(RecordClassFromStr::NoParse)
+                }
+            }
+        }
+    }
+}
+
+/// Errors that can arise when converting a `&str` into a `RecordClass`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum RecordClassFromStr {
+    BadClass,
+    NoParse,
 }
 
 impl From<u16> for RecordClass {
