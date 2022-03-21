@@ -106,6 +106,13 @@ Supported standards
 
   Defines the `AAAA` record and query types.
 
+- [RFC 4343: Domain Name System (DNS) Case Insensitivity Clarification](https://datatracker.ietf.org/doc/html/rfc4343)
+
+  Clarifies that domain names are not ASCII, and yet for case
+  insensitivity purposes are case-folded as ASCII is.  And also that
+  "case preservation", as required by other RFCs, is more or less
+  meaningless.
+
 - [RFC 6761: Special-Use Domain Names](https://datatracker.ietf.org/doc/html/rfc6761)
 
   Defines several zones with special behaviour.  This is RFC
