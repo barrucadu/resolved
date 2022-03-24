@@ -1065,6 +1065,32 @@ impl QueryType {
     }
 }
 
+impl fmt::Display for QueryType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QueryType::Record(rtype) => rtype.fmt(f),
+            QueryType::AXFR => write!(f, "AXFR"),
+            QueryType::MAILA => write!(f, "MAILA"),
+            QueryType::MAILB => write!(f, "MAILB"),
+            QueryType::Wildcard => write!(f, "ANY"),
+        }
+    }
+}
+
+impl FromStr for QueryType {
+    type Err = RecordTypeFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "AXFR" => Ok(QueryType::AXFR),
+            "MAILA" => Ok(QueryType::MAILA),
+            "MAILB" => Ok(QueryType::MAILB),
+            "ANY" => Ok(QueryType::Wildcard),
+            _ => RecordType::from_str(s).map(QueryType::Record),
+        }
+    }
+}
+
 impl From<u16> for QueryType {
     fn from(value: u16) -> Self {
         match value {
