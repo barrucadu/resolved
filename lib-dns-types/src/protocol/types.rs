@@ -1138,6 +1138,26 @@ impl QueryClass {
     }
 }
 
+impl fmt::Display for QueryClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QueryClass::Record(rclass) => rclass.fmt(f),
+            QueryClass::Wildcard => write!(f, "ANY"),
+        }
+    }
+}
+
+impl FromStr for QueryClass {
+    type Err = RecordClassFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ANY" => Ok(QueryClass::Wildcard),
+            _ => RecordClass::from_str(s).map(QueryClass::Record),
+        }
+    }
+}
+
 impl From<u16> for QueryClass {
     fn from(value: u16) -> Self {
         match value {
