@@ -16,6 +16,7 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use resolved::fs_util::*;
+use resolved::metrics::*;
 use resolved::net_util::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::resolve;
@@ -324,10 +325,22 @@ async fn reload_task(zones_lock: Arc<RwLock<Zones>>, args: Args) {
 /// It is not intended to be a fully-featured internet-facing
 /// nameserver, but just enough to get DNS ad-blocking and nice
 /// hostnames working in your LAN.
+///
+/// Prometheus metrics are served at
+/// "http://{metrics_interface}:{metrics_port}/metrics"
+#[derive(Clone)]
 struct Args {
     /// Interface to listen on
     #[clap(short, long, default_value_t = Ipv4Addr::UNSPECIFIED)]
     interface: Ipv4Addr,
+
+    /// Interface to listen on to serve Prometheus metrics
+    #[clap(long, default_value_t = Ipv4Addr::LOCALHOST)]
+    metrics_interface: Ipv4Addr,
+
+    /// Port to listen on to serve Prometheus metrics
+    #[clap(long, default_value_t = 9420)]
+    metrics_port: u16,
 
     /// Only answer queries for which this server is authoritative: do
     /// not perform recursive or forwarding resolution
@@ -397,7 +410,13 @@ async fn main() {
 
     tokio::spawn(listen_tcp_task(listen_args.clone(), tcp));
     tokio::spawn(listen_udp_task(listen_args.clone(), udp));
-    tokio::spawn(reload_task(listen_args.zones_lock.clone(), args));
+    tokio::spawn(reload_task(listen_args.zones_lock.clone(), args.clone()));
+    tokio::spawn(prune_cache_task(listen_args.cache));
 
-    prune_cache_task(listen_args.cache).await;
+    if let Err(err) =
+        serve_prometheus_endpoint_task(args.metrics_interface, args.metrics_port).await
+    {
+        eprintln!("error starting metrics endpoint: {:?}", err);
+        process::exit(1);
+    }
 }
