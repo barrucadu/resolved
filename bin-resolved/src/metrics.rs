@@ -40,6 +40,14 @@ lazy_static! {
         RESPONSE_TIME_BUCKETS.to_vec()
     )
     .unwrap();
+    pub static ref DNS_QUESTIONS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "dns_questions_total",
+            "Total number of DNS questions received (a request may have multiple questions)."
+        ),
+        &["rd", "qtype", "qclass"]
+    )
+    .unwrap();
 }
 
 #[get("/metrics")]

@@ -33,14 +33,22 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
     response.header.is_authoritative = true;
     response.header.recursion_available = !args.authoritative_only;
 
-    if query.questions.iter().any(|q| q.is_unknown()) {
-        response.header.rcode = Rcode::Refused;
-        response.header.is_authoritative = false;
-        println!(".");
-        return response;
-    }
+    let mut is_refused = false;
 
     for question in &query.questions {
+        DNS_QUESTIONS_TOTAL
+            .with_label_values(&[
+                &query.header.recursion_desired.to_string(),
+                &question.qtype.to_string(),
+                &question.qclass.to_string(),
+            ])
+            .inc();
+
+        if question.is_unknown() {
+            is_refused = true;
+            continue;
+        }
+
         if let Some(rr) = resolve(
             query.header.recursion_desired && response.header.recursion_available,
             args.forward_address,
@@ -72,13 +80,10 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         }
     }
 
-    // I'm not sure if this is right, but it's what pi-hole does for
-    // queries which it can't answer.
-    //
-    // I think, by the text of RFC 1034, the AUTHORITY section of the
-    // response should include an NS record for something which can
-    // help.
-    if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
+    if is_refused {
+        response.header.rcode = Rcode::Refused;
+        response.header.is_authoritative = false;
+    } else if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
         response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
