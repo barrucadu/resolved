@@ -9,6 +9,7 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use super::cache::SharedCache;
+use super::metrics::Metrics;
 use super::nonrecursive::resolve_nonrecursive;
 use super::util::*;
 
@@ -24,13 +25,14 @@ use super::util::*;
 /// See section 5.3.3 of RFC 1034.
 pub async fn resolve_recursive(
     recursion_limit: usize,
+    metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
     match timeout(
         Duration::from_secs(60),
-        resolve_recursive_notimeout(recursion_limit, zones, cache, question),
+        resolve_recursive_notimeout(recursion_limit, metrics, zones, cache, question),
     )
     .await
     {
@@ -43,6 +45,7 @@ pub async fn resolve_recursive(
 #[async_recursion]
 async fn resolve_recursive_notimeout(
     recursion_limit: usize,
+    metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
@@ -54,7 +57,7 @@ async fn resolve_recursive_notimeout(
     let mut candidate_delegation = None;
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit - 1, zones, cache, question) {
+    match resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, question) {
         Some(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
@@ -88,9 +91,14 @@ async fn resolve_recursive_notimeout(
             println!(
                 "[DEBUG] current query is a CNAME - restarting with CNAME target (non-recursive)"
             );
-            if let Some(resolved) =
-                resolve_recursive_notimeout(recursion_limit - 1, zones, cache, &cname_question)
-                    .await
+            if let Some(resolved) = resolve_recursive_notimeout(
+                recursion_limit - 1,
+                metrics,
+                zones,
+                cache,
+                &cname_question,
+            )
+            .await
             {
                 let mut r_rrs = resolved.rrs();
                 let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
@@ -110,7 +118,7 @@ async fn resolve_recursive_notimeout(
 
     if candidate_delegation.is_none() {
         candidate_delegation =
-            candidate_nameservers(recursion_limit - 1, zones, cache, &question.name);
+            candidate_nameservers(recursion_limit - 1, metrics, zones, cache, &question.name);
     }
 
     if let Some(mut candidates) = candidate_delegation {
@@ -119,6 +127,7 @@ async fn resolve_recursive_notimeout(
                 HostOrIP::IP(ip) => Some(ip),
                 HostOrIP::Host(name) => resolve_recursive_notimeout(
                     recursion_limit - 1,
+                    metrics,
                     zones,
                     cache,
                     &Question {
@@ -130,49 +139,58 @@ async fn resolve_recursive_notimeout(
                 .await
                 .and_then(|res| get_ip(&res.rrs(), &name)),
             } {
-                match query_nameserver(ip, question, candidates.match_count()).await {
-                    Some(NameserverResponse::Answer { rrs, .. }) => {
-                        for rr in &rrs {
-                            cache.insert(rr);
-                        }
-                        println!("[DEBUG] got response to current query (recursive)");
-                        prioritising_merge(&mut combined_rrs, rrs);
-                        return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-                    }
-                    Some(NameserverResponse::Delegation { rrs, delegation }) => {
-                        for rr in &rrs {
-                            cache.insert(rr);
-                        }
-                        candidates = delegation;
-                        println!("[DEBUG] found better nameserver - restarting current query (recursive)");
-                        continue 'query_nameservers;
-                    }
-                    Some(NameserverResponse::CNAME { rrs, cname, .. }) => {
-                        for rr in &rrs {
-                            cache.insert(rr);
-                        }
-                        let cname_question = Question {
-                            name: cname,
-                            qclass: question.qclass,
-                            qtype: question.qtype,
-                        };
-                        println!("[DEBUG] current query is a CNAME - restarting with CNAME target (recursive)");
-                        if let Some(resolved) = resolve_recursive_notimeout(
-                            recursion_limit - 1,
-                            zones,
-                            cache,
-                            &cname_question,
-                        )
-                        .await
-                        {
+                if let Some(nameserver_answer) =
+                    query_nameserver(ip, question, candidates.match_count()).await
+                {
+                    metrics.nameserver_hit();
+                    match nameserver_answer {
+                        NameserverResponse::Answer { rrs, .. } => {
+                            for rr in &rrs {
+                                cache.insert(rr);
+                            }
+                            println!("[DEBUG] got response to current query (recursive)");
                             prioritising_merge(&mut combined_rrs, rrs);
-                            prioritising_merge(&mut combined_rrs, resolved.rrs());
                             return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-                        } else {
-                            return None;
+                        }
+                        NameserverResponse::Delegation { rrs, delegation } => {
+                            for rr in &rrs {
+                                cache.insert(rr);
+                            }
+                            candidates = delegation;
+                            println!("[DEBUG] found better nameserver - restarting current query (recursive)");
+                            continue 'query_nameservers;
+                        }
+                        NameserverResponse::CNAME { rrs, cname, .. } => {
+                            for rr in &rrs {
+                                cache.insert(rr);
+                            }
+                            let cname_question = Question {
+                                name: cname,
+                                qclass: question.qclass,
+                                qtype: question.qtype,
+                            };
+                            println!("[DEBUG] current query is a CNAME - restarting with CNAME target (recursive)");
+                            if let Some(resolved) = resolve_recursive_notimeout(
+                                recursion_limit - 1,
+                                metrics,
+                                zones,
+                                cache,
+                                &cname_question,
+                            )
+                            .await
+                            {
+                                prioritising_merge(&mut combined_rrs, rrs);
+                                prioritising_merge(&mut combined_rrs, resolved.rrs());
+                                return Some(ResolvedRecord::NonAuthoritative {
+                                    rrs: combined_rrs,
+                                });
+                            } else {
+                                return None;
+                            }
                         }
                     }
-                    None => (),
+                } else {
+                    metrics.nameserver_miss();
                 }
             }
 
@@ -192,6 +210,7 @@ async fn resolve_recursive_notimeout(
 /// This corresponds to step 2 of the standard resolver algorithm.
 fn candidate_nameservers(
     recursion_limit: usize,
+    metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     question: &DomainName,
@@ -208,7 +227,7 @@ fn candidate_nameservers(
             let mut hostnames = Vec::new();
 
             if let Some(Ok(NameserverResponse::Answer { rrs, .. })) =
-                resolve_nonrecursive(recursion_limit - 1, zones, cache, &ns_q)
+                resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, &ns_q)
             {
                 for ns_rr in rrs {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
@@ -455,7 +474,13 @@ mod tests {
                 ],
                 name: qdomain.clone(),
             }),
-            candidate_nameservers(10, &zones(), &cache_with_nameservers(&["com."]), &qdomain)
+            candidate_nameservers(
+                10,
+                &mut Metrics::new(),
+                &zones(),
+                &cache_with_nameservers(&["com."]),
+                &qdomain
+            )
         );
     }
 
@@ -471,6 +496,7 @@ mod tests {
             }),
             candidate_nameservers(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &cache_with_nameservers(&["example.com.", "com."]),
                 &domain("www.example.com.")
@@ -484,6 +510,7 @@ mod tests {
             None,
             candidate_nameservers(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &cache_with_nameservers(&["com."]),
                 &domain("net.")

@@ -69,15 +69,24 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
             continue;
         }
 
-        if let Some(rr) = resolve(
+        let (metrics, answer) = resolve(
             query.header.recursion_desired && response.header.recursion_available,
             args.forward_address,
             &zones,
             &args.cache,
             question,
         )
-        .await
-        {
+        .await;
+
+        DNS_RESOLVER_AUTHORITATIVE_HIT_TOTAL.inc_by(metrics.authoritative_hits);
+        DNS_RESOLVER_OVERRIDE_HIT_TOTAL.inc_by(metrics.override_hits);
+        DNS_RESOLVER_BLOCKED_TOTAL.inc_by(metrics.blocked);
+        DNS_RESOLVER_CACHE_HIT_TOTAL.inc_by(metrics.cache_hits);
+        DNS_RESOLVER_CACHE_MISS_TOTAL.inc_by(metrics.cache_misses);
+        DNS_RESOLVER_NAMESERVER_HIT_TOTAL.inc_by(metrics.nameserver_hits);
+        DNS_RESOLVER_NAMESERVER_MISS_TOTAL.inc_by(metrics.nameserver_misses);
+
+        if let Some(rr) = answer {
             match rr {
                 ResolvedRecord::Authoritative {
                     mut rrs,

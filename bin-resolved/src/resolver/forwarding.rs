@@ -8,6 +8,7 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use super::cache::SharedCache;
+use super::metrics::Metrics;
 use super::nonrecursive::resolve_nonrecursive;
 use super::util::*;
 
@@ -21,6 +22,7 @@ use super::util::*;
 /// This has a 60s timeout.
 pub async fn resolve_forwarding(
     recursion_limit: usize,
+    metrics: &mut Metrics,
     forward_address: Ipv4Addr,
     zones: &Zones,
     cache: &SharedCache,
@@ -28,7 +30,14 @@ pub async fn resolve_forwarding(
 ) -> Option<ResolvedRecord> {
     match timeout(
         Duration::from_secs(60),
-        resolve_forwarding_notimeout(recursion_limit, forward_address, zones, cache, question),
+        resolve_forwarding_notimeout(
+            recursion_limit,
+            metrics,
+            forward_address,
+            zones,
+            cache,
+            question,
+        ),
     )
     .await
     {
@@ -41,6 +50,7 @@ pub async fn resolve_forwarding(
 #[async_recursion]
 async fn resolve_forwarding_notimeout(
     recursion_limit: usize,
+    metrics: &mut Metrics,
     forward_address: Ipv4Addr,
     zones: &Zones,
     cache: &SharedCache,
@@ -52,7 +62,7 @@ async fn resolve_forwarding_notimeout(
 
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit - 1, zones, cache, question) {
+    match resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, question) {
         Some(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
@@ -87,6 +97,7 @@ async fn resolve_forwarding_notimeout(
             );
             if let Some(resolved) = resolve_forwarding_notimeout(
                 recursion_limit - 1,
+                metrics,
                 forward_address,
                 zones,
                 cache,
@@ -111,6 +122,7 @@ async fn resolve_forwarding_notimeout(
     }
 
     if let Some(rrs) = query_nameserver(forward_address, question).await {
+        metrics.nameserver_hit();
         for rr in &rrs {
             cache.insert(rr);
         }
@@ -118,6 +130,7 @@ async fn resolve_forwarding_notimeout(
         prioritising_merge(&mut combined_rrs, rrs);
         Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
     } else {
+        metrics.nameserver_miss();
         None
     }
 }

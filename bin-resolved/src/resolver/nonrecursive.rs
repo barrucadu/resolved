@@ -2,6 +2,7 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use super::cache::SharedCache;
+use super::metrics::Metrics;
 use super::util::*;
 
 /// Non-recursive DNS resolution.
@@ -28,6 +29,7 @@ use super::util::*;
 /// See section 4.3.2 of RFC 1034.
 pub fn resolve_nonrecursive(
     recursion_limit: usize,
+    metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
@@ -72,6 +74,7 @@ pub fn resolve_nonrecursive(
                     question.qclass,
                     question.qtype
                 );
+                metrics.zoneresult_answer(&rrs, zone, question);
 
                 if let Some(soa_rr) = zone.soa_rr() {
                     return Some(Ok(NameserverResponse::Answer {
@@ -116,6 +119,7 @@ pub fn resolve_nonrecursive(
                     question.qclass,
                     question.qtype
                 );
+                metrics.zoneresult_cname(zone);
 
                 let cname = if let RecordTypeWithData::CNAME { cname } = &cname_rr.rtype_with_data {
                     cname
@@ -128,6 +132,7 @@ pub fn resolve_nonrecursive(
                 return Some(Ok(
                     match resolve_nonrecursive(
                         recursion_limit - 1,
+                        metrics,
                         zones,
                         cache,
                         &Question {
@@ -190,6 +195,7 @@ pub fn resolve_nonrecursive(
                     question.qclass,
                     question.qtype
                 );
+                metrics.zoneresult_delegation(zone);
 
                 if zone.is_authoritative() {
                     if ns_rrs.is_empty() {
@@ -232,6 +238,7 @@ pub fn resolve_nonrecursive(
                     question.qclass,
                     question.qtype
                 );
+                metrics.zoneresult_nameerror(zone);
 
                 if let Some(soa_rr) = zone.soa_rr() {
                     return Some(Err(AuthoritativeNameError { soa_rr }));
@@ -280,6 +287,7 @@ pub fn resolve_nonrecursive(
         question.qclass,
         question.qtype
     );
+    metrics.cache_hit_or_miss(&rrs_from_cache);
 
     let mut final_cname = None;
     if rrs_from_cache.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
@@ -295,6 +303,7 @@ pub fn resolve_nonrecursive(
             question.qclass,
             question.qtype
         );
+        metrics.cache_hit_or_miss(&cache_cname_rrs);
 
         if !cache_cname_rrs.is_empty() {
             let cname_rr = cache_cname_rrs[0].clone();
@@ -303,6 +312,7 @@ pub fn resolve_nonrecursive(
             if let RecordTypeWithData::CNAME { cname } = cname_rr.rtype_with_data {
                 let resolved_cname = resolve_nonrecursive(
                     recursion_limit - 1,
+                    metrics,
                     zones,
                     cache,
                     &Question {
@@ -374,6 +384,7 @@ mod tests {
             is_authoritative: true,
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -399,6 +410,7 @@ mod tests {
             ..
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -429,6 +441,7 @@ mod tests {
             ..
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &cache,
             &Question {
@@ -464,6 +477,7 @@ mod tests {
             is_authoritative: true,
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -497,6 +511,7 @@ mod tests {
             ..
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &cache,
             &Question {
@@ -527,6 +542,7 @@ mod tests {
             is_authoritative: true,
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -560,6 +576,7 @@ mod tests {
             ..
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &cache,
             &Question {
@@ -588,6 +605,7 @@ mod tests {
             ..
         })) = resolve_nonrecursive(
             10,
+            &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
             &Question {
@@ -617,6 +635,7 @@ mod tests {
             })),
             resolve_nonrecursive(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -645,6 +664,7 @@ mod tests {
             })),
             resolve_nonrecursive(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -662,6 +682,7 @@ mod tests {
             None,
             resolve_nonrecursive(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -681,6 +702,7 @@ mod tests {
             })),
             resolve_nonrecursive(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &Question {
@@ -698,6 +720,7 @@ mod tests {
             None,
             resolve_nonrecursive(
                 10,
+                &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &Question {

@@ -1,5 +1,6 @@
 pub mod cache;
 pub mod forwarding;
+pub mod metrics;
 pub mod nonrecursive;
 pub mod recursive;
 pub mod util;
@@ -11,6 +12,7 @@ use dns_types::zones::types::Zones;
 
 use self::cache::SharedCache;
 use self::forwarding::resolve_forwarding;
+use self::metrics::Metrics;
 use self::nonrecursive::resolve_nonrecursive;
 use self::recursive::resolve_recursive;
 use self::util::ResolvedRecord;
@@ -30,14 +32,27 @@ pub async fn resolve(
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> Option<ResolvedRecord> {
-    if is_recursive {
+) -> (Metrics, Option<ResolvedRecord>) {
+    let mut metrics = Metrics::new();
+
+    let rr = if is_recursive {
         if let Some(address) = forward_address {
-            resolve_forwarding(RECURSION_LIMIT, address, zones, cache, question).await
+            resolve_forwarding(
+                RECURSION_LIMIT,
+                &mut metrics,
+                address,
+                zones,
+                cache,
+                question,
+            )
+            .await
         } else {
-            resolve_recursive(RECURSION_LIMIT, zones, cache, question).await
+            resolve_recursive(RECURSION_LIMIT, &mut metrics, zones, cache, question).await
         }
     } else {
-        resolve_nonrecursive(RECURSION_LIMIT, zones, cache, question).map(ResolvedRecord::from)
-    }
+        resolve_nonrecursive(RECURSION_LIMIT, &mut metrics, zones, cache, question)
+            .map(ResolvedRecord::from)
+    };
+
+    (metrics, rr)
 }
