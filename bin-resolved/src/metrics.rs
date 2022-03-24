@@ -64,6 +64,41 @@ lazy_static! {
         PROCESSING_TIME_BUCKETS.to_vec()
     )
     .unwrap();
+    pub static ref DNS_RESOLVER_AUTHORITATIVE_HIT_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_authoritative_hit_total",
+        "Total number of hits of local authoritative data (not including blocked domains)."
+    ),)
+    .unwrap();
+    pub static ref DNS_RESOLVER_OVERRIDE_HIT_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_override_hit_total",
+        "Total number of hits of local override data (not including blocked domains)."
+    ),)
+    .unwrap();
+    pub static ref DNS_RESOLVER_BLOCKED_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_blocked_total",
+        "Total number of queries which have been blocked."
+    ),)
+    .unwrap();
+    pub static ref DNS_RESOLVER_CACHE_HIT_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_cache_hit_total",
+        "Total number of cache hits."
+    ),)
+    .unwrap();
+    pub static ref DNS_RESOLVER_CACHE_MISS_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_cache_miss_total",
+        "Total number of cache misses."
+    ),)
+    .unwrap();
+    pub static ref DNS_RESOLVER_NAMESERVER_HIT_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_nameserver_hit_total",
+        "Total number of hits when calling an upstream nameserver."
+    ),)
+    .unwrap();
+    pub static ref DNS_RESOLVER_NAMESERVER_MISS_TOTAL: IntCounter = register_int_counter!(opts!(
+        "dns_resolver_nameserver_miss_total",
+        "Total number of misses when calling an upstream nameserver."
+    ),)
+    .unwrap();
     pub static ref CACHE_SIZE: IntGauge =
         register_int_gauge!(opts!("cache_size", "Number of records in the cache.")).unwrap();
     pub static ref CACHE_OVERFLOW_COUNT: IntCounter = register_int_counter!(opts!(
