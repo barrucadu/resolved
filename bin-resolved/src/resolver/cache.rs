@@ -41,11 +41,7 @@ impl SharedCache {
     /// cache.
     pub fn get(&self, name: &DomainName, qtype: &QueryType) -> Vec<ResourceRecord> {
         let mut rrs = self.get_without_checking_expiration(name, qtype);
-        let len = rrs.len();
         rrs.retain(|rr| rr.ttl > 0);
-        if rrs.len() != len {
-            self.remove_expired();
-        }
         rrs
     }
 
@@ -67,36 +63,20 @@ impl SharedCache {
     /// Insert an entry into the cache.
     ///
     /// It is not inserted if its TTL is zero.
+    ///
+    /// This may make the cache grow beyond the desired size.
     pub fn insert(&self, record: &ResourceRecord) {
         if record.ttl > 0 {
             let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
             cache.insert(record);
-            if cache.current_size > cache.desired_size {
-                println!(
-                    "[CACHE] current {:?} greater than desired {:?}, pruning",
-                    cache.current_size, cache.desired_size
-                );
-                cache.prune();
-            }
         }
     }
 
-    /// Delete all expired records.
+    /// Atomically clears expired entries and, if the cache has grown
+    /// beyond its desired size, prunes entries to get down to size.
     ///
-    /// Returns the number of records deleted.
-    pub fn remove_expired(&self) -> usize {
-        self.cache
-            .lock()
-            .expect(MUTEX_POISON_MESSAGE)
-            .remove_expired()
-    }
-
-    /// Delete all expired records, and then enough
-    /// least-recently-used records to reduce the cache to the desired
-    /// size.
-    ///
-    /// Returns the number of records deleted.
-    pub fn prune(&self) -> usize {
+    /// Returns `(has overflowed?, current size, num expired, num pruned)`.
+    pub fn prune(&self) -> (bool, usize, usize, usize) {
         self.cache.lock().expect(MUTEX_POISON_MESSAGE).prune()
     }
 }
@@ -332,19 +312,17 @@ impl Cache {
     /// least-recently-used records to reduce the cache to the desired
     /// size.
     ///
-    /// Returns the number of records deleted.
-    pub fn prune(&mut self) -> usize {
-        if self.current_size <= self.desired_size {
-            return 0;
-        }
-
-        let mut pruned = self.remove_expired();
+    /// Returns `(has overflowed?, current size, num expired, num pruned)`.
+    pub fn prune(&mut self) -> (bool, usize, usize, usize) {
+        let has_overflowed = self.current_size > self.desired_size;
+        let num_expired = self.remove_expired();
+        let mut num_pruned = 0;
 
         while self.current_size > self.desired_size {
-            pruned += self.remove_least_recently_used();
+            num_pruned += self.remove_least_recently_used();
         }
 
-        pruned
+        (has_overflowed, self.current_size, num_expired, num_pruned)
     }
 
     /// Helper for `remove_expired`: looks at the next-to-expire
@@ -536,9 +514,12 @@ mod tests {
 
         // might be more than 75 because the size is measured in
         // records, but pruning is done on whole domains
-        let pruned = cache.prune();
+        let (overflow, current_size, expired, pruned) = cache.prune();
+        assert!(overflow);
+        assert_eq!(0, expired);
         assert!(pruned >= 75);
         assert!(cache.current_size <= 25);
+        assert_eq!(cache.current_size, current_size);
         assert_invariants(&cache);
     }
 
@@ -569,7 +550,12 @@ mod tests {
             cache.insert(&rr);
         }
 
-        assert_eq!(49, cache.prune());
+        let (overflow, current_size, expired, pruned) = cache.prune();
+        assert!(overflow);
+        assert_eq!(49, expired);
+        assert_eq!(0, pruned);
+        assert_eq!(cache.current_size, current_size);
+        assert_invariants(&cache);
     }
 
     fn assert_invariants(cache: &Cache) {

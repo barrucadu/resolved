@@ -84,6 +84,8 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         question_timer.observe_duration();
     }
 
+    args.cache.prune();
+
     if is_refused {
         response.header.rcode = Rcode::Refused;
         response.header.is_authoritative = false;
@@ -314,8 +316,7 @@ async fn prune_cache_task(cache: SharedCache) {
     loop {
         sleep(Duration::from_secs(60 * 5)).await;
 
-        let expired = cache.remove_expired();
-        let pruned = cache.prune();
+        let (_, _, expired, pruned) = cache.prune();
 
         println!(
             "[CACHE] expired {:?} and pruned {:?} entries",
