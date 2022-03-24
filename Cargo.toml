@@ -6,5 +6,6 @@ members = [
         "bin-resolved",
         "bin-ztoh",
         "bin-ztoz",
+        "lib-dns-resolver",
         "lib-dns-types",
 ]

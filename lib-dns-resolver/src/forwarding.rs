@@ -7,10 +7,11 @@ use tokio::time::timeout;
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
-use super::cache::SharedCache;
-use super::metrics::Metrics;
-use super::nonrecursive::resolve_nonrecursive;
-use super::util::*;
+use crate::cache::SharedCache;
+use crate::metrics::Metrics;
+use crate::nonrecursive::resolve_nonrecursive;
+use crate::util::nameserver::*;
+use crate::util::types::*;
 
 /// Forwarding DNS resolution.
 ///

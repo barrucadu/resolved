@@ -7,20 +7,10 @@ edition = "2021"
 
 [dependencies]
 actix-web = "4"
-async-recursion = "1"
 bytes = "1"
 clap = { version = "3", features = ["derive"] }
 dns-types = { path = "../lib-dns-types" }
+dns-resolver = { path = "../lib-dns-resolver" }
 lazy_static = "1"
-priority-queue = "1"
 prometheus = { version = "0.13.0", features = ["process"] }
-rand = "0.8.5"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "io-util", "signal", "sync", "fs", "time"] }
-
-[dev-dependencies]
-criterion = "0.3.5"
-dns-types = { path = "../lib-dns-types", features = ["test-util"] }
-
-[[bench]]
-name = "cache"
-harness = false
+tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
