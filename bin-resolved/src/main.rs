@@ -36,16 +36,19 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
     let mut is_refused = false;
 
     for question in &query.questions {
-        DNS_QUESTIONS_TOTAL
-            .with_label_values(&[
-                &query.header.recursion_desired.to_string(),
-                &question.qtype.to_string(),
-                &question.qclass.to_string(),
-            ])
-            .inc();
+        let question_labels: &[&str] = &[
+            &query.header.recursion_desired.to_string(),
+            &question.qtype.to_string(),
+            &question.qclass.to_string(),
+        ];
+        DNS_QUESTIONS_TOTAL.with_label_values(question_labels).inc();
+        let question_timer = DNS_QUESTION_PROCESSING_TIME_SECONDS
+            .with_label_values(question_labels)
+            .start_timer();
 
         if question.is_unknown() {
             is_refused = true;
+            question_timer.observe_duration();
             continue;
         }
 
@@ -78,6 +81,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
                 }
             }
         }
+        question_timer.observe_duration();
     }
 
     if is_refused {

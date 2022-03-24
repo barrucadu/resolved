@@ -24,6 +24,10 @@ pub const RESPONSE_TIME_BUCKETS: &[f64] = &[
     1.0000, // 1    s
 ];
 
+// separate const because we may want to change this in the future to
+// get more granularity on the lower end
+pub const PROCESSING_TIME_BUCKETS: &[f64] = RESPONSE_TIME_BUCKETS;
+
 lazy_static! {
     pub static ref DNS_REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!(
@@ -46,6 +50,13 @@ lazy_static! {
             "Total number of DNS questions received (a request may have multiple questions)."
         ),
         &["rd", "qtype", "qclass"]
+    )
+    .unwrap();
+    pub static ref DNS_QUESTION_PROCESSING_TIME_SECONDS: HistogramVec = register_histogram_vec!(
+        "dns_question_processing_time_seconds",
+        "Time spent processing a DNS question (a request may have multiple questions).",
+        &["rd", "qtype", "class"],
+        PROCESSING_TIME_BUCKETS.to_vec()
     )
     .unwrap();
 }
