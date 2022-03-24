@@ -116,6 +116,9 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                 DNS_REQUESTS_TOTAL.with_label_values(&["tcp"]).inc();
                 let args = args.clone();
                 tokio::spawn(async move {
+                    let response_timer = DNS_RESPONSE_TIME_SECONDS
+                        .with_label_values(&["tcp"])
+                        .start_timer();
                     let response = match read_tcp_bytes(&mut stream).await {
                         Ok(bytes) => handle_raw_message(args, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
@@ -150,6 +153,7 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                             }
                         };
                     };
+                    response_timer.observe_duration();
                 });
             }
             Err(err) => println!("tcp request error \"{:?}\"", err),
@@ -170,8 +174,11 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
                 let reply = tx.clone();
                 let args = args.clone();
                 tokio::spawn(async move {
+                    let response_timer = DNS_RESPONSE_TIME_SECONDS
+                        .with_label_values(&["udp"])
+                        .start_timer();
                     if let Some(response_message) = handle_raw_message(args, bytes.as_ref()).await {
-                        match reply.send((response_message, peer)).await {
+                        match reply.send((response_message, peer, response_timer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
                         }
@@ -179,17 +186,20 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
                 });
             }
 
-            Some((message, peer)) = rx.recv() => match message.clone().to_octets() {
-                Ok(mut serialised) =>  if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
-                {
-                    println!("[{:?}] udp send error \"{:?}\"", peer, err);
-                }
-                Err(err) => {
-                    println!(
-                        "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
-                        message, err
-                    );
-                }
+            Some((message, peer, response_timer)) = rx.recv() => {
+                match message.clone().to_octets() {
+                    Ok(mut serialised) =>  if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
+                    {
+                        println!("[{:?}] udp send error \"{:?}\"", peer, err);
+                    }
+                    Err(err) => {
+                        println!(
+                            "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
+                            message, err
+                        );
+                    }
+                };
+                response_timer.observe_duration();
             }
         }
     }
