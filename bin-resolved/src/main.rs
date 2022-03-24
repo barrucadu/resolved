@@ -149,6 +149,16 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                     if let Some(message) = response {
                         match message.clone().to_octets() {
                             Ok(mut serialised) => {
+                                DNS_RESPONSES_TOTAL
+                                    .with_label_values(&[
+                                        &message.header.is_authoritative.to_string(),
+                                        "false",
+                                        &message.header.recursion_desired.to_string(),
+                                        &message.header.recursion_available.to_string(),
+                                        &message.header.rcode.to_string(),
+                                    ])
+                                    .inc();
+
                                 if let Err(err) = send_tcp_bytes(&mut stream, &mut serialised).await
                                 {
                                     println!("[{:?}] tcp send error \"{:?}\"", peer, err);
@@ -197,9 +207,18 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
 
             Some((message, peer, response_timer)) = rx.recv() => {
                 match message.clone().to_octets() {
-                    Ok(mut serialised) =>  if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
-                    {
-                        println!("[{:?}] udp send error \"{:?}\"", peer, err);
+                    Ok(mut serialised) => {
+                        DNS_RESPONSES_TOTAL.with_label_values(&[
+                            &message.header.is_authoritative.to_string(),
+                            &(serialised.len() > 512).to_string(),
+                            &message.header.recursion_desired.to_string(),
+                            &message.header.recursion_available.to_string(),
+                            &message.header.rcode.to_string(),
+                        ]).inc();
+                        if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
+                        {
+                            println!("[{:?}] udp send error \"{:?}\"", peer, err);
+                        }
                     }
                     Err(err) => {
                         println!(

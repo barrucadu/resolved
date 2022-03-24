@@ -37,6 +37,11 @@ lazy_static! {
         &["protocol"]
     )
     .unwrap();
+    pub static ref DNS_RESPONSES_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!("dns_responses_total", "Total number of DNS responses sent."),
+        &["aa", "tc", "rd", "ra", "rcode"]
+    )
+    .unwrap();
     pub static ref DNS_RESPONSE_TIME_SECONDS: HistogramVec = register_histogram_vec!(
         "dns_response_time_seconds",
         "Response time of DNS requests, whether valid or invalid.",
