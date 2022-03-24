@@ -1,8 +1,8 @@
 use actix_web::{get, http::header::ContentType, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
 use prometheus::{
-    opts, register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec,
-    TextEncoder,
+    opts, register_histogram_vec, register_int_counter, register_int_counter_vec,
+    register_int_gauge, HistogramVec, IntCounter, IntCounterVec, IntGauge, TextEncoder,
 };
 use std::net::Ipv4Addr;
 
@@ -63,6 +63,23 @@ lazy_static! {
         &["rd", "qtype", "class"],
         PROCESSING_TIME_BUCKETS.to_vec()
     )
+    .unwrap();
+    pub static ref CACHE_SIZE: IntGauge =
+        register_int_gauge!(opts!("cache_size", "Number of records in the cache.")).unwrap();
+    pub static ref CACHE_OVERFLOW_COUNT: IntCounter = register_int_counter!(opts!(
+        "cache_overflow_count",
+        "Number of times the cache has overflowed."
+    ))
+    .unwrap();
+    pub static ref CACHE_EXPIRED_TOTAL: IntCounter = register_int_counter!(opts!(
+        "cache_expired_total",
+        "Number of records which have been expired from the cache."
+    ))
+    .unwrap();
+    pub static ref CACHE_PRUNED_TOTAL: IntCounter = register_int_counter!(opts!(
+        "cache_pruned_total",
+        "Number of records which have been pruned from the cache due to overflow."
+    ))
     .unwrap();
 }
 

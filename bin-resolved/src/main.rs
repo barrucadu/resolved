@@ -22,6 +22,23 @@ use resolved::resolver::cache::SharedCache;
 use resolved::resolver::resolve;
 use resolved::resolver::util::ResolvedRecord;
 
+fn prune_cache_and_update_metrics(cache: &SharedCache) {
+    let (overflow, current_size, expired, pruned) = cache.prune();
+
+    CACHE_SIZE.set(current_size.try_into().unwrap_or(i64::MAX));
+    CACHE_EXPIRED_TOTAL.inc_by(expired.try_into().unwrap_or(u64::MAX));
+    CACHE_PRUNED_TOTAL.inc_by(pruned.try_into().unwrap_or(u64::MAX));
+
+    if overflow {
+        CACHE_OVERFLOW_COUNT.inc();
+    }
+
+    println!(
+        "[CACHE] expired {:?} and pruned {:?} entries",
+        expired, pruned
+    );
+}
+
 async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
     // lock zones here, rather than where they're used in
     // `resolve_nonrecursive`, so that this whole request sees a
@@ -84,7 +101,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         question_timer.observe_duration();
     }
 
-    args.cache.prune();
+    prune_cache_and_update_metrics(&args.cache);
 
     if is_refused {
         response.header.rcode = Rcode::Refused;
@@ -315,13 +332,7 @@ async fn load_zone_configuration(args: &Args) -> Option<Zones> {
 async fn prune_cache_task(cache: SharedCache) {
     loop {
         sleep(Duration::from_secs(60 * 5)).await;
-
-        let (_, _, expired, pruned) = cache.prune();
-
-        println!(
-            "[CACHE] expired {:?} and pruned {:?} entries",
-            expired, pruned
-        );
+        prune_cache_and_update_metrics(&cache);
     }
 }
 
