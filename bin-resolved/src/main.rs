@@ -113,6 +113,7 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
+                DNS_REQUESTS_TOTAL.with_label_values(&["tcp"]).inc();
                 let args = args.clone();
                 tokio::spawn(async move {
                     let response = match read_tcp_bytes(&mut stream).await {
@@ -164,6 +165,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
         tokio::select! {
             Ok((size, peer)) = socket.recv_from(&mut buf) => {
                 println!("[{:?}] udp request ok", peer);
+                DNS_REQUESTS_TOTAL.with_label_values(&["udp"]).inc();
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
                 let args = args.clone();

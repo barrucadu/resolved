@@ -1,9 +1,18 @@
 use actix_web::{get, http::header::ContentType, App, HttpResponse, HttpServer, Responder};
 use lazy_static::lazy_static;
-use prometheus::TextEncoder;
+use prometheus::{opts, register_int_counter_vec, IntCounterVec, TextEncoder};
 use std::net::Ipv4Addr;
 
-lazy_static! {}
+lazy_static! {
+    pub static ref DNS_REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "dns_requests_total",
+            "Total number of DNS requests received, whether valid or invalid."
+        ),
+        &["protocol"]
+    )
+    .unwrap();
+}
 
 #[get("/metrics")]
 async fn get_metrics() -> impl Responder {
