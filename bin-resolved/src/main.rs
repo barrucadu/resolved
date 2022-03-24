@@ -16,10 +16,28 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use resolved::fs_util::*;
+use resolved::metrics::*;
 use resolved::net_util::*;
 use resolved::resolver::cache::SharedCache;
 use resolved::resolver::resolve;
 use resolved::resolver::util::ResolvedRecord;
+
+fn prune_cache_and_update_metrics(cache: &SharedCache) {
+    let (overflow, current_size, expired, pruned) = cache.prune();
+
+    CACHE_SIZE.set(current_size.try_into().unwrap_or(i64::MAX));
+    CACHE_EXPIRED_TOTAL.inc_by(expired.try_into().unwrap_or(u64::MAX));
+    CACHE_PRUNED_TOTAL.inc_by(pruned.try_into().unwrap_or(u64::MAX));
+
+    if overflow {
+        CACHE_OVERFLOW_COUNT.inc();
+    }
+
+    println!(
+        "[CACHE] expired {:?} and pruned {:?} entries",
+        expired, pruned
+    );
+}
 
 async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
     // lock zones here, rather than where they're used in
@@ -32,14 +50,25 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
     response.header.is_authoritative = true;
     response.header.recursion_available = !args.authoritative_only;
 
-    if query.questions.iter().any(|q| q.is_unknown()) {
-        response.header.rcode = Rcode::Refused;
-        response.header.is_authoritative = false;
-        println!(".");
-        return response;
-    }
+    let mut is_refused = false;
 
     for question in &query.questions {
+        let question_labels: &[&str] = &[
+            &query.header.recursion_desired.to_string(),
+            &question.qtype.to_string(),
+            &question.qclass.to_string(),
+        ];
+        DNS_QUESTIONS_TOTAL.with_label_values(question_labels).inc();
+        let question_timer = DNS_QUESTION_PROCESSING_TIME_SECONDS
+            .with_label_values(question_labels)
+            .start_timer();
+
+        if question.is_unknown() {
+            is_refused = true;
+            question_timer.observe_duration();
+            continue;
+        }
+
         if let Some(rr) = resolve(
             query.header.recursion_desired && response.header.recursion_available,
             args.forward_address,
@@ -69,15 +98,15 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
                 }
             }
         }
+        question_timer.observe_duration();
     }
 
-    // I'm not sure if this is right, but it's what pi-hole does for
-    // queries which it can't answer.
-    //
-    // I think, by the text of RFC 1034, the AUTHORITY section of the
-    // response should include an NS record for something which can
-    // help.
-    if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
+    prune_cache_and_update_metrics(&args.cache);
+
+    if is_refused {
+        response.header.rcode = Rcode::Refused;
+        response.header.is_authoritative = false;
+    } else if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
         response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
@@ -112,8 +141,12 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
                 println!("[{:?}] tcp request ok", peer);
+                DNS_REQUESTS_TOTAL.with_label_values(&["tcp"]).inc();
                 let args = args.clone();
                 tokio::spawn(async move {
+                    let response_timer = DNS_RESPONSE_TIME_SECONDS
+                        .with_label_values(&["tcp"])
+                        .start_timer();
                     let response = match read_tcp_bytes(&mut stream).await {
                         Ok(bytes) => handle_raw_message(args, bytes.as_ref()).await,
                         Err(TcpError::TooShort {
@@ -135,6 +168,16 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                     if let Some(message) = response {
                         match message.clone().to_octets() {
                             Ok(mut serialised) => {
+                                DNS_RESPONSES_TOTAL
+                                    .with_label_values(&[
+                                        &message.header.is_authoritative.to_string(),
+                                        "false",
+                                        &message.header.recursion_desired.to_string(),
+                                        &message.header.recursion_available.to_string(),
+                                        &message.header.rcode.to_string(),
+                                    ])
+                                    .inc();
+
                                 if let Err(err) = send_tcp_bytes(&mut stream, &mut serialised).await
                                 {
                                     println!("[{:?}] tcp send error \"{:?}\"", peer, err);
@@ -148,6 +191,7 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                             }
                         };
                     };
+                    response_timer.observe_duration();
                 });
             }
             Err(err) => println!("tcp request error \"{:?}\"", err),
@@ -163,12 +207,16 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
         tokio::select! {
             Ok((size, peer)) = socket.recv_from(&mut buf) => {
                 println!("[{:?}] udp request ok", peer);
+                DNS_REQUESTS_TOTAL.with_label_values(&["udp"]).inc();
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
                 let args = args.clone();
                 tokio::spawn(async move {
+                    let response_timer = DNS_RESPONSE_TIME_SECONDS
+                        .with_label_values(&["udp"])
+                        .start_timer();
                     if let Some(response_message) = handle_raw_message(args, bytes.as_ref()).await {
-                        match reply.send((response_message, peer)).await {
+                        match reply.send((response_message, peer, response_timer)).await {
                             Ok(_) => (),
                             Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
                         }
@@ -176,17 +224,29 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
                 });
             }
 
-            Some((message, peer)) = rx.recv() => match message.clone().to_octets() {
-                Ok(mut serialised) =>  if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
-                {
-                    println!("[{:?}] udp send error \"{:?}\"", peer, err);
-                }
-                Err(err) => {
-                    println!(
-                        "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
-                        message, err
-                    );
-                }
+            Some((message, peer, response_timer)) = rx.recv() => {
+                match message.clone().to_octets() {
+                    Ok(mut serialised) => {
+                        DNS_RESPONSES_TOTAL.with_label_values(&[
+                            &message.header.is_authoritative.to_string(),
+                            &(serialised.len() > 512).to_string(),
+                            &message.header.recursion_desired.to_string(),
+                            &message.header.recursion_available.to_string(),
+                            &message.header.rcode.to_string(),
+                        ]).inc();
+                        if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
+                        {
+                            println!("[{:?}] udp send error \"{:?}\"", peer, err);
+                        }
+                    }
+                    Err(err) => {
+                        println!(
+                            "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
+                            message, err
+                        );
+                    }
+                };
+                response_timer.observe_duration();
             }
         }
     }
@@ -272,14 +332,7 @@ async fn load_zone_configuration(args: &Args) -> Option<Zones> {
 async fn prune_cache_task(cache: SharedCache) {
     loop {
         sleep(Duration::from_secs(60 * 5)).await;
-
-        let expired = cache.remove_expired();
-        let pruned = cache.prune();
-
-        println!(
-            "[CACHE] expired {:?} and pruned {:?} entries",
-            expired, pruned
-        );
+        prune_cache_and_update_metrics(&cache);
     }
 }
 
@@ -324,10 +377,22 @@ async fn reload_task(zones_lock: Arc<RwLock<Zones>>, args: Args) {
 /// It is not intended to be a fully-featured internet-facing
 /// nameserver, but just enough to get DNS ad-blocking and nice
 /// hostnames working in your LAN.
+///
+/// Prometheus metrics are served at
+/// "http://{metrics_interface}:{metrics_port}/metrics"
+#[derive(Clone)]
 struct Args {
     /// Interface to listen on
     #[clap(short, long, default_value_t = Ipv4Addr::UNSPECIFIED)]
     interface: Ipv4Addr,
+
+    /// Interface to listen on to serve Prometheus metrics
+    #[clap(long, default_value_t = Ipv4Addr::LOCALHOST)]
+    metrics_interface: Ipv4Addr,
+
+    /// Port to listen on to serve Prometheus metrics
+    #[clap(long, default_value_t = 9420)]
+    metrics_port: u16,
 
     /// Only answer queries for which this server is authoritative: do
     /// not perform recursive or forwarding resolution
@@ -397,7 +462,13 @@ async fn main() {
 
     tokio::spawn(listen_tcp_task(listen_args.clone(), tcp));
     tokio::spawn(listen_udp_task(listen_args.clone(), udp));
-    tokio::spawn(reload_task(listen_args.zones_lock.clone(), args));
+    tokio::spawn(reload_task(listen_args.zones_lock.clone(), args.clone()));
+    tokio::spawn(prune_cache_task(listen_args.cache));
 
-    prune_cache_task(listen_args.cache).await;
+    if let Err(err) =
+        serve_prometheus_endpoint_task(args.metrics_interface, args.metrics_port).await
+    {
+        eprintln!("error starting metrics endpoint: {:?}", err);
+        process::exit(1);
+    }
 }

@@ -791,6 +791,20 @@ impl Rcode {
     }
 }
 
+impl fmt::Display for Rcode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Rcode::NoError => write!(f, "no-error"),
+            Rcode::FormatError => write!(f, "format-error"),
+            Rcode::ServerFailure => write!(f, "server-failure"),
+            Rcode::NameError => write!(f, "name-error"),
+            Rcode::NotImplemented => write!(f, "not-implemented"),
+            Rcode::Refused => write!(f, "refused"),
+            Rcode::Reserved(_) => write!(f, "reserved"),
+        }
+    }
+}
+
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
         match octet & 0b00001111 {
@@ -1065,6 +1079,32 @@ impl QueryType {
     }
 }
 
+impl fmt::Display for QueryType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QueryType::Record(rtype) => rtype.fmt(f),
+            QueryType::AXFR => write!(f, "AXFR"),
+            QueryType::MAILA => write!(f, "MAILA"),
+            QueryType::MAILB => write!(f, "MAILB"),
+            QueryType::Wildcard => write!(f, "ANY"),
+        }
+    }
+}
+
+impl FromStr for QueryType {
+    type Err = RecordTypeFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "AXFR" => Ok(QueryType::AXFR),
+            "MAILA" => Ok(QueryType::MAILA),
+            "MAILB" => Ok(QueryType::MAILB),
+            "ANY" => Ok(QueryType::Wildcard),
+            _ => RecordType::from_str(s).map(QueryType::Record),
+        }
+    }
+}
+
 impl From<u16> for QueryType {
     fn from(value: u16) -> Self {
         match value {
@@ -1108,6 +1148,26 @@ impl QueryClass {
         match self {
             QueryClass::Record(rclass) => rclass.is_unknown(),
             _ => false,
+        }
+    }
+}
+
+impl fmt::Display for QueryClass {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            QueryClass::Record(rclass) => rclass.fmt(f),
+            QueryClass::Wildcard => write!(f, "ANY"),
+        }
+    }
+}
+
+impl FromStr for QueryClass {
+    type Err = RecordClassFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "ANY" => Ok(QueryClass::Wildcard),
+            _ => RecordClass::from_str(s).map(QueryClass::Record),
         }
     }
 }
