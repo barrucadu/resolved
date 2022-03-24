@@ -791,6 +791,20 @@ impl Rcode {
     }
 }
 
+impl fmt::Display for Rcode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Rcode::NoError => write!(f, "no-error"),
+            Rcode::FormatError => write!(f, "format-error"),
+            Rcode::ServerFailure => write!(f, "server-failure"),
+            Rcode::NameError => write!(f, "name-error"),
+            Rcode::NotImplemented => write!(f, "not-implemented"),
+            Rcode::Refused => write!(f, "refused"),
+            Rcode::Reserved(_) => write!(f, "reserved"),
+        }
+    }
+}
+
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
         match octet & 0b00001111 {
