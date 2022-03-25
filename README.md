@@ -51,6 +51,14 @@ modules are:
   - `protocol`    - the DNS message types and serialisation / deserialisation logic
   - `zones`       - authoritative and non-authoritative zones
 
+- `lib-dns-resolver` - the DNS resolvers
+  - `cache`        - the cache
+  - `forwarding`   - the forwarding resolver
+  - `metrics`      - resolver-specific metrics
+  - `nonrecursive` - the non-recursive resolver
+  - `recursive`    - the recursive resolver
+  - `util`         - shared types and functions
+
 - `bin-resolved` - the DNS server
 
 - `bin-htoh` - utility to normalise hosts files

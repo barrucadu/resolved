@@ -587,6 +587,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "dns-resolver"
+version = "0.1.0"
+dependencies = [
+ "async-recursion",
+ "bytes",
+ "criterion",
+ "dns-types",
+ "priority-queue",
+ "rand",
+ "tokio",
+]
+
+[[package]]
 name = "dns-types"
 version = "0.1.0"
 dependencies = [
@@ -1322,15 +1335,12 @@ name = "resolved"
 version = "0.1.0"
 dependencies = [
  "actix-web",
- "async-recursion",
  "bytes",
  "clap 3.1.6",
- "criterion",
+ "dns-resolver",
  "dns-types",
  "lazy_static",
- "priority-queue",
  "prometheus",
- "rand",
  "tokio",
 ]
 

@@ -11,16 +11,15 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 
+use dns_resolver::cache::SharedCache;
+use dns_resolver::resolve;
+use dns_resolver::util::net::*;
+use dns_resolver::util::types::ResolvedRecord;
 use dns_types::hosts::types::Hosts;
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
-
 use resolved::fs_util::*;
 use resolved::metrics::*;
-use resolved::net_util::*;
-use resolved::resolver::cache::SharedCache;
-use resolved::resolver::resolve;
-use resolved::resolver::util::ResolvedRecord;
 
 fn prune_cache_and_update_metrics(cache: &SharedCache) {
     let (overflow, current_size, expired, pruned) = cache.prune();

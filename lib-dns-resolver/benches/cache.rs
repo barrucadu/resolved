@@ -1,7 +1,7 @@
 use criterion::{criterion_group, criterion_main, BatchSize, BenchmarkId, Criterion, Throughput};
 
+use dns_resolver::cache::Cache;
 use dns_types::protocol::types::*;
-use resolved::resolver::cache::Cache;
 
 #[allow(non_snake_case)]
 fn bench__insert__unique(c: &mut Criterion) {

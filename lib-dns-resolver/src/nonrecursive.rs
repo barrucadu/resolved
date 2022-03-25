@@ -1,9 +1,9 @@
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
-use super::cache::SharedCache;
-use super::metrics::Metrics;
-use super::util::*;
+use crate::cache::SharedCache;
+use crate::metrics::Metrics;
+use crate::util::types::*;
 
 /// Non-recursive DNS resolution.
 ///
@@ -366,8 +366,8 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::*;
-    use crate::resolver::cache::test_util::*;
-    use crate::resolver::util::test_util::*;
+    use crate::cache::test_util::*;
+    use crate::util::test_util::*;
 
     #[test]
     fn resolve_nonrecursive_is_authoritative_for_zones_with_soa() {
@@ -730,5 +730,13 @@ mod tests {
                 },
             )
         );
+    }
+
+    pub fn zones_soa_rr() -> ResourceRecord {
+        zones()
+            .get(&domain("authoritative.example.com."))
+            .unwrap()
+            .soa_rr()
+            .unwrap()
     }
 }
