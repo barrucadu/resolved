@@ -272,6 +272,18 @@ impl Question {
     }
 }
 
+impl fmt::Display for Question {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "{} {} {}",
+            self.name.to_dotted_string(),
+            self.qclass,
+            self.qtype
+        )
+    }
+}
+
 /// The answer, authority, and additional sections are all the same
 /// format: a variable number of resource records.  This is the
 /// structure for a single resource record.

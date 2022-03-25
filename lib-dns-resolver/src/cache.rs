@@ -163,15 +163,7 @@ impl Cache {
     ///
     /// If the number of entries exceeds this, expired and
     /// least-recently-used items will be pruned.
-    ///
-    /// Panics:
-    ///
-    /// - If called with a desired_size of 0.
     pub fn with_desired_size(desired_size: usize) -> Self {
-        if desired_size == 0 {
-            panic!("cannot create a zero-size cache");
-        }
-
         Self {
             // `desired_size / 2` is a compromise: most domains will
             // have more than one record, so `desired_size` would be

@@ -271,9 +271,16 @@ impl Zone {
 /// The result of looking up a name in a zone.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ZoneResult {
-    Answer { rrs: Vec<ResourceRecord> },
-    CNAME { cname_rr: ResourceRecord },
-    Delegation { ns_rrs: Vec<ResourceRecord> },
+    Answer {
+        rrs: Vec<ResourceRecord>,
+    },
+    CNAME {
+        cname: DomainName,
+        rr: ResourceRecord,
+    },
+    Delegation {
+        ns_rrs: Vec<ResourceRecord>,
+    },
     NameError,
 }
 
@@ -580,9 +587,15 @@ fn zone_result_helper(
         match records.get(&RecordType::CNAME) {
             Some(cname_zrs) => {
                 if !cname_zrs.is_empty() {
-                    return ZoneResult::CNAME {
-                        cname_rr: cname_zrs[0].to_rr(name),
-                    };
+                    let rr = cname_zrs[0].to_rr(name);
+                    if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+                        return ZoneResult::CNAME {
+                            cname: cname.clone(),
+                            rr,
+                        };
+                    } else {
+                        panic!("got non-CNAME record for CNAME query: {:?}", rr);
+                    }
                 }
             }
             None => (),
@@ -884,7 +897,8 @@ mod tests {
 
         assert_eq!(
             Some(ZoneResult::CNAME {
-                cname_rr: rr.clone()
+                cname: domain("example.com."),
+                rr: rr.clone()
             }),
             zone.resolve(&rr.name, QueryType::Record(RecordType::A))
         );
@@ -915,7 +929,8 @@ mod tests {
 
         assert_eq!(
             Some(ZoneResult::CNAME {
-                cname_rr: rr.clone()
+                cname: domain("example.com."),
+                rr: rr.clone()
             }),
             zone.resolve(&rr.name, QueryType::Record(RecordType::A))
         );

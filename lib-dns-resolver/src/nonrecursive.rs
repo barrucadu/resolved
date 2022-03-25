@@ -1,9 +1,14 @@
+use tracing;
+
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use crate::cache::SharedCache;
 use crate::metrics::Metrics;
 use crate::util::types::*;
+
+/// Query type for CNAMEs - used for cache lookups.
+const CNAME_QTYPE: QueryType = QueryType::Record(RecordType::CNAME);
 
 /// Non-recursive DNS resolution.
 ///
@@ -34,13 +39,18 @@ pub fn resolve_nonrecursive(
     cache: &SharedCache,
     question: &Question,
 ) -> Option<Result<NameserverResponse, AuthoritativeNameError>> {
+    let _span = tracing::error_span!("resolve_nonrecursive", %question).entered();
+
     if recursion_limit == 0 {
+        tracing::debug!("hit recursion limit");
         return None;
     }
 
     let mut rrs_from_zone = Vec::new();
 
     if let Some(zone) = zones.get(&question.name) {
+        let _zone_span = tracing::error_span!("zone", apex = %zone.get_apex().to_dotted_string(), is_authoritative = %zone.is_authoritative()).entered();
+
         // `zone.resolve` implements the non-recursive part of step 3
         // of the standard resolver algorithm: matching down through
         // the zone and returning what sort of end state is reached.
@@ -62,18 +72,7 @@ pub fn resolve_nonrecursive(
             //    prioritising merge to combine the RR sets,
             //    preserving the override behaviour.
             Some(ZoneResult::Answer { rrs }) => {
-                println!(
-                    "[DEBUG] zone {:?} {} ANSWER for {:?} {:?} {:?}",
-                    zone.get_apex().to_dotted_string(),
-                    if zone.is_authoritative() {
-                        "AUTHORITATIVE"
-                    } else {
-                        "NON-AUTHORITATIVE"
-                    },
-                    question.name.to_dotted_string(),
-                    question.qclass,
-                    question.qtype
-                );
+                tracing::trace!("got answer");
                 metrics.zoneresult_answer(&rrs, zone, question);
 
                 if let Some(soa_rr) = zone.soa_rr() {
@@ -106,29 +105,11 @@ pub fn resolve_nonrecursive(
             // - if resolving it fails: return the response, which is
             // authoritative if and only if this starting zone is
             // authoritative.
-            Some(ZoneResult::CNAME { cname_rr }) => {
-                println!(
-                    "[DEBUG] zone {:?} {} CNAME for {:?} {:?} {:?}",
-                    zone.get_apex().to_dotted_string(),
-                    if zone.is_authoritative() {
-                        "AUTHORITATIVE"
-                    } else {
-                        "NON-AUTHORITATIVE"
-                    },
-                    question.name.to_dotted_string(),
-                    question.qclass,
-                    question.qtype
-                );
+            Some(ZoneResult::CNAME { cname, rr }) => {
+                tracing::trace!("got cname");
                 metrics.zoneresult_cname(zone);
 
-                let cname = if let RecordTypeWithData::CNAME { cname } = &cname_rr.rtype_with_data {
-                    cname
-                } else {
-                    println!("[ERROR] expected CNAME RR (in zone)");
-                    return None;
-                };
-
-                let mut rrs = vec![cname_rr.clone()];
+                let mut rrs = vec![rr];
                 return Some(Ok(
                     match resolve_nonrecursive(
                         recursion_limit - 1,
@@ -170,7 +151,7 @@ pub fn resolve_nonrecursive(
                         }
                         _ => NameserverResponse::CNAME {
                             rrs,
-                            cname: cname.clone(),
+                            cname,
                             is_authoritative: zone.is_authoritative(),
                         },
                     },
@@ -183,23 +164,12 @@ pub fn resolve_nonrecursive(
             //
             // - otherwise ignore and proceed to cache.
             Some(ZoneResult::Delegation { ns_rrs }) => {
-                println!(
-                    "[DEBUG] zone {:?} {} DELEGATION for {:?} {:?} {:?}",
-                    zone.get_apex().to_dotted_string(),
-                    if zone.is_authoritative() {
-                        "AUTHORITATIVE"
-                    } else {
-                        "NON-AUTHORITATIVE"
-                    },
-                    question.name.to_dotted_string(),
-                    question.qclass,
-                    question.qtype
-                );
+                tracing::trace!("got delegation");
                 metrics.zoneresult_delegation(zone);
 
                 if zone.is_authoritative() {
                     if ns_rrs.is_empty() {
-                        println!("[ERROR] got an empty RRset from delegation");
+                        tracing::warn!("got empty RRset from delegation");
                         return None;
                     }
 
@@ -209,7 +179,7 @@ pub fn resolve_nonrecursive(
                         if let RecordTypeWithData::NS { nsdname } = &rr.rtype_with_data {
                             hostnames.push(HostOrIP::Host(nsdname.clone()));
                         } else {
-                            println!("[ERROR] got a non-NS RR in a delegation");
+                            tracing::warn!(rtype = %rr.rtype_with_data.rtype(), "got non-NS RR in a delegation");
                         }
                     }
 
@@ -226,18 +196,7 @@ pub fn resolve_nonrecursive(
             //
             // - otherwise ignore and proceed to cache.
             Some(ZoneResult::NameError) => {
-                println!(
-                    "[DEBUG] zone {:?} {} NAME ERROR for {:?} {:?} {:?}",
-                    zone.get_apex().to_dotted_string(),
-                    if zone.is_authoritative() {
-                        "AUTHORITATIVE"
-                    } else {
-                        "NON-AUTHORITATIVE"
-                    },
-                    question.name.to_dotted_string(),
-                    question.qclass,
-                    question.qtype
-                );
+                tracing::trace!("got name error");
                 metrics.zoneresult_nameerror(zone);
 
                 if let Some(soa_rr) = zone.soa_rr() {
@@ -246,12 +205,7 @@ pub fn resolve_nonrecursive(
             }
             // This shouldn't happen
             None => {
-                println!(
-                    "[ERROR] zone {:?} domain {:?} mis-match!",
-                    zone.get_apex().to_dotted_string(),
-                    question.name.to_dotted_string()
-                );
-
+                tracing::warn!("zone apex / domain mismatch");
                 return None;
             }
         }
@@ -276,34 +230,24 @@ pub fn resolve_nonrecursive(
     // and combine with the RRs we already have.
 
     let mut rrs_from_cache = cache.get(&question.name, &question.qtype);
-    println!(
-        "[DEBUG] cache {} for {:?} {:?} {:?}",
-        if rrs_from_cache.is_empty() {
-            "MISS"
-        } else {
-            "HIT"
-        },
-        question.name.to_dotted_string(),
-        question.qclass,
-        question.qtype
-    );
-    metrics.cache_hit_or_miss(&rrs_from_cache);
+    if rrs_from_cache.is_empty() {
+        tracing::trace!(qtype = %question.qtype, "cache MISS");
+        metrics.cache_miss();
+    } else {
+        tracing::trace!(qtype = %question.qtype, "cache HIT");
+        metrics.cache_hit();
+    }
 
     let mut final_cname = None;
-    if rrs_from_cache.is_empty() && question.qtype != QueryType::Record(RecordType::CNAME) {
-        let cache_cname_rrs = cache.get(&question.name, &QueryType::Record(RecordType::CNAME));
-        println!(
-            "[DEBUG] cache CNAME {} for {:?} {:?} {:?}",
-            if cache_cname_rrs.is_empty() {
-                "MISS"
-            } else {
-                "HIT"
-            },
-            question.name.to_dotted_string(),
-            question.qclass,
-            question.qtype
-        );
-        metrics.cache_hit_or_miss(&cache_cname_rrs);
+    if rrs_from_cache.is_empty() && question.qtype != CNAME_QTYPE {
+        let cache_cname_rrs = cache.get(&question.name, &CNAME_QTYPE);
+        if cache_cname_rrs.is_empty() {
+            tracing::trace!(qtype = %CNAME_QTYPE, "cache MISS");
+            metrics.cache_miss();
+        } else {
+            tracing::trace!(qtype = %CNAME_QTYPE, "cache HIT");
+            metrics.cache_hit();
+        }
 
         if !cache_cname_rrs.is_empty() {
             let cname_rr = cache_cname_rrs[0].clone();
@@ -334,7 +278,7 @@ pub fn resolve_nonrecursive(
                     }
                 }
             } else {
-                println!("[ERROR] expected CNAME RR (in cache)");
+                tracing::warn!(rtype = %cname_rr.rtype_with_data.rtype(), "got non-CNAME RR from cache");
                 return None;
             };
         }

@@ -6,6 +6,7 @@ pub mod recursive;
 pub mod util;
 
 use std::net::Ipv4Addr;
+use tracing::Instrument;
 
 use dns_types::protocol::types::Question;
 use dns_types::zones::types::Zones;
@@ -45,9 +46,12 @@ pub async fn resolve(
                 cache,
                 question,
             )
+            .instrument(tracing::error_span!("resolve_forwarding", %address, %question))
             .await
         } else {
-            resolve_recursive(RECURSION_LIMIT, &mut metrics, zones, cache, question).await
+            resolve_recursive(RECURSION_LIMIT, &mut metrics, zones, cache, question)
+                .instrument(tracing::error_span!("resolve_recursive", %question))
+                .await
         }
     } else {
         resolve_nonrecursive(RECURSION_LIMIT, &mut metrics, zones, cache, question)
