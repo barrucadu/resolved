@@ -53,6 +53,14 @@ See the `--help` text for options.
     "invalid record in cache"
   - `RUST_LOG=error` - warns about fatal errors and then terminates
     the process, like "could not bind socket"
+- Log format can be controlled with the `RUST_LOG_FORMAT` environment
+  variable, which is a sequence of comma-separated values:
+  - One of `full` (default), `compact`, `pretty`, or `json` - see [the
+    tracing_subscriber crate][]
+  - One of `ansi` (default), `no-ansi`
+  - One of `time` (default), `no-time`
+
+[the tracing_subscriber crate]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/index.html#formatters
 
 ### Other Tools
 
