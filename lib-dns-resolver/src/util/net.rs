@@ -1,8 +1,10 @@
 use bytes::BytesMut;
 use std::io;
 use std::net::SocketAddr;
+use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
+use tracing;
 
 /// Read a DNS message from a TCP stream.
 ///
@@ -52,6 +54,7 @@ pub async fn read_tcp_bytes(stream: &mut TcpStream) -> Result<BytesMut, TcpError
 }
 
 /// An error that can occur when reading a DNS TCP message.
+#[derive(Debug)]
 pub enum TcpError {
     TooShort {
         id: Option<u16>,
@@ -66,14 +69,10 @@ pub enum TcpError {
 
 /// Write a serialised message to a UDP channel.  This sets or clears
 /// the TC flag as appropriate.
-///
-/// Panics:
-///
-/// - If the message is shorter than 12 bytes, as that is the minimum
-///   possible size for a DNS message (header and no data)
 pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
-        panic!("send_udp_bytes: message too short (got {:?})", bytes.len())
+        tracing::error!(length = %bytes.len(), "message too short");
+        process::exit(1);
     }
 
     if bytes.len() > 512 {
@@ -96,10 +95,8 @@ pub async fn send_udp_bytes_to(
     // TODO: see if this can be combined with `send_udp_bytes`
 
     if bytes.len() < 12 {
-        panic!(
-            "send_udp_bytes_to: message too short (got {:?})",
-            bytes.len()
-        )
+        tracing::error!(length = %bytes.len(), "message too short");
+        process::exit(1);
     }
 
     if bytes.len() > 512 {
@@ -116,14 +113,10 @@ pub async fn send_udp_bytes_to(
 /// Write a serialised message to a TCP channel.  This sends a
 /// two-byte length prefix (big-endian u16) and sets or clears the TC
 /// flag as appropriate.
-///
-/// Panics:
-///
-/// - If the message is shorter than 12 bytes, as that is the minimum
-///   possible size for a DNS message (header and no data)
 pub async fn send_tcp_bytes(stream: &mut TcpStream, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
-        panic!("send_tcp_bytes: message too short (got {:?})", bytes.len())
+        tracing::error!(length = %bytes.len(), "message too short");
+        process::exit(1);
     }
 
     let len = if let Ok(len) = bytes.len().try_into() {

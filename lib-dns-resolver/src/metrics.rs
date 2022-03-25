@@ -88,12 +88,12 @@ impl Metrics {
         }
     }
 
-    pub fn cache_hit_or_miss(&mut self, cached_rrs: &[ResourceRecord]) {
-        if cached_rrs.is_empty() {
-            self.cache_misses += 1;
-        } else {
-            self.cache_hits += 1;
-        }
+    pub fn cache_hit(&mut self) {
+        self.cache_hits += 1;
+    }
+
+    pub fn cache_miss(&mut self) {
+        self.cache_misses += 1;
     }
 
     pub fn nameserver_hit(&mut self) {

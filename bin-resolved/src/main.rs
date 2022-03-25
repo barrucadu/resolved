@@ -4,12 +4,13 @@ use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, UdpSocket};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
+use tracing::Instrument;
 
 use dns_resolver::cache::SharedCache;
 use dns_resolver::resolve;
@@ -20,6 +21,8 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 use resolved::fs_util::*;
 use resolved::metrics::*;
+
+const DNS_PORT: u16 = 53;
 
 fn prune_cache_and_update_metrics(cache: &SharedCache) {
     let (overflow, current_size, expired, pruned) = cache.prune();
@@ -32,10 +35,7 @@ fn prune_cache_and_update_metrics(cache: &SharedCache) {
         CACHE_OVERFLOW_COUNT.inc();
     }
 
-    println!(
-        "[CACHE] expired {:?} and pruned {:?} entries",
-        expired, pruned
-    );
+    tracing::info!(%expired, %pruned, "pruned cache");
 }
 
 async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
@@ -65,6 +65,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         if question.is_unknown() {
             is_refused = true;
             question_timer.observe_duration();
+            tracing::info!(%question, "refused");
             continue;
         }
 
@@ -106,7 +107,20 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
                 }
             }
         }
-        question_timer.observe_duration();
+
+        let duration_seconds = question_timer.stop_and_record();
+        tracing::info!(
+            %question,
+            authoritative_hits = %metrics.authoritative_hits,
+            override_hits = %metrics.override_hits,
+            blocked = %metrics.blocked,
+            cache_hits = %metrics.cache_hits,
+            cache_misses = %metrics.cache_misses,
+            nameserver_hits = %metrics.nameserver_hits,
+            nameserver_misses = %metrics.nameserver_misses,
+            %duration_seconds,
+            "ok"
+        );
     }
 
     prune_cache_and_update_metrics(&args.cache);
@@ -119,14 +133,12 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         response.header.is_authoritative = false;
     }
 
-    println!(".");
-
     response
 }
 
 async fn handle_raw_message<'a>(args: ListenArgs, buf: &[u8]) -> Option<Message> {
     let res = Message::from_octets(buf);
-    println!("{:?}", res);
+    tracing::debug!(message = ?res, "got message");
 
     match res {
         Ok(msg) => {
@@ -148,7 +160,7 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
     loop {
         match socket.accept().await {
             Ok((mut stream, peer)) => {
-                println!("[{:?}] tcp request ok", peer);
+                tracing::info!(?peer, "TCP request");
                 DNS_REQUESTS_TOTAL.with_label_values(&["tcp"]).inc();
                 let args = args.clone();
                 tokio::spawn(async move {
@@ -157,19 +169,12 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                         .start_timer();
                     let response = match read_tcp_bytes(&mut stream).await {
                         Ok(bytes) => handle_raw_message(args, bytes.as_ref()).await,
-                        Err(TcpError::TooShort {
-                            id,
-                            expected,
-                            actual,
-                        }) => {
-                            println!(
-                                "[{:?}] tcp read error \"expected {:?} octets but got {:?}\"",
-                                peer, expected, actual
-                            );
-                            id.map(Message::make_format_error_response)
-                        }
-                        Err(TcpError::IO { id, error }) => {
-                            println!("[{:?}] tcp read error \"{:?}\"", peer, error);
+                        Err(error) => {
+                            let id = match error {
+                                TcpError::TooShort { id, .. } => id,
+                                TcpError::IO { id, .. } => id,
+                            };
+                            tracing::debug!(?peer, ?error, "TCP read error");
                             id.map(Message::make_format_error_response)
                         }
                     };
@@ -186,15 +191,18 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                                     ])
                                     .inc();
 
-                                if let Err(err) = send_tcp_bytes(&mut stream, &mut serialised).await
+                                if let Err(error) =
+                                    send_tcp_bytes(&mut stream, &mut serialised).await
                                 {
-                                    println!("[{:?}] tcp send error \"{:?}\"", peer, err);
+                                    tracing::debug!(?peer, ?error, "TCP send error");
                                 }
                             }
-                            Err(err) => {
-                                println!(
-                                    "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
-                                    message, err
+                            Err(error) => {
+                                tracing::warn!(
+                                    ?peer,
+                                    ?message,
+                                    ?error,
+                                    "could not serialise message"
                                 );
                             }
                         };
@@ -202,7 +210,7 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                     response_timer.observe_duration();
                 });
             }
-            Err(err) => println!("tcp request error \"{:?}\"", err),
+            Err(error) => tracing::debug!(?error, "TCP accept error"),
         }
     }
 }
@@ -214,7 +222,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
     loop {
         tokio::select! {
             Ok((size, peer)) = socket.recv_from(&mut buf) => {
-                println!("[{:?}] udp request ok", peer);
+                tracing::info!(?peer, "UDP request");
                 DNS_REQUESTS_TOTAL.with_label_values(&["udp"]).inc();
                 let bytes = BytesMut::from(&buf[..size]);
                 let reply = tx.clone();
@@ -226,7 +234,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
                     if let Some(response_message) = handle_raw_message(args, bytes.as_ref()).await {
                         match reply.send((response_message, peer, response_timer)).await {
                             Ok(_) => (),
-                            Err(err) => println!("[{:?}] udp reply error \"{:?}\"", peer, err),
+                            Err(error) => tracing::debug!(?peer, ?error, "UDP send error")
                         }
                     }
                 });
@@ -242,15 +250,17 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
                             &message.header.recursion_available.to_string(),
                             &message.header.rcode.to_string(),
                         ]).inc();
-                        if let Err(err) = send_udp_bytes_to(&socket, peer, &mut serialised).await
+                        if let Err(error) = send_udp_bytes_to(&socket, peer, &mut serialised).await
                         {
-                            println!("[{:?}] udp send error \"{:?}\"", peer, err);
+                            tracing::debug!(?peer, ?error, "UDP send error");
                         }
                     }
-                    Err(err) => {
-                        println!(
-                            "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
-                            message, err
+                    Err(error) => {
+                        tracing::warn!(
+                            ?peer,
+                            ?message,
+                            ?error,
+                            "could not serialise message"
                         );
                     }
                 };
@@ -279,8 +289,8 @@ async fn load_zone_configuration(args: &Args) -> Option<Zones> {
     for path in args.zones_dir.iter() {
         match get_files_from_dir(path).await {
             Ok(mut paths) => zone_file_paths.append(&mut paths),
-            Err(err) => {
-                eprintln!("error reading zone directory \"{:?}\": {:?}", path, err);
+            Err(error) => {
+                tracing::warn!(?path, ?error, "could not read zone directory");
                 is_error = true;
             }
         }
@@ -288,8 +298,8 @@ async fn load_zone_configuration(args: &Args) -> Option<Zones> {
     for path in args.hosts_dir.iter() {
         match get_files_from_dir(path).await {
             Ok(mut paths) => hosts_file_paths.append(&mut paths),
-            Err(err) => {
-                eprintln!("error reading hosts directory \"{:?}\": {:?}", path, err);
+            Err(error) => {
+                tracing::warn!(?path, ?error, "could not read hosts directory");
                 is_error = true;
             }
         }
@@ -299,12 +309,12 @@ async fn load_zone_configuration(args: &Args) -> Option<Zones> {
     for path in zone_file_paths.iter() {
         match zone_from_file(Path::new(path)).await {
             Ok(Ok(zone)) => combined_zones.insert_merge(zone),
-            Ok(Err(err)) => {
-                eprintln!("error parsing zone file \"{:?}\": {:?}", path, err);
+            Ok(Err(error)) => {
+                tracing::warn!(?path, ?error, "could not parse zone file");
                 is_error = true;
             }
-            Err(err) => {
-                eprintln!("error reading zone file \"{:?}\": {:?}", path, err);
+            Err(error) => {
+                tracing::warn!(?path, ?error, "could not read zone file");
                 is_error = true;
             }
         }
@@ -314,12 +324,12 @@ async fn load_zone_configuration(args: &Args) -> Option<Zones> {
     for path in hosts_file_paths.iter() {
         match hosts_from_file(Path::new(path)).await {
             Ok(Ok(hosts)) => combined_hosts.merge(hosts),
-            Ok(Err(err)) => {
-                eprintln!("error parsing hosts file \"{:?}\": {:?}", path, err);
+            Ok(Err(error)) => {
+                tracing::warn!(?path, ?error, "could not parse hosts file");
                 is_error = true;
             }
-            Err(err) => {
-                eprintln!("error reading hosts file \"{:?}\": {:?}", path, err);
+            Err(error) => {
+                tracing::warn!(?path, ?error, "could not read hosts file");
                 is_error = true;
             }
         }
@@ -348,19 +358,30 @@ async fn prune_cache_task(cache: SharedCache) {
 async fn reload_task(zones_lock: Arc<RwLock<Zones>>, args: Args) {
     let mut stream = match signal(SignalKind::user_defined1()) {
         Ok(s) => s,
-        Err(err) => panic!("could not subscribe to SIGUSR1: {:?}", err),
+        Err(error) => {
+            tracing::error!(?error, "could not subscribe to SIGUSR1");
+            process::exit(1);
+        }
     };
 
     loop {
         stream.recv().await;
 
-        println!("[USR1] reloading zones...");
-        if let Some(zones) = load_zone_configuration(&args).await {
+        tracing::error_span!("SIGUSR1").in_scope(|| tracing::info!("received"));
+        let start = Instant::now();
+        if let Some(zones) = load_zone_configuration(&args)
+            .instrument(tracing::error_span!("SIGUSR1"))
+            .await
+        {
             let mut lock = zones_lock.write().await;
             *lock = zones;
-            println!("[USR1] reloaded zones");
+            tracing::error_span!("SIGUSR1").in_scope(
+                || tracing::info!(duration_seconds = %start.elapsed().as_secs_f64(), "done - success"),
+            );
         } else {
-            println!("[USR1] could not reload zones");
+            tracing::error_span!("SIGUSR1").in_scope(
+                || tracing::info!(duration_seconds = %start.elapsed().as_secs_f64(), "done - failure"),
+            );
         }
     }
 }
@@ -438,25 +459,30 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
+    tracing_subscriber::fmt::init();
+
     let zones = match load_zone_configuration(&args).await {
         Some(zs) => zs,
-        None => process::exit(1),
-    };
-
-    println!("binding to {:?}", args.interface);
-
-    let udp = match UdpSocket::bind((args.interface, 53)).await {
-        Ok(s) => s,
-        Err(err) => {
-            eprintln!("error binding bind UDP socket: {:?}", err);
+        None => {
+            tracing::error!("could not load configuration");
             process::exit(1);
         }
     };
 
-    let tcp = match TcpListener::bind((args.interface, 53)).await {
+    tracing::info!(interface = %args.interface, port = %DNS_PORT, "binding DNS UDP socket");
+    let udp = match UdpSocket::bind((args.interface, DNS_PORT)).await {
         Ok(s) => s,
-        Err(err) => {
-            eprintln!("error binding bind TCP socket: {:?}", err);
+        Err(error) => {
+            tracing::error!(?error, "could not bind DNS UDP socket");
+            process::exit(1);
+        }
+    };
+
+    tracing::info!(interface = %args.interface, port = %DNS_PORT, "binding DNS TCP socket");
+    let tcp = match TcpListener::bind((args.interface, DNS_PORT)).await {
+        Ok(s) => s,
+        Err(error) => {
+            tracing::error!(?error, "could not bind DNS TCP socket");
             process::exit(1);
         }
     };
@@ -473,10 +499,11 @@ async fn main() {
     tokio::spawn(reload_task(listen_args.zones_lock.clone(), args.clone()));
     tokio::spawn(prune_cache_task(listen_args.cache));
 
-    if let Err(err) =
+    tracing::info!(interface = %args.metrics_interface, port = %args.metrics_port, "binding HTTP TCP socket");
+    if let Err(error) =
         serve_prometheus_endpoint_task(args.metrics_interface, args.metrics_port).await
     {
-        eprintln!("error starting metrics endpoint: {:?}", err);
+        tracing::error!(?error, "could not bind HTTP TCP socket");
         process::exit(1);
     }
 }

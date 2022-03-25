@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::timeout;
+use tracing::Instrument;
 
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
@@ -39,7 +40,10 @@ pub async fn resolve_recursive(
     .await
     {
         Ok(res) => res,
-        Err(_) => None,
+        Err(_) => {
+            tracing::debug!("timed out");
+            None
+        }
     }
 }
 
@@ -53,6 +57,7 @@ async fn resolve_recursive_notimeout(
     question: &Question,
 ) -> Option<ResolvedRecord> {
     if recursion_limit == 0 {
+        tracing::debug!("hit recursion limit");
         return None;
     }
 
@@ -66,7 +71,7 @@ async fn resolve_recursive_notimeout(
             is_authoritative,
         })) => {
             if is_authoritative || question.qtype != QueryType::Wildcard {
-                println!("[DEBUG] got response to current query (non-recursive)");
+                tracing::trace!("got non-recursive answer");
                 return Some(
                     NameserverResponse::Answer {
                         rrs,
@@ -76,23 +81,21 @@ async fn resolve_recursive_notimeout(
                     .into(),
                 );
             } else {
-                println!("[DEBUG] got non-authoritative response to current wildcard query - continuing (non-recursive)");
+                tracing::trace!("got non-recursive non-authoritative answer to current wildcard query - continuing");
                 combined_rrs = rrs;
             }
         }
         Some(Ok(NameserverResponse::Delegation { delegation, .. })) => {
-            println!("[DEBUG] found better nameserver - restarting current query (non-recursive)");
+            tracing::trace!("got non-recursive delegation - using as candidate");
             candidate_delegation = Some(delegation);
         }
         Some(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
+            tracing::trace!("got non-recursive CNAME - restarting with CNAME target");
             let cname_question = Question {
                 name: cname,
                 qclass: question.qclass,
                 qtype: question.qtype,
             };
-            println!(
-                "[DEBUG] current query is a CNAME - restarting with CNAME target (non-recursive)"
-            );
             if let Some(resolved) = resolve_recursive_notimeout(
                 recursion_limit - 1,
                 metrics,
@@ -100,6 +103,7 @@ async fn resolve_recursive_notimeout(
                 cache,
                 &cname_question,
             )
+            .instrument(tracing::error_span!("resolve_nonrecursive", %cname_question))
             .await
             {
                 let mut r_rrs = resolved.rrs();
@@ -112,7 +116,7 @@ async fn resolve_recursive_notimeout(
             }
         }
         Some(Err(error)) => {
-            println!("[DEBUG] got error response to current query (non-recursive)");
+            tracing::trace!("got non-recursive error response");
             return Some(error.into());
         }
         None => (),
@@ -125,41 +129,47 @@ async fn resolve_recursive_notimeout(
 
     if let Some(mut candidates) = candidate_delegation {
         'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
+            tracing::trace!(?candidate, "got candidate nameserver");
             if let Some(ip) = match candidate {
                 HostOrIP::IP(ip) => Some(ip),
-                HostOrIP::Host(name) => resolve_recursive_notimeout(
-                    recursion_limit - 1,
-                    metrics,
-                    zones,
-                    cache,
-                    &Question {
+                HostOrIP::Host(name) => {
+                    let candidate_question = Question {
                         name: name.clone(),
                         qclass: QueryClass::Record(RecordClass::IN),
                         qtype: QueryType::Record(RecordType::A),
-                    },
-                )
-                .await
-                .and_then(|res| get_ip(&res.rrs(), &name)),
+                    };
+                    resolve_recursive_notimeout(
+                        recursion_limit - 1,
+                        metrics,
+                        zones,
+                        cache,
+                        &candidate_question,
+                    )
+                    .instrument(tracing::error_span!("resolve_nonrecursive", %candidate_question))
+                    .await
+                    .and_then(|res| get_ip(&res.rrs(), &name))
+                }
             } {
-                if let Some(nameserver_answer) =
-                    query_nameserver(ip, question, candidates.match_count()).await
+                if let Some(nameserver_answer) = query_nameserver(ip, question, candidates.match_count())
+                    .instrument(tracing::error_span!("query_nameserver", address = %ip, match_count = %candidates.match_count()))
+                    .await
                 {
                     metrics.nameserver_hit();
                     match nameserver_answer {
                         NameserverResponse::Answer { rrs, .. } => {
+                            tracing::trace!("got recursive answer");
                             for rr in &rrs {
                                 cache.insert(rr);
                             }
-                            println!("[DEBUG] got response to current query (recursive)");
                             prioritising_merge(&mut combined_rrs, rrs);
                             return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         }
                         NameserverResponse::Delegation { rrs, delegation } => {
+                            tracing::trace!("got recursive delegation - using as candidate");
                             for rr in &rrs {
                                 cache.insert(rr);
                             }
                             candidates = delegation;
-                            println!("[DEBUG] found better nameserver - restarting current query (recursive)");
                             continue 'query_nameservers;
                         }
                         NameserverResponse::CNAME { rrs, cname, .. } => {
@@ -171,7 +181,7 @@ async fn resolve_recursive_notimeout(
                                 qclass: question.qclass,
                                 qtype: question.qtype,
                             };
-                            println!("[DEBUG] current query is a CNAME - restarting with CNAME target (recursive)");
+                            tracing::trace!("got recursive CNAME - restarting with CNAME target");
                             if let Some(resolved) = resolve_recursive_notimeout(
                                 recursion_limit - 1,
                                 metrics,
@@ -179,6 +189,7 @@ async fn resolve_recursive_notimeout(
                                 cache,
                                 &cname_question,
                             )
+                            .instrument(tracing::error_span!("resolve_nonrecursive", %cname_question))
                             .await
                             {
                                 prioritising_merge(&mut combined_rrs, rrs);
@@ -199,7 +210,7 @@ async fn resolve_recursive_notimeout(
             return None;
         }
     } else {
-        println!("[DEBUG] no candidate nameservers");
+        tracing::trace!("out of candidates");
     }
 
     None
@@ -263,13 +274,7 @@ async fn query_nameserver(
 ) -> Option<NameserverResponse> {
     let request = Message::from_question(rand::thread_rng().gen(), question.clone());
 
-    println!(
-        "[DEBUG] query remote nameserver {:?} for {:?} {:?} {:?}",
-        address,
-        question.name.to_dotted_string(),
-        question.qclass,
-        question.qtype
-    );
+    tracing::trace!("forwarding query to nameserver");
 
     match request.clone().to_octets() {
         Ok(mut serialised_request) => {
@@ -286,11 +291,8 @@ async fn query_nameserver(
                     })
             }
         }
-        Err(err) => {
-            println!(
-                "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
-                request, err
-            );
+        Err(error) => {
+            tracing::warn!(message = ?request, ?error, "could not serialise message");
             None
         }
     }
@@ -336,7 +338,8 @@ fn validate_nameserver_response(
 ) -> Option<NameserverResponse> {
     // precondition
     if request.questions.len() != 1 {
-        panic!("validate_nameserver_response only works for single-question messages");
+        tracing::warn!(qdcount = %request.questions.len(), "expected only one question");
+        return None;
     }
     let question = &request.questions[0];
 
@@ -373,7 +376,8 @@ fn validate_nameserver_response(
         if all_unknown {
             None
         } else if rrs_for_query.is_empty() {
-            panic!("[ERROR] validate_nameserver_response: there should at least be CNAME RRs here")
+            tracing::warn!("expected RRs");
+            None
         } else {
             // step 3.1 & 3.2: what sort of answer is this?
             if seen_final_record {

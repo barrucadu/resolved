@@ -16,10 +16,13 @@ have IPv6 at home, so this code doesn't support it yet.
 Usage
 -----
 
-**While `resolved` does work, you probably don't want to use it yet.
-Much of the code is untested and prototype quality.  You *definitely*
-don't want to expose this to the internet.  There will be bugs and
-maybe even exploits.**
+### The DNS Server
+
+**I use `resolved` for my home network with no problems, but it may
+not work for you.  You also probably don't want to expose this to the
+internet!**
+
+Compile it in release mode and run it like so:
 
 ```
 cargo build --release
@@ -29,15 +32,35 @@ sudo ./target/release/resolved -Z config/zones
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
 run as root or to have the `CAP_NET_BIND_SERVICE` capability.
 
+See the `--help` text for options.
+
+**Signals:**
+
+- `SIGUSR1` - reload the configuration
+
+**Monitoring:**
+
+- Prometheus metrics are exposed at `http://127.0.0.1:9420/metrics`
+- Log level can be controlled with the `RUST_LOG` environment variable:
+  - `RUST_LOG=trace` - verbose messages useful for development, like
+    "entered function X"
+  - `RUST_LOG=debug` - warns about strange but recoverable situations,
+    like "socket read error"
+  - `RUST_LOG=info` - gives top-level information, like "new
+    connection" or "reloading configuration"
+  - `RUST_LOG=warn` - warns about recoverable internal errors and
+    invalid configuration, like "could not serialise message" or
+    "invalid record in cache"
+  - `RUST_LOG=error` - warns about fatal errors and then terminates
+    the process, like "could not bind socket"
+
+### Other Tools
+
 There are also four utility programs---`htoh`, `htoz`, `ztoh`, and
 `ztoz`---to convert between hosts files and zone files.  They accept
 any syntactically valid file as input, and output it in a consistent
 format regardless of how the input is structured.  So `htoh` and
 `ztoz` can be used to normalise existing files.
-
-**Signals:**
-
-- `SIGUSR1` - reload the configuration
 
 
 Development

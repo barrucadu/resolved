@@ -3,6 +3,7 @@ use rand::Rng;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::timeout;
+use tracing::Instrument;
 
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
@@ -43,7 +44,10 @@ pub async fn resolve_forwarding(
     .await
     {
         Ok(res) => res,
-        Err(_) => None,
+        Err(_) => {
+            tracing::debug!("timed out");
+            None
+        }
     }
 }
 
@@ -58,6 +62,7 @@ async fn resolve_forwarding_notimeout(
     question: &Question,
 ) -> Option<ResolvedRecord> {
     if recursion_limit == 0 {
+        tracing::debug!("hit recursion limit");
         return None;
     }
 
@@ -70,7 +75,7 @@ async fn resolve_forwarding_notimeout(
             is_authoritative,
         })) => {
             if is_authoritative || question.qtype != QueryType::Wildcard {
-                println!("[DEBUG] got response to current query (non-recursive)");
+                tracing::trace!("got non-recursive answer");
                 return Some(
                     NameserverResponse::Answer {
                         rrs,
@@ -80,22 +85,22 @@ async fn resolve_forwarding_notimeout(
                     .into(),
                 );
             } else {
-                println!("[DEBUG] got non-authoritative response to current wildcard query - continuing (non-recursive)");
+                tracing::trace!("got non-recursive non-authoritative answer to current wildcard query - continuing");
                 combined_rrs = rrs;
             }
         }
         Some(Ok(NameserverResponse::Delegation { .. })) => {
-            println!("[DEBUG] found better nameserver - ignoring in favour of forwarding nameserver (non-recursive)");
+            tracing::trace!(
+                "got non-recursive delegation - ignoring in favour of forwarding nameserver"
+            );
         }
         Some(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
+            tracing::trace!("got non-recursive CNAME - restarting with CNAME target");
             let cname_question = Question {
                 name: cname,
                 qclass: question.qclass,
                 qtype: question.qtype,
             };
-            println!(
-                "[DEBUG] current query is a CNAME - restarting with CNAME target (non-recursive)"
-            );
             if let Some(resolved) = resolve_forwarding_notimeout(
                 recursion_limit - 1,
                 metrics,
@@ -104,6 +109,7 @@ async fn resolve_forwarding_notimeout(
                 cache,
                 &cname_question,
             )
+            .instrument(tracing::error_span!("resolve_forwarding", %cname_question))
             .await
             {
                 let mut r_rrs = resolved.rrs();
@@ -116,22 +122,26 @@ async fn resolve_forwarding_notimeout(
             }
         }
         Some(Err(error)) => {
-            println!("[DEBUG] got error response to current query (non-recursive)");
+            tracing::trace!("got non-recursive error response");
             return Some(error.into());
         }
         None => (),
     }
 
-    if let Some(rrs) = query_nameserver(forward_address, question).await {
+    if let Some(rrs) = query_nameserver(forward_address, question)
+        .instrument(tracing::error_span!("query_nameserver"))
+        .await
+    {
         metrics.nameserver_hit();
         for rr in &rrs {
             cache.insert(rr);
         }
-        println!("[DEBUG] got response to current query (forwarding)");
+        tracing::trace!("nameserver HIT");
         prioritising_merge(&mut combined_rrs, rrs);
         Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
     } else {
         metrics.nameserver_miss();
+        tracing::trace!("nameserver MISS");
         None
     }
 }
@@ -142,12 +152,7 @@ async fn query_nameserver(address: Ipv4Addr, question: &Question) -> Option<Vec<
     let mut request = Message::from_question(rand::thread_rng().gen(), question.clone());
     request.header.recursion_desired = true;
 
-    println!(
-        "[DEBUG] forward query to nameserver for {:?} {:?} {:?}",
-        question.name.to_dotted_string(),
-        question.qclass,
-        question.qtype
-    );
+    tracing::trace!("forwarding query to nameserver");
 
     match request.clone().to_octets() {
         Ok(mut serialised_request) => {
@@ -163,11 +168,8 @@ async fn query_nameserver(address: Ipv4Addr, question: &Question) -> Option<Vec<
             }
             None
         }
-        Err(err) => {
-            println!(
-                "[INTERNAL ERROR] could not serialise message {:?} \"{:?}\"",
-                request, err
-            );
+        Err(error) => {
+            tracing::warn!(message = ?request, ?error, "could not serialise message");
             None
         }
     }
