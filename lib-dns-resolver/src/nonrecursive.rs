@@ -106,7 +106,7 @@ pub fn resolve_nonrecursive(
             // - if resolving it fails: return the response, which is
             // authoritative if and only if this starting zone is
             // authoritative.
-            Some(ZoneResult::CNAME { cname_rr }) => {
+            Some(ZoneResult::CNAME { cname, rr }) => {
                 println!(
                     "[DEBUG] zone {:?} {} CNAME for {:?} {:?} {:?}",
                     zone.get_apex().to_dotted_string(),
@@ -121,14 +121,7 @@ pub fn resolve_nonrecursive(
                 );
                 metrics.zoneresult_cname(zone);
 
-                let cname = if let RecordTypeWithData::CNAME { cname } = &cname_rr.rtype_with_data {
-                    cname
-                } else {
-                    println!("[ERROR] expected CNAME RR (in zone)");
-                    return None;
-                };
-
-                let mut rrs = vec![cname_rr.clone()];
+                let mut rrs = vec![rr];
                 return Some(Ok(
                     match resolve_nonrecursive(
                         recursion_limit - 1,
@@ -170,7 +163,7 @@ pub fn resolve_nonrecursive(
                         }
                         _ => NameserverResponse::CNAME {
                             rrs,
-                            cname: cname.clone(),
+                            cname,
                             is_authoritative: zone.is_authoritative(),
                         },
                     },
