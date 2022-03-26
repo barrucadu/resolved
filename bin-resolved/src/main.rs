@@ -1,5 +1,7 @@
 use bytes::BytesMut;
 use clap::Parser;
+use std::collections::HashSet;
+use std::env;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -11,6 +13,7 @@ use tokio::sync::mpsc;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use tracing::Instrument;
+use tracing_subscriber::EnvFilter;
 
 use dns_resolver::cache::SharedCache;
 use dns_resolver::resolve;
@@ -386,6 +389,46 @@ async fn reload_task(zones_lock: Arc<RwLock<Zones>>, args: Args) {
     }
 }
 
+fn begin_logging() {
+    let log_format = if let Ok(var) = env::var("RUST_LOG_FORMAT") {
+        let mut set = HashSet::new();
+        for s in var.split(',') {
+            set.insert(s.to_string());
+        }
+        set
+    } else {
+        HashSet::new()
+    };
+
+    let logger = tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_ansi(!log_format.contains("no-ansi"));
+
+    if log_format.contains("json") {
+        if log_format.contains("no-time") {
+            logger.json().without_time().init();
+        } else {
+            logger.json().init();
+        }
+    } else if log_format.contains("pretty") {
+        if log_format.contains("no-time") {
+            logger.pretty().without_time().init();
+        } else {
+            logger.pretty().init();
+        }
+    } else if log_format.contains("compact") {
+        if log_format.contains("no-time") {
+            logger.compact().without_time().init();
+        } else {
+            logger.compact().init();
+        }
+    } else if log_format.contains("no-time") {
+        logger.without_time().init();
+    } else {
+        logger.init();
+    }
+}
+
 // the doc comments for this struct turn into the CLI help text
 #[derive(Debug, Parser)]
 /// A simple DNS server for home networks.
@@ -459,7 +502,7 @@ struct Args {
 async fn main() {
     let args = Args::parse();
 
-    tracing_subscriber::fmt::init();
+    begin_logging();
 
     let zones = match load_zone_configuration(&args).await {
         Some(zs) => zs,
