@@ -38,7 +38,9 @@ fn prune_cache_and_update_metrics(cache: &SharedCache) {
         CACHE_OVERFLOW_COUNT.inc();
     }
 
-    tracing::info!(%expired, %pruned, "pruned cache");
+    if expired > 0 || pruned > 0 {
+        tracing::info!(%expired, %pruned, "pruned cache");
+    }
 }
 
 async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
