@@ -72,6 +72,8 @@ pub enum NameserverResponse {
     Delegation {
         rrs: Vec<ResourceRecord>,
         delegation: Nameservers,
+        is_authoritative: bool,
+        authority_rrs: Vec<ResourceRecord>,
     },
 }
 
@@ -88,8 +90,32 @@ impl From<NameserverResponse> for ResolvedRecord {
                 rrs,
                 ..
             } => ResolvedRecord::NonAuthoritative { rrs },
-            NameserverResponse::CNAME { .. } => todo!(),
-            NameserverResponse::Delegation { .. } => todo!(),
+            NameserverResponse::CNAME {
+                rrs,
+                is_authoritative,
+                ..
+            } => {
+                if is_authoritative {
+                    ResolvedRecord::Authoritative {
+                        rrs,
+                        authority_rrs: Vec::new(),
+                    }
+                } else {
+                    ResolvedRecord::NonAuthoritative { rrs }
+                }
+            }
+            NameserverResponse::Delegation {
+                rrs,
+                is_authoritative,
+                authority_rrs,
+                ..
+            } => {
+                if is_authoritative {
+                    ResolvedRecord::Authoritative { rrs, authority_rrs }
+                } else {
+                    ResolvedRecord::NonAuthoritative { rrs }
+                }
+            }
         }
     }
 }

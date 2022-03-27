@@ -164,7 +164,7 @@ async fn resolve_recursive_notimeout(
                             prioritising_merge(&mut combined_rrs, rrs);
                             return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         }
-                        NameserverResponse::Delegation { rrs, delegation } => {
+                        NameserverResponse::Delegation { rrs, delegation, .. } => {
                             tracing::trace!("got recursive delegation - using as candidate");
                             for rr in &rrs {
                                 cache.insert(rr);
@@ -454,6 +454,8 @@ fn validate_nameserver_response(
         // step 3.3: this is a delegation
         Some(NameserverResponse::Delegation {
             rrs: nameserver_rrs,
+            authority_rrs: Vec::new(),
+            is_authoritative: false,
             delegation: Nameservers {
                 hostnames: ns_names.into_iter().map(HostOrIP::Host).collect(),
                 name: match_name,
@@ -748,7 +750,12 @@ mod tests {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: mut actual_delegation,
+                is_authoritative,
+                authority_rrs,
             }) => {
+                assert!(!is_authoritative);
+                assert!(authority_rrs.is_empty());
+
                 let mut expected_rrs = vec![
                     ns_record("example.com.", "ns-an.example.net."),
                     ns_record("example.com.", "ns-ns.example.net."),
@@ -822,6 +829,8 @@ mod tests {
                     "subdomain.example.com.",
                     "ns-better.example.net."
                 )],
+                authority_rrs: Vec::new(),
+                is_authoritative: false,
                 delegation: Nameservers {
                     hostnames: vec![HostOrIP::Host(domain("ns-better.example.net."))],
                     name: domain("subdomain.example.com."),
@@ -836,6 +845,8 @@ mod tests {
                     "subdomain.example.com.",
                     "ns-better.example.net."
                 )],
+                authority_rrs: Vec::new(),
+                is_authoritative: false,
                 delegation: Nameservers {
                     hostnames: vec![HostOrIP::Host(domain("ns-better.example.net."))],
                     name: domain("subdomain.example.com."),
@@ -869,7 +880,12 @@ mod tests {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: _,
+                authority_rrs,
+                is_authoritative,
             }) => {
+                assert!(!is_authoritative);
+                assert!(authority_rrs.is_empty());
+
                 let mut expected_rrs = vec![
                     ns_record("example.com.", "ns-an.example.net."),
                     ns_record("example.com.", "ns-ns.example.net."),

@@ -167,7 +167,7 @@ pub fn resolve_nonrecursive(
                 tracing::trace!("got delegation");
                 metrics.zoneresult_delegation(zone);
 
-                if zone.is_authoritative() {
+                if let Some(soa_rr) = zone.soa_rr() {
                     if ns_rrs.is_empty() {
                         tracing::warn!("got empty RRset from delegation");
                         return None;
@@ -186,6 +186,8 @@ pub fn resolve_nonrecursive(
                     return Some(Ok(NameserverResponse::Delegation {
                         delegation: Nameservers { name, hostnames },
                         rrs: ns_rrs,
+                        is_authoritative: true,
+                        authority_rrs: vec![soa_rr],
                     }));
                 }
             }
@@ -599,6 +601,8 @@ mod tests {
                     "delegated.authoritative.example.com.",
                     "ns.delegated.authoritative.example.com."
                 )],
+                authority_rrs: vec![zones_soa_rr()],
+                is_authoritative: true,
                 delegation: Nameservers {
                     name: domain("delegated.authoritative.example.com."),
                     hostnames: vec![HostOrIP::Host(domain(
