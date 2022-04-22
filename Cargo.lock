@@ -386,9 +386,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.1.10"
+version = "3.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3124f3f75ce09e22d1410043e1e24f2ecc44fad3afe4f08408f1f7663d68da2b"
+checksum = "423af4bd829996d7de0b8bf0279f5b91a20306937be514e972a95c3d3ab13f33"
 dependencies = [
  "atty",
  "bitflags",
@@ -792,7 +792,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "htoh"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.10",
+ "clap 3.1.11",
  "dns-types",
 ]
 
@@ -800,7 +800,7 @@ dependencies = [
 name = "htoz"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.10",
+ "clap 3.1.11",
  "dns-types",
 ]
 
@@ -1364,7 +1364,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "bytes",
- "clap 3.1.10",
+ "clap 3.1.11",
  "dns-resolver",
  "dns-types",
  "lazy_static",
@@ -2004,7 +2004,7 @@ dependencies = [
 name = "ztoh"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.10",
+ "clap 3.1.11",
  "dns-types",
 ]
 
@@ -2012,6 +2012,6 @@ dependencies = [
 name = "ztoz"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.10",
+ "clap 3.1.11",
  "dns-types",
 ]
