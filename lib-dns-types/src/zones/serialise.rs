@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use crate::protocol::types::*;
 use crate::zones::types::*;
@@ -19,11 +20,13 @@ impl Zone {
             );
 
             if show_origin {
-                out.push_str(&format!("$ORIGIN {}\n\n", serialised_apex))
+                let _ = writeln!(&mut out, "$ORIGIN {}", serialised_apex);
+                out.push('\n');
             }
 
-            out.push_str(&format!(
-                "{} IN SOA {} {} {} {} {} {} {}\n\n",
+            let _ = writeln!(
+                &mut out,
+                "{} IN SOA {} {} {} {} {} {} {}",
                 if show_origin { "@" } else { &serialised_apex },
                 self.serialise_domain(&soa.mname),
                 self.serialise_domain(&soa.rname),
@@ -32,7 +35,8 @@ impl Zone {
                 soa.retry,
                 soa.expire,
                 soa.minimum
-            ));
+            );
+            out.push('\n');
         }
 
         let all_records = self.all_records();
@@ -61,25 +65,27 @@ impl Zone {
                         continue;
                     }
 
-                    out.push_str(&format!(
-                        "{}{} {} IN {} {}\n",
+                    let _ = writeln!(
+                        &mut out,
+                        "{}{} {} IN {} {}",
                         self.serialise_domain(domain),
                         if has_wildcards { "  " } else { "" },
                         zr.ttl,
                         zr.rtype_with_data.rtype(),
                         self.serialise_rdata(&zr.rtype_with_data)
-                    ));
+                    );
                 }
             }
             if let Some(zrs) = all_wildcard_records.get(domain) {
                 for zr in zrs {
-                    out.push_str(&format!(
-                        "*.{} {} IN {} {}\n",
+                    let _ = writeln!(
+                        &mut out,
+                        "*.{} {} IN {} {}",
                         self.serialise_domain(domain),
                         zr.ttl,
                         zr.rtype_with_data.rtype(),
                         self.serialise_rdata(&zr.rtype_with_data)
-                    ));
+                    );
                 }
             }
             out.push('\n');

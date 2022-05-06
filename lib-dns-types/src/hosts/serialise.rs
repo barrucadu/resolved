@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::fmt::Write as _;
 
 use crate::hosts::types::*;
 use crate::protocol::types::*;
@@ -30,10 +31,10 @@ impl Hosts {
             };
 
             if let Some(addr) = self.v4.get(domain) {
-                out.push_str(&format!("{} {}\n", addr, domain_str))
+                let _ = writeln!(&mut out, "{} {}", addr, domain_str);
             }
             if let Some(addr) = self.v6.get(domain) {
-                out.push_str(&format!("{} {}\n", addr, domain_str))
+                let _ = writeln!(&mut out, "{} {}", addr, domain_str);
             }
             out.push('\n');
         }
