@@ -538,7 +538,7 @@ fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<Doma
         });
     }
 
-    if !dotted_string_vec.iter().all(|c| c.is_ascii()) {
+    if !dotted_string_vec.iter().all(char::is_ascii) {
         return Err(Error::ExpectedDomainName {
             dotted_string: dotted_string.to_string(),
         });

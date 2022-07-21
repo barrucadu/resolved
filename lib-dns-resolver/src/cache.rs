@@ -565,7 +565,7 @@ mod tests {
         for (name, entry) in &cache.entries {
             assert_eq!(
                 entry.size,
-                entry.records.values().map(|r| r.len()).sum::<usize>()
+                entry.records.values().map(Vec::len).sum::<usize>()
             );
 
             let mut min_expires = None;

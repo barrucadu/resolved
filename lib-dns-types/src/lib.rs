@@ -6,7 +6,6 @@
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
 #![allow(clippy::needless_pass_by_value)]
-#![allow(clippy::redundant_closure_for_method_calls)]
 #![allow(clippy::redundant_else)]
 #![allow(clippy::semicolon_if_nothing_returned)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
