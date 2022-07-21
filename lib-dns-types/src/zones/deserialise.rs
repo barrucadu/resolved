@@ -88,9 +88,8 @@ impl Zone {
                     apex: zone.get_apex().clone(),
                     name: rr.name,
                 });
-            } else {
-                zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
             }
+            zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
         }
 
         for rr in wildcard_rrs {
@@ -99,9 +98,8 @@ impl Zone {
                     apex: zone.get_apex().clone(),
                     name: rr.name,
                 });
-            } else {
-                zone.insert_wildcard(&rr.name, rr.rtype_with_data, rr.ttl);
             }
+            zone.insert_wildcard(&rr.name, rr.rtype_with_data, rr.ttl);
         }
 
         Ok(zone)
