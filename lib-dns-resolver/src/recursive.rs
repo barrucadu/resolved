@@ -423,10 +423,10 @@ fn validate_nameserver_response(
         for rr in &response.answers {
             match &rr.rtype_with_data {
                 RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
             }
@@ -434,7 +434,7 @@ fn validate_nameserver_response(
         for rr in &response.authority {
             match &rr.rtype_with_data {
                 RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
             }
@@ -442,7 +442,7 @@ fn validate_nameserver_response(
         for rr in &response.additional {
             match &rr.rtype_with_data {
                 RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
             }
@@ -980,7 +980,7 @@ mod tests {
                 &domain("www.example.com."),
                 &QueryType::Wildcard
             )
-        )
+        );
     }
 
     #[test]

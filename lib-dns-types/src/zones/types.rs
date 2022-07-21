@@ -56,7 +56,7 @@ impl Zones {
             if let Some(my_zone) = self.zones.get_mut(&apex) {
                 my_zone.merge(other_zone).unwrap();
             } else {
-                self.insert(other_zone)
+                self.insert(other_zone);
             }
         }
     }

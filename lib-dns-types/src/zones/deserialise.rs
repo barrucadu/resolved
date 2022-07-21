@@ -955,7 +955,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -990,7 +990,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1018,7 +1018,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1040,7 +1040,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1062,7 +1062,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1084,7 +1084,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1106,7 +1106,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1128,7 +1128,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1157,7 +1157,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1179,7 +1179,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1201,7 +1201,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1223,7 +1223,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1245,7 +1245,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1267,7 +1267,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1289,7 +1289,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1311,7 +1311,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1334,7 +1334,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1357,7 +1357,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1379,7 +1379,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1401,7 +1401,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }
@@ -1427,7 +1427,7 @@ mod tests {
                     }
                 },
                 parsed
-            )
+            );
         } else {
             panic!("expected successful parse");
         }

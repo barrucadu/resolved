@@ -2,7 +2,6 @@
 // TODO: fix
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
-#![allow(clippy::semicolon_if_nothing_returned)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]

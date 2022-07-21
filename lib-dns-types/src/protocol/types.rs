@@ -1033,7 +1033,7 @@ impl TryFrom<&[u8]> for Label {
 
         let mut octets = Vec::with_capacity(mixed_case_octets.len());
         for o in mixed_case_octets {
-            octets.push(o.to_ascii_lowercase())
+            octets.push(o.to_ascii_lowercase());
         }
 
         Ok(Self { octets })
@@ -1548,7 +1548,7 @@ mod tests {
             DomainName::from_labels(vec![Label::new()])
         );
 
-        assert_eq!(".", DomainName::root_domain().to_dotted_string())
+        assert_eq!(".", DomainName::root_domain().to_dotted_string());
     }
 
     #[test]

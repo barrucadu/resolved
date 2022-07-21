@@ -187,16 +187,16 @@ mod tests {
                 parsed
             );
         } else {
-            panic!("unexpected parse failure")
+            panic!("unexpected parse failure");
         }
     }
 
     #[test]
     fn parse_line_parses_ipv4_without_names() {
         if let Ok(parsed) = parse_line("1.2.3.4") {
-            assert_eq!(None, parsed)
+            assert_eq!(None, parsed);
         } else {
-            panic!("unexpected parse failure")
+            panic!("unexpected parse failure");
         }
     }
 
@@ -211,7 +211,7 @@ mod tests {
                 parsed
             );
         } else {
-            panic!("unexpected parse failure")
+            panic!("unexpected parse failure");
         }
     }
 
@@ -220,7 +220,7 @@ mod tests {
         if let Ok(parsed) = parse_line("::1") {
             assert_eq!(None, parsed);
         } else {
-            panic!("unexpected parse failure")
+            panic!("unexpected parse failure");
         }
     }
 }

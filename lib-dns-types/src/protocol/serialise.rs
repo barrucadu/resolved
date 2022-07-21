@@ -108,25 +108,25 @@ impl ResourceRecord {
                 let mut octets =
                     Vec::with_capacity(mname.octets.len() + rname.octets.len() + 4 + 4 + 4 + 4 + 4);
                 for octet in mname.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in rname.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in serial.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in refresh.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in retry.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in expire.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in minimum.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 (RecordType::SOA, octets)
             }
@@ -140,10 +140,10 @@ impl ResourceRecord {
             RecordTypeWithData::MINFO { rmailbx, emailbx } => {
                 let mut octets = Vec::with_capacity(rmailbx.octets.len() + emailbx.octets.len());
                 for octet in rmailbx.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in emailbx.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 (RecordType::MINFO, octets)
             }
@@ -153,10 +153,10 @@ impl ResourceRecord {
             } => {
                 let mut octets = Vec::with_capacity(2 + exchange.octets.len());
                 for octet in preference.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in exchange.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 (RecordType::MX, octets)
             }

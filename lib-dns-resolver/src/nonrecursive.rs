@@ -589,7 +589,7 @@ mod tests {
                     qclass: QueryClass::Wildcard,
                 }
             )
-        )
+        );
     }
 
     #[test]
