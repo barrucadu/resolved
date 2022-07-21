@@ -30,7 +30,7 @@ pub async fn resolve_forwarding(
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
-    match timeout(
+    if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_forwarding_notimeout(
             recursion_limit,
@@ -43,11 +43,10 @@ pub async fn resolve_forwarding(
     )
     .await
     {
-        Ok(res) => res,
-        Err(_) => {
-            tracing::debug!("timed out");
-            None
-        }
+        res
+    } else {
+        tracing::debug!("timed out");
+        None
     }
 }
 

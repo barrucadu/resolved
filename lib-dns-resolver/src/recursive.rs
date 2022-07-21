@@ -33,17 +33,16 @@ pub async fn resolve_recursive(
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
-    match timeout(
+    if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_recursive_notimeout(recursion_limit, metrics, zones, cache, question),
     )
     .await
     {
-        Ok(res) => res,
-        Err(_) => {
-            tracing::debug!("timed out");
-            None
-        }
+        res
+    } else {
+        tracing::debug!("timed out");
+        None
     }
 }
 
