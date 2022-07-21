@@ -125,12 +125,11 @@ impl<'a> arbitrary::Arbitrary<'a> for Zone {
             }
         }
 
-        if zone.get_apex() != &DomainName::root_domain() && !zone.is_authoritative() {
-            panic!(
-                "non-authoritative zone with apex!\n\n{:?}\n\n",
-                zone.get_apex()
-            );
-        }
+        assert!(
+            zone.get_apex() == &DomainName::root_domain() || zone.is_authoritative(),
+            "non-authoritative zone with apex!\n\n{:?}\n\n",
+            zone.get_apex()
+        );
 
         Ok(zone)
     }

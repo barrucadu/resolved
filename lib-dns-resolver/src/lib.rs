@@ -1,6 +1,5 @@
 #![warn(clippy::pedantic)]
 // TODO: fix
-#![allow(clippy::manual_assert)]
 #![allow(clippy::match_wildcard_for_single_variants)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
