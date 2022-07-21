@@ -53,13 +53,13 @@ impl WireHeader {
         Ok(Self {
             header: Header {
                 id,
-                is_response: flags1 & 0b10000000 != 0,
-                opcode: Opcode::from((flags1 & 0b01111000) >> 3),
-                is_authoritative: flags1 & 0b00000100 != 0,
-                is_truncated: flags1 & 0b00000010 != 0,
-                recursion_desired: flags1 & 0b00000001 != 0,
-                recursion_available: flags2 & 0b10000000 != 0,
-                rcode: Rcode::from(flags2 & 0b00001111),
+                is_response: flags1 & 0b1000_0000 != 0,
+                opcode: Opcode::from((flags1 & 0b0111_1000) >> 3),
+                is_authoritative: flags1 & 0b0000_0100 != 0,
+                is_truncated: flags1 & 0b0000_0010 != 0,
+                recursion_desired: flags1 & 0b0000_0001 != 0,
+                recursion_available: flags2 & 0b1000_0000 != 0,
+                rcode: Rcode::from(flags2 & 0b0000_1111),
             },
             qdcount,
             ancount,
@@ -235,7 +235,7 @@ impl DomainName {
             } else if size >= 192 {
                 // this requires re-parsing the pointed-to domain -
                 // not great but works for now.
-                let hi = size & 0b00111111;
+                let hi = size & 0b0011_1111;
                 let lo = buffer.next_u8().ok_or(Error::DomainTooShort(id))?;
                 let ptr = u16::from_be_bytes([hi, lo]).into();
 

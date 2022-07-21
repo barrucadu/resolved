@@ -15,7 +15,6 @@
 #![allow(clippy::semicolon_if_nothing_returned)]
 #![allow(clippy::single_match_else)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
-#![allow(clippy::unreadable_literal)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]

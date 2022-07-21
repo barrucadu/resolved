@@ -753,7 +753,7 @@ impl Opcode {
 
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
-        match octet & 0b00001111 {
+        match octet & 0b0000_1111 {
             0 => Opcode::Standard,
             1 => Opcode::Inverse,
             2 => Opcode::Status,
@@ -819,7 +819,7 @@ impl fmt::Display for Rcode {
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
-        match octet & 0b00001111 {
+        match octet & 0b0000_1111 {
             0 => Rcode::NoError,
             1 => Rcode::FormatError,
             2 => Rcode::ServerFailure,

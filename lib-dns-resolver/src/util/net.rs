@@ -76,10 +76,10 @@ pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io
     }
 
     if bytes.len() > 512 {
-        bytes[2] |= 0b00000010;
+        bytes[2] |= 0b0000_0010;
         sock.send(&bytes[..512]).await?;
     } else {
-        bytes[2] &= 0b11111101;
+        bytes[2] &= 0b1111_1101;
         sock.send(bytes).await?;
     }
 
@@ -100,10 +100,10 @@ pub async fn send_udp_bytes_to(
     }
 
     if bytes.len() > 512 {
-        bytes[2] |= 0b00000010;
+        bytes[2] |= 0b0000_0010;
         sock.send_to(&bytes[..512], target).await?;
     } else {
-        bytes[2] &= 0b11111101;
+        bytes[2] &= 0b1111_1101;
         sock.send_to(bytes, target).await?;
     }
 
@@ -120,10 +120,10 @@ pub async fn send_tcp_bytes(stream: &mut TcpStream, bytes: &mut [u8]) -> Result<
     }
 
     let len = if let Ok(len) = bytes.len().try_into() {
-        bytes[2] &= 0b11111101;
+        bytes[2] &= 0b1111_1101;
         len
     } else {
-        bytes[2] |= 0b00000010;
+        bytes[2] |= 0b0000_0010;
         u16::MAX
     };
 
