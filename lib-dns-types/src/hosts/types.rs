@@ -26,17 +26,17 @@ impl Hosts {
     /// Merge another hosts file into this one.  If the same name has
     /// records in both files, the new file will win.
     pub fn merge(&mut self, other: Hosts) {
-        for (name, address) in other.v4.into_iter() {
+        for (name, address) in other.v4 {
             self.v4.insert(name, address);
         }
-        for (name, address) in other.v6.into_iter() {
+        for (name, address) in other.v6 {
             self.v6.insert(name, address);
         }
     }
 
     /// Convert a zone into a hosts file, discarding any non-A and
     /// non-AAAA records.
-    pub fn from_zone_lossy(zone: Zone) -> Self {
+    pub fn from_zone_lossy(zone: &Zone) -> Self {
         let mut v4 = HashMap::new();
         let mut v6 = HashMap::new();
         for (name, zrs) in zone.all_records() {
@@ -67,10 +67,10 @@ impl Default for Hosts {
 impl From<Hosts> for Zone {
     fn from(hosts: Hosts) -> Zone {
         let mut zone = Self::default();
-        for (name, address) in hosts.v4.into_iter() {
+        for (name, address) in hosts.v4 {
             zone.insert(&name, RecordTypeWithData::A { address }, TTL);
         }
-        for (name, address) in hosts.v6.into_iter() {
+        for (name, address) in hosts.v6 {
             zone.insert(&name, RecordTypeWithData::AAAA { address }, TTL);
         }
         zone
@@ -80,6 +80,10 @@ impl From<Hosts> for Zone {
 impl TryFrom<Zone> for Hosts {
     type Error = TryFromZoneError;
 
+    /// # Errors
+    ///
+    /// If the zone has wildcard domain names or non-A / non-AAAA
+    /// record types.
     fn try_from(zone: Zone) -> Result<Self, Self::Error> {
         if !zone.all_wildcard_records().is_empty() {
             return Err(TryFromZoneError::HasWildcardRecords);
@@ -135,8 +139,8 @@ mod tests {
     #[test]
     fn hosts_merge_zone_merge_equiv_when_disjoint() {
         for _ in 0..100 {
-            let hosts1 = arbitrary_hosts_with_apex(domain("hosts1."));
-            let hosts2 = arbitrary_hosts_with_apex(domain("hosts2."));
+            let hosts1 = arbitrary_hosts_with_apex(&domain("hosts1."));
+            let hosts2 = arbitrary_hosts_with_apex(&domain("hosts2."));
 
             let mut combined_hosts = hosts1.clone();
             combined_hosts.merge(hosts2.clone());
@@ -150,7 +154,7 @@ mod tests {
         }
     }
 
-    fn arbitrary_hosts_with_apex(apex: DomainName) -> Hosts {
+    fn arbitrary_hosts_with_apex(apex: &DomainName) -> Hosts {
         let arbitrary = arbitrary_hosts();
 
         let mut out = Hosts::new();
@@ -175,6 +179,7 @@ mod tests {
 }
 
 #[cfg(any(feature = "test-util", test))]
+#[allow(clippy::missing_panics_doc)]
 pub mod test_util {
     use super::*;
 

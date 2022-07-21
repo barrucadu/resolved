@@ -753,7 +753,7 @@ impl Opcode {
 
 impl From<u8> for Opcode {
     fn from(octet: u8) -> Self {
-        match octet & 0b00001111 {
+        match octet & 0b0000_1111 {
             0 => Opcode::Standard,
             1 => Opcode::Inverse,
             2 => Opcode::Status,
@@ -819,7 +819,7 @@ impl fmt::Display for Rcode {
 
 impl From<u8> for Rcode {
     fn from(octet: u8) -> Self {
-        match octet & 0b00001111 {
+        match octet & 0b0000_1111 {
             0 => Rcode::NoError,
             1 => Rcode::FormatError,
             2 => Rcode::ServerFailure,
@@ -956,7 +956,7 @@ impl DomainName {
             blank_label |= label.is_empty();
 
             octets.push(label.len());
-            octets.append(&mut label.iter().cloned().collect());
+            octets.append(&mut label.iter().copied().collect());
         }
 
         if blank_label && octets.len() <= DOMAINNAME_MAX_LEN {
@@ -1003,6 +1003,7 @@ impl Label {
         Self { octets: Vec::new() }
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn len(&self) -> u8 {
         // safe as the `TryFrom` ensures a label is <= 63 bytes
         self.octets.len().try_into().unwrap()
@@ -1033,7 +1034,7 @@ impl TryFrom<&[u8]> for Label {
 
         let mut octets = Vec::with_capacity(mixed_case_octets.len());
         for o in mixed_case_octets {
-            octets.push(o.to_ascii_lowercase())
+            octets.push(o.to_ascii_lowercase());
         }
 
         Ok(Self { octets })
@@ -1159,7 +1160,7 @@ impl QueryClass {
     pub fn is_unknown(&self) -> bool {
         match self {
             QueryClass::Record(rclass) => rclass.is_unknown(),
-            _ => false,
+            QueryClass::Wildcard => false,
         }
     }
 }
@@ -1548,7 +1549,7 @@ mod tests {
             DomainName::from_labels(vec![Label::new()])
         );
 
-        assert_eq!(".", DomainName::root_domain().to_dotted_string())
+        assert_eq!(".", DomainName::root_domain().to_dotted_string());
     }
 
     #[test]
@@ -1638,6 +1639,7 @@ mod tests {
 }
 
 #[cfg(any(feature = "test-util", test))]
+#[allow(clippy::missing_panics_doc)]
 pub mod test_util {
     use super::*;
 

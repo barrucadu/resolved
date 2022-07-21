@@ -35,7 +35,7 @@ fn main() {
             let try_hosts = if args.strict {
                 Hosts::try_from(zone)
             } else {
-                Ok(Hosts::from_zone_lossy(zone))
+                Ok(Hosts::from_zone_lossy(&zone))
             };
             match try_hosts {
                 Ok(hosts) => print!("{}", hosts.serialise()),

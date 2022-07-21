@@ -42,8 +42,10 @@ impl Zones {
 
     /// Create a new zone or merge with an existing one.  See
     /// `Zone.merge` for details.
+    #[allow(clippy::missing_panics_doc)]
     pub fn insert_merge(&mut self, other_zone: Zone) {
         if let Some(my_zone) = self.zones.get_mut(&other_zone.apex) {
+            // safe because of the apex check
             my_zone.merge(other_zone).unwrap();
         } else {
             self.insert(other_zone);
@@ -51,12 +53,14 @@ impl Zones {
     }
 
     /// Perform a zone-wise merge.  See `Zone.merge` for details.
+    #[allow(clippy::missing_panics_doc)]
     pub fn merge(&mut self, other: Zones) {
-        for (apex, other_zone) in other.zones.into_iter() {
+        for (apex, other_zone) in other.zones {
             if let Some(my_zone) = self.zones.get_mut(&apex) {
+                // safe because of the apex check
                 my_zone.merge(other_zone).unwrap();
             } else {
-                self.insert(other_zone)
+                self.insert(other_zone);
             }
         }
     }
@@ -125,12 +129,11 @@ impl<'a> arbitrary::Arbitrary<'a> for Zone {
             }
         }
 
-        if zone.get_apex() != &DomainName::root_domain() && !zone.is_authoritative() {
-            panic!(
-                "non-authoritative zone with apex!\n\n{:?}\n\n",
-                zone.get_apex()
-            );
-        }
+        assert!(
+            zone.get_apex() == &DomainName::root_domain() || zone.is_authoritative(),
+            "non-authoritative zone with apex!\n\n{:?}\n\n",
+            zone.get_apex()
+        );
 
         Ok(zone)
     }
@@ -238,7 +241,9 @@ impl Zone {
 
     /// Merge another zone into this one.
     ///
-    /// Returns `Err` if the apex does not match.
+    /// # Errors
+    ///
+    /// If the apex does not match.
     pub fn merge(&mut self, other: Zone) -> Result<(), (DomainName, DomainName)> {
         if self.apex != other.apex {
             return Err((self.apex.clone(), other.apex));
@@ -458,7 +463,7 @@ impl ZoneRecords {
             }
         }
 
-        for (k, other_zrs) in other.children.into_iter() {
+        for (k, other_zrs) in other.children {
             if let Some(my_zrs) = self.children.get_mut(&k) {
                 my_zrs.merge(other_zrs);
             } else {
@@ -474,7 +479,7 @@ impl ZoneRecords {
             map.insert(&self.nsdname, zrs);
         }
 
-        for (_, child) in self.children.iter() {
+        for child in self.children.values() {
             child.all_records(map);
         }
     }
@@ -491,7 +496,7 @@ impl ZoneRecords {
             }
         }
 
-        for (_, child) in self.children.iter() {
+        for child in self.children.values() {
             child.all_wildcard_records(map);
         }
     }
@@ -571,34 +576,27 @@ fn zone_result_helper(
     nsdname: &DomainName,
 ) -> ZoneResult {
     if QueryType::Record(RecordType::NS) != qtype {
-        match records.get(&RecordType::NS) {
-            Some(ns_zrs) => {
-                if !ns_zrs.is_empty() {
-                    return ZoneResult::Delegation {
-                        ns_rrs: ns_zrs.iter().map(|zr| zr.to_rr(nsdname)).collect(),
-                    };
-                }
+        if let Some(ns_zrs) = records.get(&RecordType::NS) {
+            if !ns_zrs.is_empty() {
+                return ZoneResult::Delegation {
+                    ns_rrs: ns_zrs.iter().map(|zr| zr.to_rr(nsdname)).collect(),
+                };
             }
-            None => (),
         }
     }
 
     if !RecordType::CNAME.matches(&qtype) {
-        match records.get(&RecordType::CNAME) {
-            Some(cname_zrs) => {
-                if !cname_zrs.is_empty() {
-                    let rr = cname_zrs[0].to_rr(name);
-                    if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
-                        return ZoneResult::CNAME {
-                            cname: cname.clone(),
-                            rr,
-                        };
-                    } else {
-                        panic!("got non-CNAME record for CNAME query: {:?}", rr);
-                    }
+        if let Some(cname_zrs) = records.get(&RecordType::CNAME) {
+            if !cname_zrs.is_empty() {
+                let rr = cname_zrs[0].to_rr(name);
+                if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+                    return ZoneResult::CNAME {
+                        cname: cname.clone(),
+                        rr,
+                    };
                 }
+                panic!("got non-CNAME record for CNAME query: {:?}", rr);
             }
-            None => (),
         }
     }
 
@@ -626,7 +624,7 @@ fn merge_zrs_helper(
     this: &mut HashMap<RecordType, Vec<ZoneRecord>>,
     other: HashMap<RecordType, Vec<ZoneRecord>>,
 ) {
-    for (k, other_zrs) in other.into_iter() {
+    for (k, other_zrs) in other {
         if let Some(my_zrs) = this.get_mut(&k) {
             for new in other_zrs {
                 if my_zrs.iter().any(|e| e == &new) {
@@ -853,7 +851,7 @@ mod tests {
         expected.sort();
 
         let mut actual = Vec::with_capacity(expected.capacity());
-        for (name, zrs) in zone.all_records().iter() {
+        for (name, zrs) in &zone.all_records() {
             for zr in zrs {
                 actual.push(zr.to_rr(name));
             }
@@ -878,7 +876,7 @@ mod tests {
         expected.sort();
 
         let mut actual = Vec::with_capacity(expected.capacity());
-        for (name, zrs) in zone.all_wildcard_records().iter() {
+        for (name, zrs) in &zone.all_wildcard_records() {
             for zr in zrs {
                 actual.push(zr.to_rr(name));
             }

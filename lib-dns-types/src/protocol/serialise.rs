@@ -4,12 +4,20 @@
 use crate::protocol::types::*;
 
 impl Message {
+    /// # Errors
+    ///
+    /// If the message is invalid (the `Message` type permits more
+    /// states than strictly allowed).
     pub fn to_octets(self) -> Result<Vec<u8>, Error> {
         let mut buffer = WritableBuffer::default();
         self.serialise(&mut buffer)?;
         Ok(buffer.octets)
     }
 
+    /// # Errors
+    ///
+    /// If the message is invalid (the `Message` type permits more
+    /// states than strictly allowed).
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let qdcount = usize_to_counter(self.questions.len())?;
         let ancount = usize_to_counter(self.answers.len())?;
@@ -45,30 +53,30 @@ impl Message {
 impl WireHeader {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         let flags1 = (if self.header.is_response {
-            0b10000000
+            0b1000_0000
         } else {
             0
-        }) | (0b01111000 & (u8::from(self.header.opcode) << 3))
+        }) | (0b0111_1000 & (u8::from(self.header.opcode) << 3))
             | (if self.header.is_authoritative {
-                0b00000100
+                0b0000_0100
             } else {
                 0
             })
             | (if self.header.is_truncated {
-                0b00000010
+                0b0000_0010
             } else {
                 0
             })
             | (if self.header.recursion_desired {
-                0b00000001
+                0b0000_0001
             } else {
                 0
             });
         let flags2 = (if self.header.recursion_available {
-            0b10000000
+            0b1000_0000
         } else {
             0
-        }) | (0b00001111 & u8::from(self.header.rcode));
+        }) | (0b0000_1111 & u8::from(self.header.rcode));
 
         buffer.write_u16(self.header.id);
         buffer.write_u8(flags1);
@@ -89,6 +97,9 @@ impl Question {
 }
 
 impl ResourceRecord {
+    /// # Errors
+    ///
+    /// If the RDATA is too long.
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let (rtype, rdata) = match self.rtype_with_data {
             RecordTypeWithData::A { address } => (RecordType::A, Vec::from(address.octets())),
@@ -108,25 +119,25 @@ impl ResourceRecord {
                 let mut octets =
                     Vec::with_capacity(mname.octets.len() + rname.octets.len() + 4 + 4 + 4 + 4 + 4);
                 for octet in mname.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in rname.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in serial.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in refresh.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in retry.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in expire.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in minimum.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 (RecordType::SOA, octets)
             }
@@ -140,10 +151,10 @@ impl ResourceRecord {
             RecordTypeWithData::MINFO { rmailbx, emailbx } => {
                 let mut octets = Vec::with_capacity(rmailbx.octets.len() + emailbx.octets.len());
                 for octet in rmailbx.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in emailbx.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 (RecordType::MINFO, octets)
             }
@@ -153,10 +164,10 @@ impl ResourceRecord {
             } => {
                 let mut octets = Vec::with_capacity(2 + exchange.octets.len());
                 for octet in preference.to_be_bytes() {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 for octet in exchange.octets {
-                    octets.push(octet)
+                    octets.push(octet);
                 }
                 (RecordType::MX, octets)
             }
@@ -278,6 +289,10 @@ impl WritableBuffer {
 
 /// Helper function to convert a `usize` counter into the appropriate
 /// width (or return an error)
+///
+/// # Errors
+///
+/// If the value cannot be converted.
 fn usize_to_counter<T: TryFrom<usize>>(counter: usize) -> Result<T, Error> {
     if let Ok(t) = T::try_from(counter) {
         Ok(t)

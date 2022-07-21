@@ -33,17 +33,16 @@ pub async fn resolve_recursive(
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
-    match timeout(
+    if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_recursive_notimeout(recursion_limit, metrics, zones, cache, question),
     )
     .await
     {
-        Ok(res) => res,
-        Err(_) => {
-            tracing::debug!("timed out");
-            None
-        }
+        res
+    } else {
+        tracing::debug!("timed out");
+        None
     }
 }
 
@@ -80,10 +79,11 @@ async fn resolve_recursive_notimeout(
                     }
                     .into(),
                 );
-            } else {
-                tracing::trace!("got non-recursive non-authoritative answer to current wildcard query - continuing");
-                combined_rrs = rrs;
             }
+            tracing::trace!(
+                "got non-recursive non-authoritative answer to current wildcard query - continuing"
+            );
+            combined_rrs = rrs;
         }
         Some(Ok(NameserverResponse::Delegation { delegation, .. })) => {
             tracing::trace!("got non-recursive delegation - using as candidate");
@@ -111,9 +111,8 @@ async fn resolve_recursive_notimeout(
                 combined_rrs.append(&mut rrs.clone());
                 combined_rrs.append(&mut r_rrs);
                 return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-            } else {
-                return None;
             }
+            return None;
         }
         Some(Err(error)) => {
             tracing::trace!("got non-recursive error response");
@@ -197,14 +196,12 @@ async fn resolve_recursive_notimeout(
                                 return Some(ResolvedRecord::NonAuthoritative {
                                     rrs: combined_rrs,
                                 });
-                            } else {
-                                return None;
                             }
+                            return None;
                         }
                     }
-                } else {
-                    metrics.nameserver_miss();
                 }
+                metrics.nameserver_miss();
             }
 
             return None;
@@ -280,14 +277,14 @@ async fn query_nameserver(
         Ok(mut serialised_request) => {
             let udp_response = query_nameserver_udp(address, &mut serialised_request)
                 .await
-                .and_then(|res| validate_nameserver_response(&request, res, current_match_count));
+                .and_then(|res| validate_nameserver_response(&request, &res, current_match_count));
             if udp_response.is_some() {
                 udp_response
             } else {
                 query_nameserver_tcp(address, &mut serialised_request)
                     .await
                     .and_then(|res| {
-                        validate_nameserver_response(&request, res, current_match_count)
+                        validate_nameserver_response(&request, &res, current_match_count)
                     })
             }
         }
@@ -333,7 +330,7 @@ async fn query_nameserver(
 /// answer may be reported as invalid.
 fn validate_nameserver_response(
     request: &Message,
-    response: Message,
+    response: &Message,
     current_match_count: usize,
 ) -> Option<NameserverResponse> {
     // precondition
@@ -344,7 +341,7 @@ fn validate_nameserver_response(
     let question = &request.questions[0];
 
     // step 1: validation
-    if !response_matches_request(request, &response) {
+    if !response_matches_request(request, response) {
         return None;
     }
 
@@ -426,10 +423,10 @@ fn validate_nameserver_response(
         for rr in &response.answers {
             match &rr.rtype_with_data {
                 RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
             }
@@ -437,7 +434,7 @@ fn validate_nameserver_response(
         for rr in &response.authority {
             match &rr.rtype_with_data {
                 RecordTypeWithData::NS { nsdname } if ns_names.contains(nsdname) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
             }
@@ -445,7 +442,7 @@ fn validate_nameserver_response(
         for rr in &response.additional {
             match &rr.rtype_with_data {
                 RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
-                    nameserver_rrs.push(rr.clone())
+                    nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
             }
@@ -634,7 +631,7 @@ mod tests {
                 is_authoritative: false,
                 authority_rrs: Vec::new(),
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -662,7 +659,7 @@ mod tests {
                 is_authoritative: false,
                 authority_rrs: Vec::new(),
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -684,7 +681,7 @@ mod tests {
         )]
         .into();
 
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+        assert_eq!(None, validate_nameserver_response(&request, &response, 0));
     }
 
     #[test]
@@ -708,7 +705,7 @@ mod tests {
                 is_authoritative: false,
                 authority_rrs: Vec::new(),
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -733,7 +730,7 @@ mod tests {
                 cname: domain("cname-target.example.com."),
                 is_authoritative: false,
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -746,7 +743,7 @@ mod tests {
             &[ns_record("example.com.", "ns-ar.example.net.")],
         );
 
-        match validate_nameserver_response(&request, response, 0) {
+        match validate_nameserver_response(&request, &response, 0) {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: mut actual_delegation,
@@ -796,7 +793,7 @@ mod tests {
             None,
             validate_nameserver_response(
                 &request,
-                response,
+                &response,
                 domain("subdomain.example.com.").labels.len()
             )
         );
@@ -836,7 +833,7 @@ mod tests {
                     name: domain("subdomain.example.com."),
                 },
             }),
-            validate_nameserver_response(&request, response1, 0)
+            validate_nameserver_response(&request, &response1, 0)
         );
 
         assert_eq!(
@@ -852,7 +849,7 @@ mod tests {
                     name: domain("subdomain.example.com."),
                 },
             }),
-            validate_nameserver_response(&request, response2, 0)
+            validate_nameserver_response(&request, &response2, 0)
         );
     }
 
@@ -876,7 +873,7 @@ mod tests {
             ],
         );
 
-        match validate_nameserver_response(&request, response, 0) {
+        match validate_nameserver_response(&request, &response, 0) {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: _,
@@ -983,7 +980,7 @@ mod tests {
                 &domain("www.example.com."),
                 &QueryType::Wildcard
             )
-        )
+        );
     }
 
     #[test]

@@ -334,7 +334,7 @@ impl Cache {
             if let Some(entry) = self.entries.get_mut(&name) {
                 let mut pruned = 0;
 
-                let rtypes = entry.records.keys().cloned().collect::<Vec<RecordType>>();
+                let rtypes = entry.records.keys().copied().collect::<Vec<RecordType>>();
                 let mut next_expiry = None;
                 for rtype in rtypes {
                     if let Some(tuples) = entry.records.get_mut(&rtype) {
@@ -434,14 +434,14 @@ mod tests {
 
             assert_cache_response(
                 &rr,
-                cache.get_without_checking_expiration(
+                &cache.get_without_checking_expiration(
                     &rr.name,
                     &QueryType::Record(rr.rtype_with_data.rtype()),
                 ),
             );
             assert_cache_response(
                 &rr,
-                cache.get_without_checking_expiration(&rr.name, &QueryType::Wildcard),
+                &cache.get_without_checking_expiration(&rr.name, &QueryType::Wildcard),
             );
         }
     }
@@ -562,14 +562,14 @@ mod tests {
         let mut access_priority = PriorityQueue::new();
         let mut expiry_priority = PriorityQueue::new();
 
-        for (name, entry) in cache.entries.iter() {
+        for (name, entry) in &cache.entries {
             assert_eq!(
                 entry.size,
-                entry.records.values().map(|r| r.len()).sum::<usize>()
+                entry.records.values().map(Vec::len).sum::<usize>()
             );
 
             let mut min_expires = None;
-            for (rtype, tuples) in entry.records.iter() {
+            for (rtype, tuples) in &entry.records {
                 for (rtype_with_data, expires) in tuples {
                     assert_eq!(*rtype, rtype_with_data.rtype());
 
@@ -595,13 +595,14 @@ mod tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::missing_panics_doc)]
 pub mod test_util {
     use super::*;
 
     /// Assert that the cache response has exactly one element and
     /// that it matches the original (all fields equal except TTL,
     /// where the original is >=).
-    pub fn assert_cache_response(original: &ResourceRecord, response: Vec<ResourceRecord>) {
+    pub fn assert_cache_response(original: &ResourceRecord, response: &[ResourceRecord]) {
         assert_eq!(1, response.len());
         let cached = response[0].clone();
 

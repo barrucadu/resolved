@@ -30,7 +30,7 @@ pub async fn resolve_forwarding(
     cache: &SharedCache,
     question: &Question,
 ) -> Option<ResolvedRecord> {
-    match timeout(
+    if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_forwarding_notimeout(
             recursion_limit,
@@ -43,11 +43,10 @@ pub async fn resolve_forwarding(
     )
     .await
     {
-        Ok(res) => res,
-        Err(_) => {
-            tracing::debug!("timed out");
-            None
-        }
+        res
+    } else {
+        tracing::debug!("timed out");
+        None
     }
 }
 
@@ -84,10 +83,11 @@ async fn resolve_forwarding_notimeout(
                     }
                     .into(),
                 );
-            } else {
-                tracing::trace!("got non-recursive non-authoritative answer to current wildcard query - continuing");
-                combined_rrs = rrs;
             }
+            tracing::trace!(
+                "got non-recursive non-authoritative answer to current wildcard query - continuing"
+            );
+            combined_rrs = rrs;
         }
         Some(Ok(NameserverResponse::Delegation { .. })) => {
             tracing::trace!(
@@ -117,9 +117,8 @@ async fn resolve_forwarding_notimeout(
                 combined_rrs.append(&mut rrs.clone());
                 combined_rrs.append(&mut r_rrs);
                 return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-            } else {
-                return None;
             }
+            return None;
         }
         Some(Err(error)) => {
             tracing::trace!("got non-recursive error response");

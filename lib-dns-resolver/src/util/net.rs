@@ -1,7 +1,6 @@
 use bytes::BytesMut;
 use std::io;
 use std::net::SocketAddr;
-use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tracing;
@@ -14,6 +13,10 @@ use tracing;
 /// says how many fields there are, and the fields contain length
 /// information), but it means the entire message can be read before
 /// parsing begins.
+///
+/// # Errors
+///
+/// If reading from the stream fails or returns an incomplete message.
 pub async fn read_tcp_bytes(stream: &mut TcpStream) -> Result<BytesMut, TcpError> {
     match stream.read_u16().await {
         Ok(size) => {
@@ -69,17 +72,25 @@ pub enum TcpError {
 
 /// Write a serialised message to a UDP channel.  This sets or clears
 /// the TC flag as appropriate.
+///
+/// # Errors
+///
+/// If sending the message fails.
+///
+/// # Panics
+///
+/// If given an incomplete (< 12 byte) message.
 pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
-        process::exit(1);
+        panic!("expected complete message");
     }
 
     if bytes.len() > 512 {
-        bytes[2] |= 0b00000010;
+        bytes[2] |= 0b0000_0010;
         sock.send(&bytes[..512]).await?;
     } else {
-        bytes[2] &= 0b11111101;
+        bytes[2] &= 0b1111_1101;
         sock.send(bytes).await?;
     }
 
@@ -87,6 +98,14 @@ pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io
 }
 
 /// Like `send_udp_bytes` but sends to the given address
+///
+/// # Errors
+///
+/// If sending the message fails.
+///
+/// # Panics
+///
+/// If given an incomplete (< 12 byte) message.
 pub async fn send_udp_bytes_to(
     sock: &UdpSocket,
     target: SocketAddr,
@@ -96,14 +115,14 @@ pub async fn send_udp_bytes_to(
 
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
-        process::exit(1);
+        panic!("expected complete message");
     }
 
     if bytes.len() > 512 {
-        bytes[2] |= 0b00000010;
+        bytes[2] |= 0b0000_0010;
         sock.send_to(&bytes[..512], target).await?;
     } else {
-        bytes[2] &= 0b11111101;
+        bytes[2] &= 0b1111_1101;
         sock.send_to(bytes, target).await?;
     }
 
@@ -113,17 +132,25 @@ pub async fn send_udp_bytes_to(
 /// Write a serialised message to a TCP channel.  This sends a
 /// two-byte length prefix (big-endian u16) and sets or clears the TC
 /// flag as appropriate.
+///
+/// # Errors
+///
+/// If sending the message fails.
+///
+/// # Panics
+///
+/// If given an incomplete (< 12 byte) message.
 pub async fn send_tcp_bytes(stream: &mut TcpStream, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
-        process::exit(1);
+        panic!("expected complete message");
     }
 
     let len = if let Ok(len) = bytes.len().try_into() {
-        bytes[2] &= 0b11111101;
+        bytes[2] &= 0b1111_1101;
         len
     } else {
-        bytes[2] |= 0b00000010;
+        bytes[2] |= 0b0000_0010;
         u16::MAX
     };
 

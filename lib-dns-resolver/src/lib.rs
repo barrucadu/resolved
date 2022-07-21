@@ -1,3 +1,14 @@
+#![warn(clippy::pedantic)]
+// Don't care enough to fix
+#![allow(clippy::match_same_arms)]
+#![allow(clippy::must_use_candidate)]
+#![allow(clippy::module_name_repetitions)]
+#![allow(clippy::return_self_not_must_use)]
+#![allow(clippy::similar_names)]
+#![allow(clippy::struct_excessive_bools)]
+#![allow(clippy::too_many_lines)]
+#![allow(clippy::wildcard_imports)]
+
 pub mod cache;
 pub mod forwarding;
 pub mod metrics;

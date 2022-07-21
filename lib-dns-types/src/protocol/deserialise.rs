@@ -6,10 +6,16 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use crate::protocol::types::*;
 
 impl Message {
+    /// # Errors
+    ///
+    /// If the message cannot be parsed.
     pub fn from_octets(octets: &[u8]) -> Result<Self, Error> {
         Self::deserialise(&mut ConsumableBuffer::new(octets))
     }
 
+    /// # Errors
+    ///
+    /// If the message cannot be parsed.
     pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let wire_header = WireHeader::deserialise(buffer)?;
         let mut questions = Vec::with_capacity(wire_header.qdcount.into());
@@ -41,6 +47,9 @@ impl Message {
 }
 
 impl WireHeader {
+    /// # Errors
+    ///
+    /// If the header is too short.
     pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let id = buffer.next_u16().ok_or(Error::CompletelyBusted)?;
         let flags1 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
@@ -53,13 +62,13 @@ impl WireHeader {
         Ok(Self {
             header: Header {
                 id,
-                is_response: flags1 & 0b10000000 != 0,
-                opcode: Opcode::from((flags1 & 0b01111000) >> 3),
-                is_authoritative: flags1 & 0b00000100 != 0,
-                is_truncated: flags1 & 0b00000010 != 0,
-                recursion_desired: flags1 & 0b00000001 != 0,
-                recursion_available: flags2 & 0b10000000 != 0,
-                rcode: Rcode::from(flags2 & 0b00001111),
+                is_response: flags1 & 0b1000_0000 != 0,
+                opcode: Opcode::from((flags1 & 0b0111_1000) >> 3),
+                is_authoritative: flags1 & 0b0000_0100 != 0,
+                is_truncated: flags1 & 0b0000_0010 != 0,
+                recursion_desired: flags1 & 0b0000_0001 != 0,
+                recursion_available: flags2 & 0b1000_0000 != 0,
+                rcode: Rcode::from(flags2 & 0b0000_1111),
             },
             qdcount,
             ancount,
@@ -70,6 +79,9 @@ impl WireHeader {
 }
 
 impl Question {
+    /// # Errors
+    ///
+    /// If the question cannot be parsed.
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let name = DomainName::deserialise(id, buffer)?;
         let qtype = QueryType::deserialise(id, buffer)?;
@@ -84,6 +96,9 @@ impl Question {
 }
 
 impl ResourceRecord {
+    /// # Errors
+    ///
+    /// If the record cannot be parsed.
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let name = DomainName::deserialise(id, buffer)?;
         let rtype = RecordType::deserialise(id, buffer)?;
@@ -202,6 +217,10 @@ impl ResourceRecord {
 }
 
 impl DomainName {
+    /// # Errors
+    ///
+    /// If the domain cannot be parsed.
+    #[allow(clippy::missing_panics_doc)]
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
         let mut labels = Vec::<Label>::with_capacity(5);
@@ -235,7 +254,7 @@ impl DomainName {
             } else if size >= 192 {
                 // this requires re-parsing the pointed-to domain -
                 // not great but works for now.
-                let hi = size & 0b00111111;
+                let hi = size & 0b0011_1111;
                 let lo = buffer.next_u8().ok_or(Error::DomainTooShort(id))?;
                 let ptr = u16::from_be_bytes([hi, lo]).into();
 
@@ -264,6 +283,9 @@ impl DomainName {
 }
 
 impl QueryType {
+    /// # Errors
+    ///
+    /// If the query type is too short.
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::QuestionTooShort(id))?;
         Ok(Self::from(value))
@@ -271,6 +293,9 @@ impl QueryType {
 }
 
 impl QueryClass {
+    /// # Errors
+    ///
+    /// If the query class is too short.
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::QuestionTooShort(id))?;
         Ok(Self::from(value))
@@ -278,6 +303,9 @@ impl QueryClass {
 }
 
 impl RecordType {
+    /// # Errors
+    ///
+    /// If the record type is too short.
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
         Ok(Self::from(value))
@@ -285,6 +313,9 @@ impl RecordType {
 }
 
 impl RecordClass {
+    /// # Errors
+    ///
+    /// If the record class is too short.
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
         Ok(Self::from(value))
