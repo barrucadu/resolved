@@ -13,7 +13,6 @@
 #![allow(clippy::redundant_closure_for_method_calls)]
 #![allow(clippy::redundant_else)]
 #![allow(clippy::semicolon_if_nothing_returned)]
-#![allow(clippy::single_match)]
 #![allow(clippy::single_match_else)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
 #![allow(clippy::unreadable_literal)]

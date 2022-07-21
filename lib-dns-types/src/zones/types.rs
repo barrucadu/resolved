@@ -571,34 +571,28 @@ fn zone_result_helper(
     nsdname: &DomainName,
 ) -> ZoneResult {
     if QueryType::Record(RecordType::NS) != qtype {
-        match records.get(&RecordType::NS) {
-            Some(ns_zrs) => {
-                if !ns_zrs.is_empty() {
-                    return ZoneResult::Delegation {
-                        ns_rrs: ns_zrs.iter().map(|zr| zr.to_rr(nsdname)).collect(),
-                    };
-                }
+        if let Some(ns_zrs) = records.get(&RecordType::NS) {
+            if !ns_zrs.is_empty() {
+                return ZoneResult::Delegation {
+                    ns_rrs: ns_zrs.iter().map(|zr| zr.to_rr(nsdname)).collect(),
+                };
             }
-            None => (),
         }
     }
 
     if !RecordType::CNAME.matches(&qtype) {
-        match records.get(&RecordType::CNAME) {
-            Some(cname_zrs) => {
-                if !cname_zrs.is_empty() {
-                    let rr = cname_zrs[0].to_rr(name);
-                    if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
-                        return ZoneResult::CNAME {
-                            cname: cname.clone(),
-                            rr,
-                        };
-                    } else {
-                        panic!("got non-CNAME record for CNAME query: {:?}", rr);
-                    }
+        if let Some(cname_zrs) = records.get(&RecordType::CNAME) {
+            if !cname_zrs.is_empty() {
+                let rr = cname_zrs[0].to_rr(name);
+                if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {
+                    return ZoneResult::CNAME {
+                        cname: cname.clone(),
+                        rr,
+                    };
+                } else {
+                    panic!("got non-CNAME record for CNAME query: {:?}", rr);
                 }
             }
-            None => (),
         }
     }
 
