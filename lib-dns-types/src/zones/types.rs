@@ -52,7 +52,7 @@ impl Zones {
 
     /// Perform a zone-wise merge.  See `Zone.merge` for details.
     pub fn merge(&mut self, other: Zones) {
-        for (apex, other_zone) in other.zones.into_iter() {
+        for (apex, other_zone) in other.zones {
             if let Some(my_zone) = self.zones.get_mut(&apex) {
                 my_zone.merge(other_zone).unwrap();
             } else {
@@ -458,7 +458,7 @@ impl ZoneRecords {
             }
         }
 
-        for (k, other_zrs) in other.children.into_iter() {
+        for (k, other_zrs) in other.children {
             if let Some(my_zrs) = self.children.get_mut(&k) {
                 my_zrs.merge(other_zrs);
             } else {
@@ -620,7 +620,7 @@ fn merge_zrs_helper(
     this: &mut HashMap<RecordType, Vec<ZoneRecord>>,
     other: HashMap<RecordType, Vec<ZoneRecord>>,
 ) {
-    for (k, other_zrs) in other.into_iter() {
+    for (k, other_zrs) in other {
         if let Some(my_zrs) = this.get_mut(&k) {
             for new in other_zrs {
                 if my_zrs.iter().any(|e| e == &new) {

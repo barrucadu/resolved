@@ -26,10 +26,10 @@ impl Hosts {
     /// Merge another hosts file into this one.  If the same name has
     /// records in both files, the new file will win.
     pub fn merge(&mut self, other: Hosts) {
-        for (name, address) in other.v4.into_iter() {
+        for (name, address) in other.v4 {
             self.v4.insert(name, address);
         }
-        for (name, address) in other.v6.into_iter() {
+        for (name, address) in other.v6 {
             self.v6.insert(name, address);
         }
     }
@@ -67,10 +67,10 @@ impl Default for Hosts {
 impl From<Hosts> for Zone {
     fn from(hosts: Hosts) -> Zone {
         let mut zone = Self::default();
-        for (name, address) in hosts.v4.into_iter() {
+        for (name, address) in hosts.v4 {
             zone.insert(&name, RecordTypeWithData::A { address }, TTL);
         }
-        for (name, address) in hosts.v6.into_iter() {
+        for (name, address) in hosts.v6 {
             zone.insert(&name, RecordTypeWithData::AAAA { address }, TTL);
         }
         zone

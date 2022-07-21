@@ -181,7 +181,7 @@ pub fn prioritising_merge(priority: &mut Vec<ResourceRecord>, new: Vec<ResourceR
         seen.insert((rr.name.clone(), rr.rtype_with_data.rtype()));
     }
 
-    for rr in new.into_iter() {
+    for rr in new {
         if !seen.contains(&(rr.name.clone(), rr.rtype_with_data.rtype())) {
             priority.push(rr);
         }
