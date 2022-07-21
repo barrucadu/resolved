@@ -392,9 +392,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "3.1.18"
+version = "3.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2dbdf4bdacb33466e854ce889eee8dfd5729abf7ccd7664d0a2d60cd384440b"
+checksum = "8e538f9ee5aa3b3963f09a997035f883677966ed50fce0292611927ce6f6d8c6"
 dependencies = [
  "atty",
  "bitflags",
@@ -409,9 +409,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "3.1.18"
+version = "3.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25320346e922cffe59c0bbc5410c8d8784509efb321488971081313cb1e1a33c"
+checksum = "a7f98063cac4652f23ccda556b8d04347a7fc4b2cff1f7577cc8c6546e0d8078"
 dependencies = [
  "heck",
  "proc-macro-error",
@@ -422,9 +422,9 @@ dependencies = [
 
 [[package]]
 name = "clap_lex"
-version = "0.2.0"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a37c35f1112dad5e6e0b1adaff798507497a18fceeb30cceb3bae7d1427b9213"
+checksum = "2850f2f5a82cbf437dd5af4d49848fbdfc27c157c3d010345776f952765261c5"
 dependencies = [
  "os_str_bytes",
 ]
@@ -798,7 +798,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "htoh"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.18",
+ "clap 3.2.2",
  "dns-types",
 ]
 
@@ -806,7 +806,7 @@ dependencies = [
 name = "htoz"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.18",
+ "clap 3.2.2",
  "dns-types",
 ]
 
@@ -1336,7 +1336,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "bytes",
- "clap 3.1.18",
+ "clap 3.2.2",
  "dns-resolver",
  "dns-types",
  "lazy_static",
@@ -1983,7 +1983,7 @@ dependencies = [
 name = "ztoh"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.18",
+ "clap 3.2.2",
  "dns-types",
 ]
 
@@ -1991,6 +1991,6 @@ dependencies = [
 name = "ztoz"
 version = "0.1.0"
 dependencies = [
- "clap 3.1.18",
+ "clap 3.2.2",
  "dns-types",
 ]
