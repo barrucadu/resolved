@@ -396,7 +396,7 @@ mod tests {
                 qclass: QueryClass::Wildcard,
             },
         ) {
-            assert_cache_response(&rr, rrs);
+            assert_cache_response(&rr, &rrs);
         } else {
             panic!("expected non-authoritative answer");
         }
@@ -468,7 +468,7 @@ mod tests {
         ) {
             assert_eq!(2, rrs.len());
             assert_eq!(zone_rr, rrs[0]);
-            assert_cache_response(&cache_rr_kept, vec![rrs[1].clone()]);
+            assert_cache_response(&cache_rr_kept, &[rrs[1].clone()]);
         } else {
             panic!("expected non-authoritative answer");
         }
@@ -499,8 +499,8 @@ mod tests {
         ) {
             assert!(authority_rrs.is_empty());
             assert_eq!(2, rrs.len());
-            assert_cache_response(&cname_rr, vec![rrs[0].clone()]);
-            assert_cache_response(&a_rr, vec![rrs[1].clone()]);
+            assert_cache_response(&cname_rr, &[rrs[0].clone()]);
+            assert_cache_response(&a_rr, &[rrs[1].clone()]);
         } else {
             panic!("expected authoritative answer");
         }
@@ -532,9 +532,9 @@ mod tests {
             },
         ) {
             assert_eq!(3, rrs.len());
-            assert_cache_response(&cname_rr1, vec![rrs[0].clone()]);
-            assert_cache_response(&cname_rr2, vec![rrs[1].clone()]);
-            assert_cache_response(&a_rr, vec![rrs[2].clone()]);
+            assert_cache_response(&cname_rr1, &[rrs[0].clone()]);
+            assert_cache_response(&cname_rr2, &[rrs[1].clone()]);
+            assert_cache_response(&a_rr, &[rrs[2].clone()]);
         } else {
             panic!("expected non-authoritative answer");
         }
@@ -561,8 +561,8 @@ mod tests {
             },
         ) {
             assert_eq!(2, rrs.len());
-            assert_cache_response(&cname_rr, vec![rrs[0].clone()]);
-            assert_cache_response(&a_rr, vec![rrs[1].clone()]);
+            assert_cache_response(&cname_rr, &[rrs[0].clone()]);
+            assert_cache_response(&a_rr, &[rrs[1].clone()]);
         } else {
             panic!("expected non-authoritative answer");
         }

@@ -434,14 +434,14 @@ mod tests {
 
             assert_cache_response(
                 &rr,
-                cache.get_without_checking_expiration(
+                &cache.get_without_checking_expiration(
                     &rr.name,
                     &QueryType::Record(rr.rtype_with_data.rtype()),
                 ),
             );
             assert_cache_response(
                 &rr,
-                cache.get_without_checking_expiration(&rr.name, &QueryType::Wildcard),
+                &cache.get_without_checking_expiration(&rr.name, &QueryType::Wildcard),
             );
         }
     }
@@ -601,7 +601,7 @@ pub mod test_util {
     /// Assert that the cache response has exactly one element and
     /// that it matches the original (all fields equal except TTL,
     /// where the original is >=).
-    pub fn assert_cache_response(original: &ResourceRecord, response: Vec<ResourceRecord>) {
+    pub fn assert_cache_response(original: &ResourceRecord, response: &[ResourceRecord]) {
         assert_eq!(1, response.len());
         let cached = response[0].clone();
 

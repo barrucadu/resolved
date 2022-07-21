@@ -280,14 +280,14 @@ async fn query_nameserver(
         Ok(mut serialised_request) => {
             let udp_response = query_nameserver_udp(address, &mut serialised_request)
                 .await
-                .and_then(|res| validate_nameserver_response(&request, res, current_match_count));
+                .and_then(|res| validate_nameserver_response(&request, &res, current_match_count));
             if udp_response.is_some() {
                 udp_response
             } else {
                 query_nameserver_tcp(address, &mut serialised_request)
                     .await
                     .and_then(|res| {
-                        validate_nameserver_response(&request, res, current_match_count)
+                        validate_nameserver_response(&request, &res, current_match_count)
                     })
             }
         }
@@ -333,7 +333,7 @@ async fn query_nameserver(
 /// answer may be reported as invalid.
 fn validate_nameserver_response(
     request: &Message,
-    response: Message,
+    response: &Message,
     current_match_count: usize,
 ) -> Option<NameserverResponse> {
     // precondition
@@ -344,7 +344,7 @@ fn validate_nameserver_response(
     let question = &request.questions[0];
 
     // step 1: validation
-    if !response_matches_request(request, &response) {
+    if !response_matches_request(request, response) {
         return None;
     }
 
@@ -634,7 +634,7 @@ mod tests {
                 is_authoritative: false,
                 authority_rrs: Vec::new(),
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -662,7 +662,7 @@ mod tests {
                 is_authoritative: false,
                 authority_rrs: Vec::new(),
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -684,7 +684,7 @@ mod tests {
         )]
         .into();
 
-        assert_eq!(None, validate_nameserver_response(&request, response, 0));
+        assert_eq!(None, validate_nameserver_response(&request, &response, 0));
     }
 
     #[test]
@@ -708,7 +708,7 @@ mod tests {
                 is_authoritative: false,
                 authority_rrs: Vec::new(),
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -733,7 +733,7 @@ mod tests {
                 cname: domain("cname-target.example.com."),
                 is_authoritative: false,
             }),
-            validate_nameserver_response(&request, response, 0)
+            validate_nameserver_response(&request, &response, 0)
         );
     }
 
@@ -746,7 +746,7 @@ mod tests {
             &[ns_record("example.com.", "ns-ar.example.net.")],
         );
 
-        match validate_nameserver_response(&request, response, 0) {
+        match validate_nameserver_response(&request, &response, 0) {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: mut actual_delegation,
@@ -796,7 +796,7 @@ mod tests {
             None,
             validate_nameserver_response(
                 &request,
-                response,
+                &response,
                 domain("subdomain.example.com.").labels.len()
             )
         );
@@ -836,7 +836,7 @@ mod tests {
                     name: domain("subdomain.example.com."),
                 },
             }),
-            validate_nameserver_response(&request, response1, 0)
+            validate_nameserver_response(&request, &response1, 0)
         );
 
         assert_eq!(
@@ -852,7 +852,7 @@ mod tests {
                     name: domain("subdomain.example.com."),
                 },
             }),
-            validate_nameserver_response(&request, response2, 0)
+            validate_nameserver_response(&request, &response2, 0)
         );
     }
 
@@ -876,7 +876,7 @@ mod tests {
             ],
         );
 
-        match validate_nameserver_response(&request, response, 0) {
+        match validate_nameserver_response(&request, &response, 0) {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: _,

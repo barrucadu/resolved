@@ -36,7 +36,7 @@ impl Hosts {
 
     /// Convert a zone into a hosts file, discarding any non-A and
     /// non-AAAA records.
-    pub fn from_zone_lossy(zone: Zone) -> Self {
+    pub fn from_zone_lossy(zone: &Zone) -> Self {
         let mut v4 = HashMap::new();
         let mut v6 = HashMap::new();
         for (name, zrs) in zone.all_records() {
@@ -135,8 +135,8 @@ mod tests {
     #[test]
     fn hosts_merge_zone_merge_equiv_when_disjoint() {
         for _ in 0..100 {
-            let hosts1 = arbitrary_hosts_with_apex(domain("hosts1."));
-            let hosts2 = arbitrary_hosts_with_apex(domain("hosts2."));
+            let hosts1 = arbitrary_hosts_with_apex(&domain("hosts1."));
+            let hosts2 = arbitrary_hosts_with_apex(&domain("hosts2."));
 
             let mut combined_hosts = hosts1.clone();
             combined_hosts.merge(hosts2.clone());
@@ -150,7 +150,7 @@ mod tests {
         }
     }
 
-    fn arbitrary_hosts_with_apex(apex: DomainName) -> Hosts {
+    fn arbitrary_hosts_with_apex(apex: &DomainName) -> Hosts {
         let arbitrary = arbitrary_hosts();
 
         let mut out = Hosts::new();

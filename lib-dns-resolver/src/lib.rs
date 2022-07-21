@@ -6,7 +6,6 @@
 #![allow(clippy::match_wildcard_for_single_variants)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
-#![allow(clippy::needless_pass_by_value)]
 #![allow(clippy::redundant_else)]
 #![allow(clippy::semicolon_if_nothing_returned)]
 #![allow(clippy::single_match_else)]
