@@ -1159,7 +1159,7 @@ impl QueryClass {
     pub fn is_unknown(&self) -> bool {
         match self {
             QueryClass::Record(rclass) => rclass.is_unknown(),
-            _ => false,
+            QueryClass::Wildcard => false,
         }
     }
 }
