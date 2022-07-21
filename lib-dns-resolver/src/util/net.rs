@@ -1,7 +1,6 @@
 use bytes::BytesMut;
 use std::io;
 use std::net::SocketAddr;
-use std::process;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tracing;
@@ -77,10 +76,14 @@ pub enum TcpError {
 /// # Errors
 ///
 /// If sending the message fails.
+///
+/// # Panics
+///
+/// If given an incomplete (< 12 byte) message.
 pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
-        process::exit(1);
+        panic!("expected complete message");
     }
 
     if bytes.len() > 512 {
@@ -99,6 +102,10 @@ pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io
 /// # Errors
 ///
 /// If sending the message fails.
+///
+/// # Panics
+///
+/// If given an incomplete (< 12 byte) message.
 pub async fn send_udp_bytes_to(
     sock: &UdpSocket,
     target: SocketAddr,
@@ -108,7 +115,7 @@ pub async fn send_udp_bytes_to(
 
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
-        process::exit(1);
+        panic!("expected complete message");
     }
 
     if bytes.len() > 512 {
@@ -129,10 +136,14 @@ pub async fn send_udp_bytes_to(
 /// # Errors
 ///
 /// If sending the message fails.
+///
+/// # Panics
+///
+/// If given an incomplete (< 12 byte) message.
 pub async fn send_tcp_bytes(stream: &mut TcpStream, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
-        process::exit(1);
+        panic!("expected complete message");
     }
 
     let len = if let Ok(len) = bytes.len().try_into() {
