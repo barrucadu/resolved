@@ -184,7 +184,7 @@ pub fn resolve_nonrecursive(
                     }
 
                     return Some(Ok(NameserverResponse::Delegation {
-                        delegation: Nameservers { name, hostnames },
+                        delegation: Nameservers { hostnames, name },
                         rrs: ns_rrs,
                         is_authoritative: true,
                         authority_rrs: vec![soa_rr],
