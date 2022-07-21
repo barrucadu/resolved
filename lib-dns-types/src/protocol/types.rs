@@ -1003,6 +1003,7 @@ impl Label {
         Self { octets: Vec::new() }
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn len(&self) -> u8 {
         // safe as the `TryFrom` ensures a label is <= 63 bytes
         self.octets.len().try_into().unwrap()
@@ -1638,6 +1639,7 @@ mod tests {
 }
 
 #[cfg(any(feature = "test-util", test))]
+#[allow(clippy::missing_panics_doc)]
 pub mod test_util {
     use super::*;
 

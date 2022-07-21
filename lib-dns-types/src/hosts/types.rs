@@ -175,6 +175,7 @@ mod tests {
 }
 
 #[cfg(any(feature = "test-util", test))]
+#[allow(clippy::missing_panics_doc)]
 pub mod test_util {
     use super::*;
 

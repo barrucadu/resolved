@@ -202,6 +202,7 @@ impl ResourceRecord {
 }
 
 impl DomainName {
+    #[allow(clippy::missing_panics_doc)]
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
         let mut labels = Vec::<Label>::with_capacity(5);

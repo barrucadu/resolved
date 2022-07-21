@@ -42,8 +42,10 @@ impl Zones {
 
     /// Create a new zone or merge with an existing one.  See
     /// `Zone.merge` for details.
+    #[allow(clippy::missing_panics_doc)]
     pub fn insert_merge(&mut self, other_zone: Zone) {
         if let Some(my_zone) = self.zones.get_mut(&other_zone.apex) {
+            // safe because of the apex check
             my_zone.merge(other_zone).unwrap();
         } else {
             self.insert(other_zone);
@@ -51,9 +53,11 @@ impl Zones {
     }
 
     /// Perform a zone-wise merge.  See `Zone.merge` for details.
+    #[allow(clippy::missing_panics_doc)]
     pub fn merge(&mut self, other: Zones) {
         for (apex, other_zone) in other.zones {
             if let Some(my_zone) = self.zones.get_mut(&apex) {
+                // safe because of the apex check
                 my_zone.merge(other_zone).unwrap();
             } else {
                 self.insert(other_zone);
