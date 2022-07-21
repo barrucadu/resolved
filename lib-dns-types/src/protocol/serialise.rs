@@ -4,12 +4,20 @@
 use crate::protocol::types::*;
 
 impl Message {
+    /// # Errors
+    ///
+    /// If the message is invalid (the `Message` type permits more
+    /// states than strictly allowed).
     pub fn to_octets(self) -> Result<Vec<u8>, Error> {
         let mut buffer = WritableBuffer::default();
         self.serialise(&mut buffer)?;
         Ok(buffer.octets)
     }
 
+    /// # Errors
+    ///
+    /// If the message is invalid (the `Message` type permits more
+    /// states than strictly allowed).
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let qdcount = usize_to_counter(self.questions.len())?;
         let ancount = usize_to_counter(self.answers.len())?;
@@ -89,6 +97,9 @@ impl Question {
 }
 
 impl ResourceRecord {
+    /// # Errors
+    ///
+    /// If the RDATA is too long.
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let (rtype, rdata) = match self.rtype_with_data {
             RecordTypeWithData::A { address } => (RecordType::A, Vec::from(address.octets())),
@@ -278,6 +289,10 @@ impl WritableBuffer {
 
 /// Helper function to convert a `usize` counter into the appropriate
 /// width (or return an error)
+///
+/// # Errors
+///
+/// If the value cannot be converted.
 fn usize_to_counter<T: TryFrom<usize>>(counter: usize) -> Result<T, Error> {
     if let Ok(t) = T::try_from(counter) {
         Ok(t)

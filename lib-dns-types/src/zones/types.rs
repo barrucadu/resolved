@@ -241,7 +241,9 @@ impl Zone {
 
     /// Merge another zone into this one.
     ///
-    /// Returns `Err` if the apex does not match.
+    /// # Errors
+    ///
+    /// If the apex does not match.
     pub fn merge(&mut self, other: Zone) -> Result<(), (DomainName, DomainName)> {
         if self.apex != other.apex {
             return Err((self.apex.clone(), other.apex));

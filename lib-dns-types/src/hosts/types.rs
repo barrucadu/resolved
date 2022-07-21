@@ -80,6 +80,10 @@ impl From<Hosts> for Zone {
 impl TryFrom<Zone> for Hosts {
     type Error = TryFromZoneError;
 
+    /// # Errors
+    ///
+    /// If the zone has wildcard domain names or non-A / non-AAAA
+    /// record types.
     fn try_from(zone: Zone) -> Result<Self, Self::Error> {
         if !zone.all_wildcard_records().is_empty() {
             return Err(TryFromZoneError::HasWildcardRecords);

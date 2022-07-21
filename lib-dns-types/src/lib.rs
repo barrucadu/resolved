@@ -1,6 +1,4 @@
 #![warn(clippy::pedantic)]
-// TODO: fix
-#![allow(clippy::missing_errors_doc)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]

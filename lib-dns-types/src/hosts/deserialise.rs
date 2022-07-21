@@ -7,6 +7,10 @@ use crate::protocol::types::*;
 
 impl Hosts {
     /// Parse a string of hosts data
+    ///
+    /// # Errors
+    ///
+    /// If the string cannot be parsed.
     pub fn deserialise(data: &str) -> Result<Self, Error> {
         let mut hosts = Self::new();
         for line in data.lines() {
@@ -28,6 +32,10 @@ impl Hosts {
 }
 
 /// Parse a single line.
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error> {
     let mut state = State::SkipToAddress;
     let mut address = IpAddr::V4(Ipv4Addr::LOCALHOST);

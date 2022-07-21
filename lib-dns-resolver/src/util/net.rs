@@ -14,6 +14,10 @@ use tracing;
 /// says how many fields there are, and the fields contain length
 /// information), but it means the entire message can be read before
 /// parsing begins.
+///
+/// # Errors
+///
+/// If reading from the stream fails or returns an incomplete message.
 pub async fn read_tcp_bytes(stream: &mut TcpStream) -> Result<BytesMut, TcpError> {
     match stream.read_u16().await {
         Ok(size) => {
@@ -69,6 +73,10 @@ pub enum TcpError {
 
 /// Write a serialised message to a UDP channel.  This sets or clears
 /// the TC flag as appropriate.
+///
+/// # Errors
+///
+/// If sending the message fails.
 pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");
@@ -87,6 +95,10 @@ pub async fn send_udp_bytes(sock: &UdpSocket, bytes: &mut [u8]) -> Result<(), io
 }
 
 /// Like `send_udp_bytes` but sends to the given address
+///
+/// # Errors
+///
+/// If sending the message fails.
 pub async fn send_udp_bytes_to(
     sock: &UdpSocket,
     target: SocketAddr,
@@ -113,6 +125,10 @@ pub async fn send_udp_bytes_to(
 /// Write a serialised message to a TCP channel.  This sends a
 /// two-byte length prefix (big-endian u16) and sets or clears the TC
 /// flag as appropriate.
+///
+/// # Errors
+///
+/// If sending the message fails.
 pub async fn send_tcp_bytes(stream: &mut TcpStream, bytes: &mut [u8]) -> Result<(), io::Error> {
     if bytes.len() < 12 {
         tracing::error!(length = %bytes.len(), "message too short");

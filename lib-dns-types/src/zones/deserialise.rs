@@ -10,6 +10,10 @@ impl Zone {
     ///
     /// This implementation does not support `$INCLUDE` entries or
     /// non-`IN` record classes.  These will raise an error.
+    ///
+    /// # Errors
+    ///
+    /// If the string cannot be parsed.
     pub fn deserialise(data: &str) -> Result<Self, Error> {
         let mut rrs = Vec::new();
         let mut wildcard_rrs = Vec::new();
@@ -152,6 +156,10 @@ impl Zone {
 /// - `\DDD` - an octet, given as a decimal number
 ///
 /// Returns `None` if the stream is empty.
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_entry<I: Iterator<Item = char>>(
     origin: &Option<DomainName>,
     previous_domain: &Option<MaybeWildcard>,
@@ -182,6 +190,10 @@ fn parse_entry<I: Iterator<Item = char>>(
 /// ```text
 /// $ORIGIN <domain-name>
 /// ```
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_origin(
     origin: &Option<DomainName>,
     tokens: Vec<(String, Vec<u8>)>,
@@ -204,6 +216,10 @@ fn parse_origin(
 /// ```text
 /// $INCLUDE <file-name> [<domain-name>]
 /// ```
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_include(
     origin: &Option<DomainName>,
     tokens: Vec<(String, Vec<u8>)>,
@@ -240,6 +256,10 @@ fn parse_include(
 ///                       <class> <type> <rdata>
 ///                               <type> <rdata>
 /// ```
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_rr(
     origin: &Option<DomainName>,
     previous_domain: &Option<MaybeWildcard>,
@@ -489,6 +509,10 @@ fn try_parse_rtype_with_data(
 }
 
 /// Parse a regular or wildcard domain name.
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_domain_or_wildcard(
     origin: &Option<DomainName>,
     dotted_string: &str,
@@ -524,6 +548,10 @@ fn parse_domain_or_wildcard(
 }
 
 /// Parse a domain name, appending the origin if it's not absolute.
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<DomainName, Error> {
     let dotted_string_vec = dotted_string.chars().collect::<Vec<char>>();
 
@@ -567,6 +595,10 @@ fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<Doma
 }
 
 /// Parse a decimal number into a u32.
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn parse_u32(digits: &str) -> Result<u32, Error> {
     if let Ok(val) = u32::from_str(digits) {
         Ok(val)
@@ -608,6 +640,10 @@ fn to_rr(wname: MaybeWildcard, rtype_with_data: RecordTypeWithData, ttl: u32) ->
 /// Split an entry into tokens: split on whitespace, taking quoting
 /// into account, and if there are parentheses or quotes continue to
 /// the matched delimiter.
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn tokenise_entry<I: Iterator<Item = char>>(
     stream: &mut Peekable<I>,
 ) -> Result<Vec<(String, Vec<u8>)>, Error> {
@@ -745,6 +781,10 @@ fn tokenise_entry<I: Iterator<Item = char>>(
 }
 
 /// Tokenise an escape sequence
+///
+/// # Errors
+///
+/// If the string cannot be parsed.
 fn tokenise_escape<I: Iterator<Item = char>>(stream: &mut I) -> Result<u8, Error> {
     if let Some(c1) = stream.next() {
         match c1.to_digit(10) {
