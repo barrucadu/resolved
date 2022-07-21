@@ -22,7 +22,14 @@ Usage
 not work for you.  You also probably don't want to expose this to the
 internet!**
 
-Compile it in release mode and run it like so:
+Install `rustup`, `clang`, and `binutils`, and then install the
+nightly toolchain:
+
+```
+rustup toolchain install nightly
+```
+
+Then, compile it in release mode and run it like so:
 
 ```
 cargo build --release
