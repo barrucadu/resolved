@@ -919,7 +919,7 @@ mod tests {
             vec![cname_record("nyarlathotep.lan.", "nyarlathotep.lan.")];
 
         let mut actual_all_records = Vec::with_capacity(expected_all_records.capacity());
-        for (name, zrs) in zone.all_records().iter() {
+        for (name, zrs) in &zone.all_records() {
             for zr in zrs {
                 actual_all_records.push(zr.to_rr(name));
             }
@@ -928,7 +928,7 @@ mod tests {
 
         let mut actual_all_wildcard_records =
             Vec::with_capacity(expected_all_wildcard_records.capacity());
-        for (name, zrs) in zone.all_wildcard_records().iter() {
+        for (name, zrs) in &zone.all_wildcard_records() {
             for zr in zrs {
                 actual_all_wildcard_records.push(zr.to_rr(name));
             }

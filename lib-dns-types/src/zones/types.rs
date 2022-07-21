@@ -474,7 +474,7 @@ impl ZoneRecords {
             map.insert(&self.nsdname, zrs);
         }
 
-        for (_, child) in self.children.iter() {
+        for child in self.children.values() {
             child.all_records(map);
         }
     }
@@ -491,7 +491,7 @@ impl ZoneRecords {
             }
         }
 
-        for (_, child) in self.children.iter() {
+        for child in self.children.values() {
             child.all_wildcard_records(map);
         }
     }
@@ -847,7 +847,7 @@ mod tests {
         expected.sort();
 
         let mut actual = Vec::with_capacity(expected.capacity());
-        for (name, zrs) in zone.all_records().iter() {
+        for (name, zrs) in &zone.all_records() {
             for zr in zrs {
                 actual.push(zr.to_rr(name));
             }
@@ -872,7 +872,7 @@ mod tests {
         expected.sort();
 
         let mut actual = Vec::with_capacity(expected.capacity());
-        for (name, zrs) in zone.all_wildcard_records().iter() {
+        for (name, zrs) in &zone.all_wildcard_records() {
             for zr in zrs {
                 actual.push(zr.to_rr(name));
             }

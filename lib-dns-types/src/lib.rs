@@ -2,7 +2,6 @@
 // TODO: fix
 #![allow(clippy::cloned_instead_of_copied)]
 #![allow(clippy::explicit_into_iter_loop)]
-#![allow(clippy::explicit_iter_loop)]
 #![allow(clippy::if_not_else)]
 #![allow(clippy::manual_assert)]
 #![allow(clippy::match_wildcard_for_single_variants)]

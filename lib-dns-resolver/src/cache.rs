@@ -562,14 +562,14 @@ mod tests {
         let mut access_priority = PriorityQueue::new();
         let mut expiry_priority = PriorityQueue::new();
 
-        for (name, entry) in cache.entries.iter() {
+        for (name, entry) in &cache.entries {
             assert_eq!(
                 entry.size,
                 entry.records.values().map(|r| r.len()).sum::<usize>()
             );
 
             let mut min_expires = None;
-            for (rtype, tuples) in entry.records.iter() {
+            for (rtype, tuples) in &entry.records {
                 for (rtype_with_data, expires) in tuples {
                     assert_eq!(*rtype, rtype_with_data.rtype());
 
