@@ -457,46 +457,46 @@ fn begin_logging() {
 #[derive(Clone)]
 struct Args {
     /// Interface to listen on
-    #[clap(short, long, default_value_t = Ipv4Addr::UNSPECIFIED)]
+    #[clap(short, long, value_parser, default_value_t = Ipv4Addr::UNSPECIFIED)]
     interface: Ipv4Addr,
 
     /// Interface to listen on to serve Prometheus metrics
-    #[clap(long, default_value_t = Ipv4Addr::LOCALHOST)]
+    #[clap(long, value_parser, default_value_t = Ipv4Addr::LOCALHOST)]
     metrics_interface: Ipv4Addr,
 
     /// Port to listen on to serve Prometheus metrics
-    #[clap(long, default_value_t = 9420)]
+    #[clap(long, value_parser, default_value_t = 9420)]
     metrics_port: u16,
 
     /// Only answer queries for which this server is authoritative: do
     /// not perform recursive or forwarding resolution
-    #[clap(long)]
+    #[clap(long, action(clap::ArgAction::SetTrue))]
     authoritative_only: bool,
 
     /// Act as a forwarding resolver, not a recursive resolver:
     /// forward queries which can't be answered from local state to
     /// this nameserver and cache the result
-    #[clap(short, long)]
+    #[clap(short, long, value_parser)]
     forward_address: Option<Ipv4Addr>,
 
     /// How many records to hold in the cache
-    #[clap(short = 's', long, default_value_t = 512)]
+    #[clap(short = 's', long, value_parser, default_value_t = 512)]
     cache_size: usize,
 
     /// Path to a hosts file, can be specified more than once
-    #[clap(short = 'a', long)]
+    #[clap(short = 'a', long, value_parser)]
     hosts_file: Vec<PathBuf>,
 
     /// Path to a directory to read hosts files from, can be specified more than once
-    #[clap(short = 'A', long)]
+    #[clap(short = 'A', long, value_parser)]
     hosts_dir: Vec<PathBuf>,
 
     /// Path to a zone file, can be specified more than once
-    #[clap(short = 'z', long)]
+    #[clap(short = 'z', long, value_parser)]
     zone_file: Vec<PathBuf>,
 
     /// Path to a directory to read zone files from, can be specified more than once
-    #[clap(short = 'Z', long)]
+    #[clap(short = 'Z', long, value_parser)]
     zones_dir: Vec<PathBuf>,
 }
 

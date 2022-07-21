@@ -17,7 +17,7 @@ use dns_types::zones::types::Zone;
 struct Args {
     /// Return an error if the zone file contains any records which
     /// cannot be represented in a hosts file.
-    #[clap(long)]
+    #[clap(long, action(clap::ArgAction::SetTrue))]
     strict: bool,
 }
 
