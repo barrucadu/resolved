@@ -956,7 +956,7 @@ impl DomainName {
             blank_label |= label.is_empty();
 
             octets.push(label.len());
-            octets.append(&mut label.iter().cloned().collect());
+            octets.append(&mut label.iter().copied().collect());
         }
 
         if blank_label && octets.len() <= DOMAINNAME_MAX_LEN {

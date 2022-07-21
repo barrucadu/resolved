@@ -1,6 +1,5 @@
 #![warn(clippy::pedantic)]
 // TODO: fix
-#![allow(clippy::cloned_instead_of_copied)]
 #![allow(clippy::if_not_else)]
 #![allow(clippy::inconsistent_struct_constructor)]
 #![allow(clippy::manual_assert)]

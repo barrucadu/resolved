@@ -334,7 +334,7 @@ impl Cache {
             if let Some(entry) = self.entries.get_mut(&name) {
                 let mut pruned = 0;
 
-                let rtypes = entry.records.keys().cloned().collect::<Vec<RecordType>>();
+                let rtypes = entry.records.keys().copied().collect::<Vec<RecordType>>();
                 let mut next_expiry = None;
                 for rtype in rtypes {
                     if let Some(tuples) = entry.records.get_mut(&rtype) {
