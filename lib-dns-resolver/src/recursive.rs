@@ -80,10 +80,11 @@ async fn resolve_recursive_notimeout(
                     }
                     .into(),
                 );
-            } else {
-                tracing::trace!("got non-recursive non-authoritative answer to current wildcard query - continuing");
-                combined_rrs = rrs;
             }
+            tracing::trace!(
+                "got non-recursive non-authoritative answer to current wildcard query - continuing"
+            );
+            combined_rrs = rrs;
         }
         Some(Ok(NameserverResponse::Delegation { delegation, .. })) => {
             tracing::trace!("got non-recursive delegation - using as candidate");
@@ -111,9 +112,8 @@ async fn resolve_recursive_notimeout(
                 combined_rrs.append(&mut rrs.clone());
                 combined_rrs.append(&mut r_rrs);
                 return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-            } else {
-                return None;
             }
+            return None;
         }
         Some(Err(error)) => {
             tracing::trace!("got non-recursive error response");
@@ -197,14 +197,12 @@ async fn resolve_recursive_notimeout(
                                 return Some(ResolvedRecord::NonAuthoritative {
                                     rrs: combined_rrs,
                                 });
-                            } else {
-                                return None;
                             }
+                            return None;
                         }
                     }
-                } else {
-                    metrics.nameserver_miss();
                 }
+                metrics.nameserver_miss();
             }
 
             return None;

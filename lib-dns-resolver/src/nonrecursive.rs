@@ -87,9 +87,8 @@ pub fn resolve_nonrecursive(
                         is_authoritative: false,
                         authority_rrs: Vec::new(),
                     }));
-                } else {
-                    rrs_from_zone = rrs;
                 }
+                rrs_from_zone = rrs;
             }
             // If the name is a CNAME, try resolving it, then:
             //

@@ -589,9 +589,8 @@ fn zone_result_helper(
                         cname: cname.clone(),
                         rr,
                     };
-                } else {
-                    panic!("got non-CNAME record for CNAME query: {:?}", rr);
                 }
+                panic!("got non-CNAME record for CNAME query: {:?}", rr);
             }
         }
     }

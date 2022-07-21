@@ -43,20 +43,19 @@ impl Zone {
                     {
                         if apex_and_soa.is_some() {
                             return Err(Error::MultipleSOA);
-                        } else {
-                            apex_and_soa = Some((
-                                rr.name,
-                                SOA {
-                                    mname,
-                                    rname,
-                                    serial,
-                                    refresh,
-                                    retry,
-                                    expire,
-                                    minimum,
-                                },
-                            ));
                         }
+                        apex_and_soa = Some((
+                            rr.name,
+                            SOA {
+                                mname,
+                                rname,
+                                serial,
+                                refresh,
+                                retry,
+                                expire,
+                                minimum,
+                            },
+                        ));
                     } else {
                         rrs.push(rr);
                     }
@@ -69,9 +68,8 @@ impl Zone {
 
                     if rr.rtype_with_data.rtype() == RecordType::SOA {
                         return Err(Error::WildcardSOA);
-                    } else {
-                        wildcard_rrs.push(rr);
                     }
+                    wildcard_rrs.push(rr);
                 }
             }
         }
@@ -633,10 +631,9 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             (State::Initial, '(') => {
                 if line_continuation {
                     return Err(Error::TokeniserUnexpected { unexpected: '(' });
-                } else {
-                    line_continuation = true;
-                    State::Initial
                 }
+                line_continuation = true;
+                State::Initial
             }
             (State::Initial, ')') => {
                 if line_continuation {

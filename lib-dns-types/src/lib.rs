@@ -4,7 +4,6 @@
 #![allow(clippy::match_wildcard_for_single_variants)]
 #![allow(clippy::missing_errors_doc)]
 #![allow(clippy::missing_panics_doc)]
-#![allow(clippy::redundant_else)]
 #![allow(clippy::semicolon_if_nothing_returned)]
 #![allow(clippy::trivially_copy_pass_by_ref)]
 // Don't care enough to fix
