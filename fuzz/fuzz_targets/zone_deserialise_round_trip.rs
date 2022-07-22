@@ -4,12 +4,9 @@ use libfuzzer_sys::fuzz_target;
 use dns_types::zones::types::Zone;
 
 fuzz_target!(|data: &str| {
-    if let Ok(deserialised) = Zone::deserialise(data) {
-        let serialised = deserialised.clone().serialise();
-        if let Ok(re_deserialised) = Zone::deserialise(&serialised) {
-            assert_eq!(deserialised, re_deserialised);
-        } else {
-            panic!("expected successful re-deserialisation");
-        }
+    if let Ok(zone) = Zone::deserialise(data) {
+        let serialised = zone.clone().serialise();
+        let deserialised = Zone::deserialise(&serialised);
+        assert_eq!(Ok(zone), deserialised);
     }
 });
