@@ -705,13 +705,13 @@ mod tests {
 
     #[test]
     fn zone_merge_checks_apex_consistency() {
-        assert!(Zone::new(domain("example.com."), None)
+        Zone::new(domain("example.com."), None)
             .merge(Zone::new(domain("example.com."), None))
-            .is_ok());
+            .unwrap();
 
-        assert!(Zone::new(domain("example.com."), None)
+        Zone::new(domain("example.com."), None)
             .merge(Zone::new(domain("example.net."), None))
-            .is_err());
+            .unwrap_err();
     }
 
     #[test]
