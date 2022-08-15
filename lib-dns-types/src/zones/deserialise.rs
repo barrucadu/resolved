@@ -169,7 +169,7 @@ fn parse_entry<I: Iterator<Item = char>>(
     loop {
         let tokens = tokenise_entry(stream)?;
         if tokens.is_empty() {
-            if stream.peek() == None {
+            if stream.peek().is_none() {
                 return Ok(None);
             }
         } else if tokens[0].0 == "$ORIGIN" {
