@@ -52,35 +52,40 @@ impl Message {
 
 impl WireHeader {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        let flags1 = (if self.header.is_response {
-            0b1000_0000
+        // octet 1
+        let flag_qr = if self.header.is_response {
+            HEADER_MASK_QR
         } else {
             0
-        }) | (0b0111_1000 & (u8::from(self.header.opcode) << 3))
-            | (if self.header.is_authoritative {
-                0b0000_0100
-            } else {
-                0
-            })
-            | (if self.header.is_truncated {
-                0b0000_0010
-            } else {
-                0
-            })
-            | (if self.header.recursion_desired {
-                0b0000_0001
-            } else {
-                0
-            });
-        let flags2 = (if self.header.recursion_available {
-            0b1000_0000
+        };
+        let field_opcode =
+            HEADER_MASK_OPCODE & (u8::from(self.header.opcode) << HEADER_OFFSET_OPCODE);
+        let flag_aa = if self.header.is_authoritative {
+            HEADER_MASK_AA
         } else {
             0
-        }) | (0b0000_1111 & u8::from(self.header.rcode));
+        };
+        let flag_tc = if self.header.is_truncated {
+            HEADER_MASK_TC
+        } else {
+            0
+        };
+        let flag_rd = if self.header.recursion_desired {
+            HEADER_MASK_RD
+        } else {
+            0
+        };
+        // octet 2
+        let flag_ra = if self.header.recursion_available {
+            HEADER_MASK_RA
+        } else {
+            0
+        };
+        let field_rcode = HEADER_MASK_RCODE & (u8::from(self.header.rcode) << HEADER_OFFSET_RCODE);
 
         buffer.write_u16(self.header.id);
-        buffer.write_u8(flags1);
-        buffer.write_u8(flags2);
+        buffer.write_u8(flag_qr | field_opcode | flag_aa | flag_tc | flag_rd);
+        buffer.write_u8(flag_ra | field_rcode);
         buffer.write_u16(self.qdcount);
         buffer.write_u16(self.ancount);
         buffer.write_u16(self.nscount);

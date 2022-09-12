@@ -10,6 +10,33 @@ pub const DOMAINNAME_MAX_LEN: usize = 255;
 /// Maximum length of a single label in a domain name.
 pub const LABEL_MAX_LEN: usize = 63;
 
+/// Octet mask for the QR flag being set (response).
+pub const HEADER_MASK_QR: u8 = 0b1000_0000;
+
+/// Octet mask for the opcode field.
+pub const HEADER_MASK_OPCODE: u8 = 0b0111_1000;
+
+/// Offset for the opcode field.
+pub const HEADER_OFFSET_OPCODE: usize = 3;
+
+/// Octet mask for the AA flag being set (authoritative)
+pub const HEADER_MASK_AA: u8 = 0b0000_0100;
+
+/// Octet mask for the TC flag being set (truncated)
+pub const HEADER_MASK_TC: u8 = 0b0000_0010;
+
+/// Octet mask for the RD flag being set (desired)
+pub const HEADER_MASK_RD: u8 = 0b0000_0001;
+
+/// Octet mask for the RA flag being set (available)
+pub const HEADER_MASK_RA: u8 = 0b1000_0000;
+
+/// Octet mask for the rcode field.
+pub const HEADER_MASK_RCODE: u8 = 0b0000_1111;
+
+/// Offset for the rcode field.
+pub const HEADER_OFFSET_RCODE: usize = 0;
+
 /// Basic DNS message format, used for both queries and responses.
 ///
 /// ```text
