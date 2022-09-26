@@ -40,6 +40,18 @@ jobs:
       - name: Check benchmarks compile
         run: cargo bench --no-run
 
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
 
