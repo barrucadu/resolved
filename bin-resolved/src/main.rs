@@ -3,7 +3,7 @@ use clap::Parser;
 use std::collections::HashSet;
 use std::env;
 use std::net::Ipv4Addr;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -17,12 +17,11 @@ use tracing_subscriber::EnvFilter;
 
 use dns_resolver::cache::SharedCache;
 use dns_resolver::resolve;
+use dns_resolver::util::fs::load_zone_configuration;
 use dns_resolver::util::net::*;
 use dns_resolver::util::types::ResolvedRecord;
-use dns_types::hosts::types::Hosts;
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
-use resolved::fs_util::*;
 use resolved::metrics::*;
 
 const DNS_PORT: u16 = 53;
@@ -91,27 +90,31 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         DNS_RESOLVER_NAMESERVER_HIT_TOTAL.inc_by(metrics.nameserver_hits);
         DNS_RESOLVER_NAMESERVER_MISS_TOTAL.inc_by(metrics.nameserver_misses);
 
-        if let Some(rr) = answer {
-            match rr {
-                ResolvedRecord::Authoritative {
-                    mut rrs,
-                    mut authority_rrs,
-                } => {
-                    response.answers.append(&mut rrs);
-                    response.authority.append(&mut authority_rrs);
-                }
-                ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
-                    response.authority.append(&mut authority_rrs);
-                    if query.questions.len() == 1 {
-                        response.header.rcode = Rcode::NameError;
+        let message = match answer {
+            Ok(rr) => {
+                match rr {
+                    ResolvedRecord::Authoritative {
+                        mut rrs,
+                        mut authority_rrs,
+                    } => {
+                        response.answers.append(&mut rrs);
+                        response.authority.append(&mut authority_rrs);
+                    }
+                    ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
+                        response.authority.append(&mut authority_rrs);
+                        if query.questions.len() == 1 {
+                            response.header.rcode = Rcode::NameError;
+                        }
+                    }
+                    ResolvedRecord::NonAuthoritative { mut rrs } => {
+                        response.answers.append(&mut rrs);
+                        response.header.is_authoritative = false;
                     }
                 }
-                ResolvedRecord::NonAuthoritative { mut rrs } => {
-                    response.answers.append(&mut rrs);
-                    response.header.is_authoritative = false;
-                }
+                "ok".to_string()
             }
-        }
+            Err(err) => format!("error: {}", err),
+        };
 
         let duration_seconds = question_timer.stop_and_record();
         tracing::info!(
@@ -124,7 +127,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
             nameserver_hits = %metrics.nameserver_hits,
             nameserver_misses = %metrics.nameserver_misses,
             %duration_seconds,
-            "ok"
+            message
         );
     }
 
@@ -284,70 +287,6 @@ struct ListenArgs {
     cache: SharedCache,
 }
 
-/// Load the hosts and zones from the configuration, generating the
-/// `Zones` parameter for the resolver.
-async fn load_zone_configuration(args: &Args) -> Option<Zones> {
-    let mut is_error = false;
-    let mut hosts_file_paths = args.hosts_file.clone();
-    let mut zone_file_paths = args.zone_file.clone();
-
-    for path in args.zones_dir.iter() {
-        match get_files_from_dir(path).await {
-            Ok(mut paths) => zone_file_paths.append(&mut paths),
-            Err(error) => {
-                tracing::warn!(?path, ?error, "could not read zone directory");
-                is_error = true;
-            }
-        }
-    }
-    for path in args.hosts_dir.iter() {
-        match get_files_from_dir(path).await {
-            Ok(mut paths) => hosts_file_paths.append(&mut paths),
-            Err(error) => {
-                tracing::warn!(?path, ?error, "could not read hosts directory");
-                is_error = true;
-            }
-        }
-    }
-
-    let mut combined_zones = Zones::new();
-    for path in zone_file_paths.iter() {
-        match zone_from_file(Path::new(path)).await {
-            Ok(Ok(zone)) => combined_zones.insert_merge(zone),
-            Ok(Err(error)) => {
-                tracing::warn!(?path, ?error, "could not parse zone file");
-                is_error = true;
-            }
-            Err(error) => {
-                tracing::warn!(?path, ?error, "could not read zone file");
-                is_error = true;
-            }
-        }
-    }
-
-    let mut combined_hosts = Hosts::default();
-    for path in hosts_file_paths.iter() {
-        match hosts_from_file(Path::new(path)).await {
-            Ok(Ok(hosts)) => combined_hosts.merge(hosts),
-            Ok(Err(error)) => {
-                tracing::warn!(?path, ?error, "could not parse hosts file");
-                is_error = true;
-            }
-            Err(error) => {
-                tracing::warn!(?path, ?error, "could not read hosts file");
-                is_error = true;
-            }
-        }
-    }
-
-    if is_error {
-        None
-    } else {
-        combined_zones.insert_merge(combined_hosts.into());
-        Some(combined_zones)
-    }
-}
-
 /// Delete expired cache entries every 5 minutes.
 ///
 /// Always removes all expired entries, and then if the cache is still
@@ -374,9 +313,14 @@ async fn reload_task(zones_lock: Arc<RwLock<Zones>>, args: Args) {
 
         tracing::error_span!("SIGUSR1").in_scope(|| tracing::info!("received"));
         let start = Instant::now();
-        if let Some(zones) = load_zone_configuration(&args)
-            .instrument(tracing::error_span!("SIGUSR1"))
-            .await
+        if let Some(zones) = load_zone_configuration(
+            &args.hosts_file,
+            &args.hosts_dir,
+            &args.zone_file,
+            &args.zones_dir,
+        )
+        .instrument(tracing::error_span!("SIGUSR1"))
+        .await
         {
             let mut lock = zones_lock.write().await;
             *lock = zones;
@@ -506,7 +450,14 @@ async fn main() {
 
     begin_logging();
 
-    let zones = match load_zone_configuration(&args).await {
+    let zones = match load_zone_configuration(
+        &args.hosts_file,
+        &args.hosts_dir,
+        &args.zone_file,
+        &args.zones_dir,
+    )
+    .await
+    {
         Some(zs) => zs,
         None => {
             tracing::error!("could not load configuration");

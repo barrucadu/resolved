@@ -22,6 +22,10 @@ use crate::util::types::*;
 /// is done of its responses.
 ///
 /// This has a 60s timeout.
+///
+/// # Errors
+///
+/// See `ResolutionError`.
 pub async fn resolve_forwarding(
     recursion_limit: usize,
     metrics: &mut Metrics,
@@ -29,7 +33,7 @@ pub async fn resolve_forwarding(
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> Option<ResolvedRecord> {
+) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_forwarding_notimeout(
@@ -46,7 +50,7 @@ pub async fn resolve_forwarding(
         res
     } else {
         tracing::debug!("timed out");
-        None
+        Err(ResolutionError::Timeout)
     }
 }
 
@@ -59,49 +63,47 @@ async fn resolve_forwarding_notimeout(
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> Option<ResolvedRecord> {
+) -> Result<ResolvedRecord, ResolutionError> {
     if recursion_limit == 0 {
         tracing::debug!("hit recursion limit");
-        return None;
+        return Err(ResolutionError::RecursionLimit);
     }
 
     let mut combined_rrs = Vec::new();
 
     match resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, question) {
-        Some(Ok(NameserverResponse::Answer {
+        Ok(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
             is_authoritative,
         })) => {
             if is_authoritative || question.qtype != QueryType::Wildcard {
                 tracing::trace!("got non-recursive answer");
-                return Some(
-                    NameserverResponse::Answer {
-                        rrs,
-                        authority_rrs,
-                        is_authoritative,
-                    }
-                    .into(),
-                );
+                return Ok(NameserverResponse::Answer {
+                    rrs,
+                    authority_rrs,
+                    is_authoritative,
+                }
+                .into());
             }
             tracing::trace!(
                 "got non-recursive non-authoritative answer to current wildcard query - continuing"
             );
             combined_rrs = rrs;
         }
-        Some(Ok(NameserverResponse::Delegation { .. })) => {
+        Ok(Ok(NameserverResponse::Delegation { .. })) => {
             tracing::trace!(
                 "got non-recursive delegation - ignoring in favour of forwarding nameserver"
             );
         }
-        Some(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
+        Ok(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
             tracing::trace!("got non-recursive CNAME - restarting with CNAME target");
             let cname_question = Question {
                 name: cname,
                 qclass: question.qclass,
                 qtype: question.qtype,
             };
-            if let Some(resolved) = resolve_forwarding_notimeout(
+            if let Ok(resolved) = resolve_forwarding_notimeout(
                 recursion_limit - 1,
                 metrics,
                 forward_address,
@@ -116,15 +118,17 @@ async fn resolve_forwarding_notimeout(
                 let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
                 combined_rrs.append(&mut rrs.clone());
                 combined_rrs.append(&mut r_rrs);
-                return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
             }
-            return None;
+            return Err(ResolutionError::DeadEnd {
+                question: cname_question,
+            });
         }
-        Some(Err(error)) => {
+        Ok(Err(error)) => {
             tracing::trace!("got non-recursive error response");
-            return Some(error.into());
+            return Ok(error.into());
         }
-        None => (),
+        Err(_) => (),
     }
 
     if let Some(rrs) = query_nameserver(forward_address, question)
@@ -137,16 +141,22 @@ async fn resolve_forwarding_notimeout(
         }
         tracing::trace!("nameserver HIT");
         prioritising_merge(&mut combined_rrs, rrs);
-        Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
+        Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
     } else {
         metrics.nameserver_miss();
         tracing::trace!("nameserver MISS");
-        None
+        Err(ResolutionError::DeadEnd {
+            question: question.clone(),
+        })
     }
 }
 /// Query a remote nameserver to answer a question.
 ///
 /// This does a recursive query.
+///
+/// TODO: should this pass on authority and name errors?  the forwarding
+/// nameserver is being treated as an untrusted cache right now, which limits
+/// what resolved can return.
 async fn query_nameserver(address: Ipv4Addr, question: &Question) -> Option<Vec<ResourceRecord>> {
     let mut request = Message::from_question(rand::thread_rng().gen(), question.clone());
     request.header.recursion_desired = true;

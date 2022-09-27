@@ -520,17 +520,22 @@ impl SOA {
     pub fn to_rr(&self, name: &DomainName) -> ResourceRecord {
         ResourceRecord {
             name: name.clone(),
-            rtype_with_data: RecordTypeWithData::SOA {
-                mname: self.mname.clone(),
-                rname: self.rname.clone(),
-                serial: self.serial,
-                refresh: self.refresh,
-                retry: self.retry,
-                expire: self.expire,
-                minimum: self.minimum,
-            },
+            rtype_with_data: self.to_rdata(),
             rclass: RecordClass::IN,
             ttl: self.minimum,
+        }
+    }
+
+    /// Convert it into a SOA RDATA
+    pub fn to_rdata(&self) -> RecordTypeWithData {
+        RecordTypeWithData::SOA {
+            mname: self.mname.clone(),
+            rname: self.rname.clone(),
+            serial: self.serial,
+            refresh: self.refresh,
+            retry: self.retry,
+            expire: self.expire,
+            minimum: self.minimum,
         }
     }
 }

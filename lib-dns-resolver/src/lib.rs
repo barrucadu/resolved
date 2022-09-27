@@ -27,7 +27,7 @@ use self::forwarding::resolve_forwarding;
 use self::metrics::Metrics;
 use self::nonrecursive::resolve_nonrecursive;
 use self::recursive::resolve_recursive;
-use self::util::types::ResolvedRecord;
+use self::util::types::{ResolutionError, ResolvedRecord};
 
 /// Maximum recursion depth.  Recursion is used to resolve CNAMEs, so
 /// a chain of CNAMEs longer than this cannot be resolved.
@@ -44,7 +44,7 @@ pub async fn resolve(
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> (Metrics, Option<ResolvedRecord>) {
+) -> (Metrics, Result<ResolvedRecord, ResolutionError>) {
     let mut metrics = Metrics::new();
 
     let rr = if is_recursive {

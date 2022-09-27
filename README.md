@@ -16,12 +16,6 @@ have IPv6 at home, so this code doesn't support it yet.
 Usage
 -----
 
-### The DNS Server
-
-**I use `resolved` for my home network with no problems, but it may
-not work for you.  You also probably don't want to expose this to the
-internet!**
-
 Install `rustup`, `clang`, and `binutils`, and then install the
 nightly toolchain:
 
@@ -29,15 +23,27 @@ nightly toolchain:
 rustup toolchain install nightly
 ```
 
-Then, compile it in release mode and run it like so:
+Then, compile in release mode;
 
 ```
 cargo build --release
-sudo ./target/release/resolved -Z config/zones
 ```
+
+### The DNS Server
+
+**I use `resolved` for my home network with no problems, but it may
+not work for you.  You also probably don't want to expose this to the
+internet!**
 
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
 run as root or to have the `CAP_NET_BIND_SERVICE` capability.
+
+```
+$ sudo ./target/release/resolved -Z config/zones
+```
+
+If run as a systemd unit, set the `AmbientCapabilities=CAP_NET_BIND_SERVICE`
+option and run as a non-root user.
 
 See the `--help` text for options.
 
@@ -69,6 +75,26 @@ See the `--help` text for options.
 
 [the tracing_subscriber crate]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/index.html#formatters
 
+### The DNS Client
+
+There is also a `dnsq` utility to resolve names based on the server
+configuration directly.  The main purpose of it is to test configuration
+changes.
+
+```
+$ ./target/release/dnsq www.barrucadu.co.uk. AAAA -Z config/zones
+;; QUESTION
+www.barrucadu.co.uk.    IN      AAAA
+
+;; ANSWER
+www.barrucadu.co.uk.    300     IN      CNAME   barrucadu.co.uk.
+barrucadu.co.uk.        300     IN      AAAA    2a01:4f8:c0c:bfc1::
+```
+
+See the `--help` text for options, which are a subset of the `resolved` options.
+
+It also uses the same logging environment variables as `resolved`
+
 ### Other Tools
 
 There are also four utility programs---`htoh`, `htoz`, `ztoh`, and
@@ -96,6 +122,8 @@ modules are:
   - `nonrecursive` - the non-recursive resolver
   - `recursive`    - the recursive resolver
   - `util`         - shared types and functions
+
+- `bin-dnsq` - utility to resolve DNS queries
 
 - `bin-resolved` - the DNS server
 

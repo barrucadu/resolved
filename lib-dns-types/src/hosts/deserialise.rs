@@ -43,7 +43,7 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 
     for (i, octet) in line.chars().enumerate() {
         if !octet.is_ascii() {
-            return Err(Error::ExpectedAscii);
+            return Err(Error::ExpectedAscii { octet });
         }
 
         state = match (&state, octet) {
@@ -114,9 +114,29 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
 /// An error that can occur reading a hosts file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Error {
-    ExpectedAscii,
+    ExpectedAscii { octet: char },
     CouldNotParseAddress { address: String },
     CouldNotParseName { name: String },
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::ExpectedAscii { octet } => write!(f, "expected ASCII octet, not '{:?}'", octet),
+            Error::CouldNotParseAddress { address } => {
+                write!(f, "could not parse address '{:?}'", address)
+            }
+            Error::CouldNotParseName { name } => {
+                write!(f, "could not parse domain name '{:?}'", name)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
 }
 
 /// States for the line parser

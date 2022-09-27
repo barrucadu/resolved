@@ -26,15 +26,9 @@ impl Zone {
 
             let _ = writeln!(
                 &mut out,
-                "{} IN SOA {} {} {} {} {} {} {}",
+                "{} IN SOA {}",
                 if show_origin { "@" } else { &serialised_apex },
-                self.serialise_domain(&soa.mname),
-                self.serialise_domain(&soa.rname),
-                soa.serial,
-                soa.refresh,
-                soa.retry,
-                soa.expire,
-                soa.minimum
+                self.serialise_rdata(&soa.to_rdata()),
             );
             out.push('\n');
         }
@@ -120,15 +114,33 @@ impl Zone {
         serialise_octets(&domain_str.bytes().collect::<Vec<u8>>(), false)
     }
 
-    /// Serialise the RDATA
-    fn serialise_rdata(&self, rtype_with_data: &RecordTypeWithData) -> String {
+    /// Serialise the RDATA, with domains displayed relative to the apex (if
+    /// authoritative).
+    pub fn serialise_rdata(&self, rtype_with_data: &RecordTypeWithData) -> String {
         match rtype_with_data {
             RecordTypeWithData::A { address } => format!("{}", address),
             RecordTypeWithData::NS { nsdname } => self.serialise_domain(nsdname),
             RecordTypeWithData::MD { madname } => self.serialise_domain(madname),
             RecordTypeWithData::MF { madname } => self.serialise_domain(madname),
             RecordTypeWithData::CNAME { cname } => self.serialise_domain(cname),
-            RecordTypeWithData::SOA { .. } => panic!("unexpected SOA"),
+            RecordTypeWithData::SOA {
+                mname,
+                rname,
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum,
+            } => format!(
+                "{} {} {} {} {} {} {}",
+                self.serialise_domain(mname),
+                self.serialise_domain(rname),
+                serial,
+                refresh,
+                retry,
+                expire,
+                minimum
+            ),
             RecordTypeWithData::MB { madname } => self.serialise_domain(madname),
             RecordTypeWithData::MG { mdmname } => self.serialise_domain(mdmname),
             RecordTypeWithData::MR { newname } => self.serialise_domain(newname),

@@ -26,13 +26,17 @@ use crate::util::types::*;
 /// This has a 60s timeout.
 ///
 /// See section 5.3.3 of RFC 1034.
+///
+/// # Errors
+///
+/// See `ResolutionError`.
 pub async fn resolve_recursive(
     recursion_limit: usize,
     metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> Option<ResolvedRecord> {
+) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_recursive_notimeout(recursion_limit, metrics, zones, cache, question),
@@ -42,7 +46,7 @@ pub async fn resolve_recursive(
         res
     } else {
         tracing::debug!("timed out");
-        None
+        Err(ResolutionError::Timeout)
     }
 }
 
@@ -54,49 +58,47 @@ async fn resolve_recursive_notimeout(
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> Option<ResolvedRecord> {
+) -> Result<ResolvedRecord, ResolutionError> {
     if recursion_limit == 0 {
         tracing::debug!("hit recursion limit");
-        return None;
+        return Err(ResolutionError::RecursionLimit);
     }
 
     let mut candidate_delegation = None;
     let mut combined_rrs = Vec::new();
 
     match resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, question) {
-        Some(Ok(NameserverResponse::Answer {
+        Ok(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
             is_authoritative,
         })) => {
             if is_authoritative || question.qtype != QueryType::Wildcard {
                 tracing::trace!("got non-recursive answer");
-                return Some(
-                    NameserverResponse::Answer {
-                        rrs,
-                        authority_rrs,
-                        is_authoritative,
-                    }
-                    .into(),
-                );
+                return Ok(NameserverResponse::Answer {
+                    rrs,
+                    authority_rrs,
+                    is_authoritative,
+                }
+                .into());
             }
             tracing::trace!(
                 "got non-recursive non-authoritative answer to current wildcard query - continuing"
             );
             combined_rrs = rrs;
         }
-        Some(Ok(NameserverResponse::Delegation { delegation, .. })) => {
+        Ok(Ok(NameserverResponse::Delegation { delegation, .. })) => {
             tracing::trace!("got non-recursive delegation - using as candidate");
             candidate_delegation = Some(delegation);
         }
-        Some(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
+        Ok(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
             tracing::trace!("got non-recursive CNAME - restarting with CNAME target");
             let cname_question = Question {
                 name: cname,
                 qclass: question.qclass,
                 qtype: question.qtype,
             };
-            if let Some(resolved) = resolve_recursive_notimeout(
+            if let Ok(resolved) = resolve_recursive_notimeout(
                 recursion_limit - 1,
                 metrics,
                 zones,
@@ -110,15 +112,17 @@ async fn resolve_recursive_notimeout(
                 let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
                 combined_rrs.append(&mut rrs.clone());
                 combined_rrs.append(&mut r_rrs);
-                return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
             }
-            return None;
+            return Err(ResolutionError::DeadEnd {
+                question: cname_question,
+            });
         }
-        Some(Err(error)) => {
+        Ok(Err(error)) => {
             tracing::trace!("got non-recursive error response");
-            return Some(error.into());
+            return Ok(error.into());
         }
-        None => (),
+        Err(_) => (),
     }
 
     if candidate_delegation.is_none() {
@@ -129,8 +133,8 @@ async fn resolve_recursive_notimeout(
     if let Some(mut candidates) = candidate_delegation {
         'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
             tracing::trace!(?candidate, "got candidate nameserver");
-            if let Some(ip) = match candidate {
-                HostOrIP::IP(ip) => Some(ip),
+            if let Ok(Some(ip)) = match candidate {
+                HostOrIP::IP(ip) => Ok(Some(ip)),
                 HostOrIP::Host(name) => {
                     let candidate_question = Question {
                         name: name.clone(),
@@ -146,7 +150,7 @@ async fn resolve_recursive_notimeout(
                     )
                     .instrument(tracing::error_span!("resolve_nonrecursive", %candidate_question))
                     .await
-                    .and_then(|res| get_ip(&res.rrs(), &name))
+                    .map(|res| get_ip(&res.rrs(), &name))
                 }
             } {
                 if let Some(nameserver_answer) = query_nameserver(ip, question, candidates.match_count())
@@ -161,7 +165,7 @@ async fn resolve_recursive_notimeout(
                                 cache.insert(rr);
                             }
                             prioritising_merge(&mut combined_rrs, rrs);
-                            return Some(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                            return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         }
                         NameserverResponse::Delegation { rrs, delegation, .. } => {
                             tracing::trace!("got recursive delegation - using as candidate");
@@ -181,7 +185,7 @@ async fn resolve_recursive_notimeout(
                                 qtype: question.qtype,
                             };
                             tracing::trace!("got recursive CNAME - restarting with CNAME target");
-                            if let Some(resolved) = resolve_recursive_notimeout(
+                            if let Ok(resolved) = resolve_recursive_notimeout(
                                 recursion_limit - 1,
                                 metrics,
                                 zones,
@@ -193,24 +197,30 @@ async fn resolve_recursive_notimeout(
                             {
                                 prioritising_merge(&mut combined_rrs, rrs);
                                 prioritising_merge(&mut combined_rrs, resolved.rrs());
-                                return Some(ResolvedRecord::NonAuthoritative {
+                                return Ok(ResolvedRecord::NonAuthoritative {
                                     rrs: combined_rrs,
                                 });
                             }
-                            return None;
+                            return Err(ResolutionError::DeadEnd{question:cname_question});
                         }
                     }
                 }
                 metrics.nameserver_miss();
             }
 
-            return None;
+            // TODO: should distinguish between timeouts and other failures
+            // here, and try the next nameserver after a timeout.
+            return Err(ResolutionError::DeadEnd {
+                question: question.clone(),
+            });
         }
     } else {
         tracing::trace!("out of candidates");
     }
 
-    None
+    Err(ResolutionError::DeadEnd {
+        question: question.clone(),
+    })
 }
 
 /// Get the best nameservers by non-recursively looking them up for
@@ -236,7 +246,7 @@ fn candidate_nameservers(
 
             let mut hostnames = Vec::new();
 
-            if let Some(Ok(NameserverResponse::Answer { rrs, .. })) =
+            if let Ok(Ok(NameserverResponse::Answer { rrs, .. })) =
                 resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, &ns_q)
             {
                 for ns_rr in rrs {
