@@ -1002,6 +1002,42 @@ impl fmt::Debug for DomainName {
     }
 }
 
+impl fmt::Display for DomainName {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", &self.to_dotted_string())
+    }
+}
+
+impl FromStr for DomainName {
+    type Err = DomainNameFromStr;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(domain) = DomainName::from_dotted_string(s) {
+            Ok(domain)
+        } else {
+            Err(DomainNameFromStr::NoParse)
+        }
+    }
+}
+
+/// Errors that can arise when converting a `&str` into a `DomainName`.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum DomainNameFromStr {
+    NoParse,
+}
+
+impl fmt::Display for DomainNameFromStr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "could not parse string to domain name")
+    }
+}
+
+impl std::error::Error for DomainNameFromStr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
 #[cfg(any(feature = "test-util", test))]
 impl<'a> arbitrary::Arbitrary<'a> for DomainName {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
