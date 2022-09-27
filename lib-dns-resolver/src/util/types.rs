@@ -33,6 +33,53 @@ impl ResolvedRecord {
     }
 }
 
+/// An error that can occur when trying to resolve a domain.
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+pub enum ResolutionError {
+    /// Recursive or forwarding resolution timed out and was aborted.
+    Timeout,
+    /// Hit the recursion limit while following CNAMEs.
+    RecursionLimit,
+    /// Was unable to resolve a necessary record.
+    DeadEnd { question: Question },
+    /// Configuration error: a local zone delegates without defining NS records.
+    LocalDelegationMissingNS {
+        apex: DomainName,
+        domain: DomainName,
+    },
+    /// Internal error: tried to serve a domain from a local zone with a
+    /// different apex.
+    ZoneApexDomainMismatch {
+        apex: DomainName,
+        domain: DomainName,
+    },
+    /// Internal error: got a result from the cache which doesn't match the
+    /// querytype.
+    CacheTypeMismatch {
+        query: QueryType,
+        result: RecordType,
+    },
+}
+
+impl std::fmt::Display for ResolutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ResolutionError::Timeout => write!(f, "timed out"),
+            ResolutionError::RecursionLimit => write!(f, "CNAME chain too long"),
+            ResolutionError::DeadEnd{question} => write!(f, "unable to answer '{} {} {}'", question.name, question.qclass, question.qtype),
+            ResolutionError::LocalDelegationMissingNS{apex,domain} => write!(f, "configuration error: got delegation for domain '{}' from zone '{}', but there are no NS records", domain, apex),
+            ResolutionError::ZoneApexDomainMismatch{apex,domain} => write!(f, "internal error (bug): tried to answer query for domain '{}' from zone '{}'", domain, apex),
+            ResolutionError::CacheTypeMismatch{query,result} => write!(f, "internal error (bug): tried to fetch '{}' from cache but got '{}' instead", query, result),
+        }
+    }
+}
+
+impl std::error::Error for ResolutionError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
 /// A set of nameservers for a domain
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct Nameservers {

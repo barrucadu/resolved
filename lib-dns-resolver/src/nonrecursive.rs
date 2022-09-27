@@ -32,18 +32,22 @@ const CNAME_QTYPE: QueryType = QueryType::Record(RecordType::CNAME);
 /// This function gives up if the CNAMEs form a cycle.
 ///
 /// See section 4.3.2 of RFC 1034.
+///
+/// # Errors
+///
+/// See `ResolutionError`.
 pub fn resolve_nonrecursive(
     recursion_limit: usize,
     metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
-) -> Option<Result<NameserverResponse, AuthoritativeNameError>> {
+) -> Result<Result<NameserverResponse, AuthoritativeNameError>, ResolutionError> {
     let _span = tracing::error_span!("resolve_nonrecursive", %question).entered();
 
     if recursion_limit == 0 {
         tracing::debug!("hit recursion limit");
-        return None;
+        return Err(ResolutionError::RecursionLimit);
     }
 
     let mut rrs_from_zone = Vec::new();
@@ -76,13 +80,13 @@ pub fn resolve_nonrecursive(
                 metrics.zoneresult_answer(&rrs, zone, question);
 
                 if let Some(soa_rr) = zone.soa_rr() {
-                    return Some(Ok(NameserverResponse::Answer {
+                    return Ok(Ok(NameserverResponse::Answer {
                         rrs,
                         is_authoritative: true,
                         authority_rrs: vec![soa_rr],
                     }));
                 } else if question.qtype != QueryType::Wildcard && !rrs.is_empty() {
-                    return Some(Ok(NameserverResponse::Answer {
+                    return Ok(Ok(NameserverResponse::Answer {
                         rrs,
                         is_authoritative: false,
                         authority_rrs: Vec::new(),
@@ -109,7 +113,7 @@ pub fn resolve_nonrecursive(
                 metrics.zoneresult_cname(zone);
 
                 let mut rrs = vec![rr];
-                return Some(Ok(
+                return Ok(Ok(
                     match resolve_nonrecursive(
                         recursion_limit - 1,
                         metrics,
@@ -121,7 +125,7 @@ pub fn resolve_nonrecursive(
                             qclass: question.qclass,
                         },
                     ) {
-                        Some(Ok(NameserverResponse::Answer {
+                        Ok(Ok(NameserverResponse::Answer {
                             rrs: mut cname_rrs,
                             is_authoritative,
                             ..
@@ -134,7 +138,7 @@ pub fn resolve_nonrecursive(
                                 authority_rrs: Vec::new(),
                             }
                         }
-                        Some(Ok(NameserverResponse::CNAME {
+                        Ok(Ok(NameserverResponse::CNAME {
                             rrs: mut cname_rrs,
                             cname,
                             is_authoritative,
@@ -169,7 +173,10 @@ pub fn resolve_nonrecursive(
                 if let Some(soa_rr) = zone.soa_rr() {
                     if ns_rrs.is_empty() {
                         tracing::warn!("got empty RRset from delegation");
-                        return None;
+                        return Err(ResolutionError::LocalDelegationMissingNS {
+                            apex: zone.get_apex().clone(),
+                            domain: question.name.clone(),
+                        });
                     }
 
                     let name = ns_rrs[0].name.clone();
@@ -182,7 +189,7 @@ pub fn resolve_nonrecursive(
                         }
                     }
 
-                    return Some(Ok(NameserverResponse::Delegation {
+                    return Ok(Ok(NameserverResponse::Delegation {
                         delegation: Nameservers { hostnames, name },
                         rrs: ns_rrs,
                         is_authoritative: true,
@@ -201,13 +208,16 @@ pub fn resolve_nonrecursive(
                 metrics.zoneresult_nameerror(zone);
 
                 if let Some(soa_rr) = zone.soa_rr() {
-                    return Some(Err(AuthoritativeNameError { soa_rr }));
+                    return Ok(Err(AuthoritativeNameError { soa_rr }));
                 }
             }
             // This shouldn't happen
             None => {
                 tracing::warn!("zone apex / domain mismatch");
-                return None;
+                return Err(ResolutionError::ZoneApexDomainMismatch {
+                    apex: zone.get_apex().clone(),
+                    domain: question.name.clone(),
+                });
             }
         }
     }
@@ -267,10 +277,10 @@ pub fn resolve_nonrecursive(
                     },
                 );
                 match resolved_cname {
-                    Some(Ok(NameserverResponse::Answer { mut rrs, .. })) => {
+                    Ok(Ok(NameserverResponse::Answer { mut rrs, .. })) => {
                         rrs_from_cache.append(&mut rrs);
                     }
-                    Some(Ok(NameserverResponse::CNAME { mut rrs, cname, .. })) => {
+                    Ok(Ok(NameserverResponse::CNAME { mut rrs, cname, .. })) => {
                         rrs_from_cache.append(&mut rrs);
                         final_cname = Some(cname);
                     }
@@ -280,7 +290,10 @@ pub fn resolve_nonrecursive(
                 }
             } else {
                 tracing::warn!(rtype = %cname_rr.rtype_with_data.rtype(), "got non-CNAME RR from cache");
-                return None;
+                return Err(ResolutionError::CacheTypeMismatch {
+                    query: CNAME_QTYPE,
+                    result: cname_rr.rtype_with_data.rtype(),
+                });
             };
         }
     }
@@ -289,15 +302,17 @@ pub fn resolve_nonrecursive(
     prioritising_merge(&mut rrs, rrs_from_cache);
 
     if rrs.is_empty() {
-        None
+        Err(ResolutionError::DeadEnd {
+            question: question.clone(),
+        })
     } else if let Some(cname) = final_cname {
-        Some(Ok(NameserverResponse::CNAME {
+        Ok(Ok(NameserverResponse::CNAME {
             rrs,
             cname,
             is_authoritative: false,
         }))
     } else {
-        Some(Ok(NameserverResponse::Answer {
+        Ok(Ok(NameserverResponse::Answer {
             rrs,
             is_authoritative: false,
             authority_rrs: Vec::new(),
@@ -323,7 +338,7 @@ mod tests {
         ];
         expected.sort();
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             mut rrs,
             authority_rrs,
             is_authoritative: true,
@@ -349,7 +364,7 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_is_nonauthoritative_for_zones_without_soa() {
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             rrs,
             is_authoritative: false,
             ..
@@ -380,7 +395,7 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&rr);
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             rrs,
             is_authoritative: false,
             ..
@@ -416,7 +431,7 @@ mod tests {
             Ipv4Addr::new(8, 8, 8, 8),
         ));
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             mut rrs,
             authority_rrs,
             is_authoritative: true,
@@ -450,7 +465,7 @@ mod tests {
         cache.insert(&cache_rr_dropped);
         cache.insert(&cache_rr_kept);
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             rrs,
             is_authoritative: false,
             ..
@@ -481,7 +496,7 @@ mod tests {
         );
         let a_rr = a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
             is_authoritative: true,
@@ -515,7 +530,7 @@ mod tests {
         cache.insert(&cname_rr1);
         cache.insert(&cname_rr2);
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             rrs,
             is_authoritative: false,
             ..
@@ -544,7 +559,7 @@ mod tests {
         let cname_rr = cname_record("cname-na.authoritative.example.com.", "a.example.com.");
         let a_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
-        if let Some(Ok(NameserverResponse::Answer {
+        if let Ok(Ok(NameserverResponse::Answer {
             rrs,
             is_authoritative: false,
             ..
@@ -570,7 +585,7 @@ mod tests {
     #[test]
     fn resolve_nonrecursive_returns_cname_response_if_unable_to_fully_resolve() {
         assert_eq!(
-            Some(Ok(NameserverResponse::CNAME {
+            Ok(Ok(NameserverResponse::CNAME {
                 rrs: vec![cname_record(
                     "trailing-cname.example.com.",
                     "somewhere-else.example.com."
@@ -595,7 +610,7 @@ mod tests {
     #[test]
     fn resolve_nonrecursive_delegates_from_authoritative_zone() {
         assert_eq!(
-            Some(Ok(NameserverResponse::Delegation {
+            Ok(Ok(NameserverResponse::Delegation {
                 rrs: vec![ns_record(
                     "delegated.authoritative.example.com.",
                     "ns.delegated.authoritative.example.com."
@@ -625,18 +640,22 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_does_not_delegate_from_nonauthoritative_zone() {
+        let question = Question {
+            name: domain("www.delegated.example.com."),
+            qtype: QueryType::Wildcard,
+            qclass: QueryClass::Wildcard,
+        };
+
         assert_eq!(
-            None,
+            Err(ResolutionError::DeadEnd {
+                question: question.clone()
+            }),
             resolve_nonrecursive(
                 10,
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
-                &Question {
-                    name: domain("www.delegated.example.com."),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard,
-                }
+                &question
             )
         );
     }
@@ -644,7 +663,7 @@ mod tests {
     #[test]
     fn resolve_nonrecursive_nameerrors_from_authoritative_zone() {
         assert_eq!(
-            Some(Err(AuthoritativeNameError {
+            Ok(Err(AuthoritativeNameError {
                 soa_rr: zones_soa_rr()
             })),
             resolve_nonrecursive(
@@ -663,18 +682,22 @@ mod tests {
 
     #[test]
     fn resolve_nonrecursive_does_not_nameerror_from_nonauthoritative_zone() {
+        let question = Question {
+            name: domain("no.such.name.example.com."),
+            qtype: QueryType::Wildcard,
+            qclass: QueryClass::Wildcard,
+        };
+
         assert_eq!(
-            None,
+            Err(ResolutionError::DeadEnd {
+                question: question.clone()
+            }),
             resolve_nonrecursive(
                 10,
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
-                &Question {
-                    name: domain("no.such.name.example.com."),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard,
-                },
+                &question,
             )
         );
     }

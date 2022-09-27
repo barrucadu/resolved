@@ -91,27 +91,31 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
         DNS_RESOLVER_NAMESERVER_HIT_TOTAL.inc_by(metrics.nameserver_hits);
         DNS_RESOLVER_NAMESERVER_MISS_TOTAL.inc_by(metrics.nameserver_misses);
 
-        if let Some(rr) = answer {
-            match rr {
-                ResolvedRecord::Authoritative {
-                    mut rrs,
-                    mut authority_rrs,
-                } => {
-                    response.answers.append(&mut rrs);
-                    response.authority.append(&mut authority_rrs);
-                }
-                ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
-                    response.authority.append(&mut authority_rrs);
-                    if query.questions.len() == 1 {
-                        response.header.rcode = Rcode::NameError;
+        let message = match answer {
+            Ok(rr) => {
+                match rr {
+                    ResolvedRecord::Authoritative {
+                        mut rrs,
+                        mut authority_rrs,
+                    } => {
+                        response.answers.append(&mut rrs);
+                        response.authority.append(&mut authority_rrs);
+                    }
+                    ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
+                        response.authority.append(&mut authority_rrs);
+                        if query.questions.len() == 1 {
+                            response.header.rcode = Rcode::NameError;
+                        }
+                    }
+                    ResolvedRecord::NonAuthoritative { mut rrs } => {
+                        response.answers.append(&mut rrs);
+                        response.header.is_authoritative = false;
                     }
                 }
-                ResolvedRecord::NonAuthoritative { mut rrs } => {
-                    response.answers.append(&mut rrs);
-                    response.header.is_authoritative = false;
-                }
+                "ok".to_string()
             }
-        }
+            Err(err) => format!("error: {}", err),
+        };
 
         let duration_seconds = question_timer.stop_and_record();
         tracing::info!(
@@ -124,7 +128,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
             nameserver_hits = %metrics.nameserver_hits,
             nameserver_misses = %metrics.nameserver_misses,
             %duration_seconds,
-            "ok"
+            message
         );
     }
 
