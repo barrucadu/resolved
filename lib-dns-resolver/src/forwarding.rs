@@ -153,6 +153,10 @@ async fn resolve_forwarding_notimeout(
 /// Query a remote nameserver to answer a question.
 ///
 /// This does a recursive query.
+///
+/// TODO: should this pass on authority and name errors?  the forwarding
+/// nameserver is being treated as an untrusted cache right now, which limits
+/// what resolved can return.
 async fn query_nameserver(address: Ipv4Addr, question: &Question) -> Option<Vec<ResourceRecord>> {
     let mut request = Message::from_question(rand::thread_rng().gen(), question.clone());
     request.header.recursion_desired = true;
