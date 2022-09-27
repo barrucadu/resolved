@@ -1351,6 +1351,21 @@ pub enum RecordTypeFromStr {
     NoParse,
 }
 
+impl fmt::Display for RecordTypeFromStr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RecordTypeFromStr::BadType => write!(f, "TYPE<num> number must be a u16"),
+            RecordTypeFromStr::NoParse => write!(f, "could not parse string to type"),
+        }
+    }
+}
+
+impl std::error::Error for RecordTypeFromStr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
 impl From<u16> for RecordType {
     fn from(value: u16) -> Self {
         match value {
@@ -1470,6 +1485,21 @@ impl FromStr for RecordClass {
 pub enum RecordClassFromStr {
     BadClass,
     NoParse,
+}
+
+impl fmt::Display for RecordClassFromStr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            RecordClassFromStr::BadClass => write!(f, "CLASS<num> number must be a u16"),
+            RecordClassFromStr::NoParse => write!(f, "could not parse string to class"),
+        }
+    }
+}
+
+impl std::error::Error for RecordClassFromStr {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
 }
 
 impl From<u16> for RecordClass {

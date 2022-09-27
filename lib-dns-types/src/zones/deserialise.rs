@@ -912,6 +912,43 @@ pub enum Error {
     },
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::TokeniserUnexpected { unexpected } => write!(f, "unexpected '{:?}'", unexpected),
+            Error::TokeniserUnexpectedEscape { unexpected } => {
+                write!(f, "unexpected escape '{:?}'", unexpected)
+            }
+            Error::IncludeNotSupported { .. } => write!(f, "'$INCLUDE' directive not supported"),
+            Error::MultipleSOA => write!(f, "multiple SOA records, expected one or zero"),
+            Error::WildcardSOA => write!(f, "wildcard SOA record not allowed"),
+            Error::NotSubdomainOfApex { apex, name } => write!(
+                f,
+                "domain name '{}' not a subdomain of the apex '{}'",
+                name, apex
+            ),
+            Error::Unexpected { expected, .. } => write!(f, "expected '{:?}'", expected),
+            Error::ExpectedU32 { digits } => write!(f, "expected u32, got '{:?}'", digits),
+            Error::ExpectedOrigin => write!(f, "relative domain name used without origin"),
+            Error::ExpectedDomainName { dotted_string } => {
+                write!(f, "could not parse domain name '{}'", dotted_string)
+            }
+            Error::WrongLen { .. } => write!(f, "zone file incomplete"),
+            Error::MissingType { .. } => write!(f, "missing type in record definition"),
+            Error::MissingTTL { .. } => write!(f, "missing TTL in record definition"),
+            Error::MissingDomainName { .. } => {
+                write!(f, "missing domain name in record definition")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::protocol::types::test_util::*;

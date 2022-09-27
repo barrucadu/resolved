@@ -358,6 +358,30 @@ pub enum Error {
     DomainLabelInvalid(u16),
 }
 
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::CompletelyBusted | Error::HeaderTooShort(_) => write!(f, "header too short"),
+            Error::QuestionTooShort(_) => write!(f, "question too short"),
+            Error::ResourceRecordTooShort(_) => write!(f, "resource record too short"),
+            Error::ResourceRecordInvalid(_) => write!(
+                f,
+                "resource record RDLENGTH field does not match parsed RDATA length"
+            ),
+            Error::DomainTooShort(_) => write!(f, "domain name too short"),
+            Error::DomainTooLong(_) => write!(f, "domain name too long"),
+            Error::DomainPointerInvalid(_) => write!(f, "domain name compression pointer invalid"),
+            Error::DomainLabelInvalid(_) => write!(f, "domain label invalid"),
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
+}
+
 impl Error {
     pub fn id(self) -> Option<u16> {
         match self {

@@ -19,10 +19,10 @@ impl Message {
     /// If the message is invalid (the `Message` type permits more
     /// states than strictly allowed).
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
-        let qdcount = usize_to_counter(self.questions.len())?;
-        let ancount = usize_to_counter(self.answers.len())?;
-        let nscount = usize_to_counter(self.authority.len())?;
-        let arcount = usize_to_counter(self.additional.len())?;
+        let qdcount = usize_to_u16(self.questions.len())?;
+        let ancount = usize_to_u16(self.answers.len())?;
+        let nscount = usize_to_u16(self.authority.len())?;
+        let arcount = usize_to_u16(self.additional.len())?;
 
         WireHeader {
             header: self.header,
@@ -202,7 +202,7 @@ impl ResourceRecord {
             RecordTypeWithData::Unknown { tag, octets } => (RecordType::Unknown(tag), octets),
         };
 
-        let rdlength = usize_to_counter(rdata.len())?;
+        let rdlength = usize_to_u16(rdata.len())?;
 
         self.name.serialise(buffer);
         rtype.serialise(buffer);
@@ -252,7 +252,23 @@ impl RecordClass {
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Error {
     /// A counter does not fit in the desired width.
-    CounterTooLarge { counter: usize },
+    CounterTooLarge { counter: usize, bits: u32 },
+}
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Error::CounterTooLarge { counter, bits } => {
+                write!(f, "'{:?}' cannot be converted to a u{:?}", counter, bits)
+            }
+        }
+    }
+}
+
+impl std::error::Error for Error {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        None
+    }
 }
 
 /// A buffer which can be written to, for serialisation purposes.
@@ -292,16 +308,18 @@ impl WritableBuffer {
     }
 }
 
-/// Helper function to convert a `usize` counter into the appropriate
-/// width (or return an error)
+/// Helper function to convert a `usize` into a `u16` (or return an error).
 ///
 /// # Errors
 ///
 /// If the value cannot be converted.
-fn usize_to_counter<T: TryFrom<usize>>(counter: usize) -> Result<T, Error> {
-    if let Ok(t) = T::try_from(counter) {
+fn usize_to_u16(counter: usize) -> Result<u16, Error> {
+    if let Ok(t) = u16::try_from(counter) {
         Ok(t)
     } else {
-        Err(Error::CounterTooLarge { counter })
+        Err(Error::CounterTooLarge {
+            counter,
+            bits: u16::BITS,
+        })
     }
 }
