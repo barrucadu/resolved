@@ -47,12 +47,6 @@ pub enum ResolutionError {
         apex: DomainName,
         domain: DomainName,
     },
-    /// Internal error: tried to serve a domain from a local zone with a
-    /// different apex.
-    ZoneApexDomainMismatch {
-        apex: DomainName,
-        domain: DomainName,
-    },
     /// Internal error: got a result from the cache which doesn't match the
     /// querytype.
     CacheTypeMismatch {
@@ -68,7 +62,6 @@ impl std::fmt::Display for ResolutionError {
             ResolutionError::RecursionLimit => write!(f, "CNAME chain too long"),
             ResolutionError::DeadEnd{question} => write!(f, "unable to answer '{} {} {}'", question.name, question.qclass, question.qtype),
             ResolutionError::LocalDelegationMissingNS{apex,domain} => write!(f, "configuration error: got delegation for domain '{}' from zone '{}', but there are no NS records", domain, apex),
-            ResolutionError::ZoneApexDomainMismatch{apex,domain} => write!(f, "internal error (bug): tried to answer query for domain '{}' from zone '{}'", domain, apex),
             ResolutionError::CacheTypeMismatch{query,result} => write!(f, "internal error (bug): tried to fetch '{}' from cache but got '{}' instead", query, result),
         }
     }

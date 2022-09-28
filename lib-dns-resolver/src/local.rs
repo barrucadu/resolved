@@ -47,13 +47,13 @@ pub fn resolve_local(
 
     let mut rrs_from_zone = Vec::new();
 
-    if let Some(zone) = zones.get(&question.name) {
+    // `zones.resolve` implements the non-recursive part of step 3 of the
+    // standard resolver algorithm: matching down through the zone and returning
+    // what sort of end state is reached.
+    if let Some((zone, zone_result)) = zones.resolve(&question.name, question.qtype) {
         let _zone_span = tracing::error_span!("zone", apex = %zone.get_apex().to_dotted_string(), is_authoritative = %zone.is_authoritative()).entered();
 
-        // `zone.resolve` implements the non-recursive part of step 3 of the
-        // standard resolver algorithm: matching down through the zone and
-        // returning what sort of end state is reached.
-        match zone.resolve(&question.name, question.qtype) {
+        match zone_result {
             // If we get an answer:
             //
             // - if the zone is authoritative: we're done.
@@ -68,7 +68,7 @@ pub fn resolve_local(
             //    - if it is a wildcard query, save these results and continue
             //    to the cache (handled below), and use a prioritising merge to
             //    combine the RR sets, preserving the override behaviour.
-            Some(ZoneResult::Answer { rrs }) => {
+            ZoneResult::Answer { rrs } => {
                 metrics.zoneresult_answer(&rrs, zone, question);
 
                 if let Some(soa_rr) = zone.soa_rr() {
@@ -101,7 +101,7 @@ pub fn resolve_local(
             //
             // - if resolving it fails: return the response, which is
             // authoritative if and only if this starting zone is authoritative.
-            Some(ZoneResult::CNAME { cname, rr }) => {
+            ZoneResult::CNAME { cname, rr } => {
                 metrics.zoneresult_cname(zone);
 
                 let mut rrs = vec![rr];
@@ -193,7 +193,7 @@ pub fn resolve_local(
             // RRs in the AUTHORITY section.
             //
             // - otherwise ignore and proceed to cache.
-            Some(ZoneResult::Delegation { ns_rrs }) => {
+            ZoneResult::Delegation { ns_rrs } => {
                 tracing::trace!("got delegation");
                 metrics.zoneresult_delegation(zone);
 
@@ -230,7 +230,7 @@ pub fn resolve_local(
             // (todo)
             //
             // - otherwise ignore and proceed to cache.
-            Some(ZoneResult::NameError) => {
+            ZoneResult::NameError => {
                 tracing::trace!("got name error");
                 metrics.zoneresult_nameerror(zone);
 
@@ -241,14 +241,6 @@ pub fn resolve_local(
                         },
                     });
                 }
-            }
-            // This shouldn't happen
-            None => {
-                tracing::warn!("zone apex / domain mismatch");
-                return Err(ResolutionError::ZoneApexDomainMismatch {
-                    apex: zone.get_apex().clone(),
-                    domain: question.name.clone(),
-                });
             }
         }
     }

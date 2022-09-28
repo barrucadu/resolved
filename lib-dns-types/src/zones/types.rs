@@ -35,6 +35,22 @@ impl Zones {
         None
     }
 
+    /// Resolve a query aginst the appropriate zone.  Returns `None` if there is
+    /// no zone.
+    ///
+    /// This corresponds to step 3 of the standard nameserver
+    /// algorithm (see section 4.3.2 of RFC 1034).
+    #[allow(clippy::missing_panics_doc)]
+    pub fn resolve(&self, name: &DomainName, qtype: QueryType) -> Option<(&Zone, ZoneResult)> {
+        if let Some(zone) = self.get(name) {
+            // safe becauze the domain matches the zone
+            let result = zone.resolve(name, qtype).unwrap();
+            Some((zone, result))
+        } else {
+            None
+        }
+    }
+
     /// Create or replace a zone.
     pub fn insert(&mut self, zone: Zone) {
         self.zones.insert(zone.apex.clone(), zone);
