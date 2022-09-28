@@ -108,26 +108,9 @@ async fn resolve_recursive_notimeout(
     if let Some(mut candidates) = candidates {
         'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
             tracing::trace!(?candidate, "got candidate nameserver");
-            if let Ok(Some(ip)) = match candidate {
-                HostOrIP::IP(ip) => Ok(Some(ip)),
-                HostOrIP::Host(name) => {
-                    let candidate_question = Question {
-                        name: name.clone(),
-                        qclass: QueryClass::Record(RecordClass::IN),
-                        qtype: QueryType::Record(RecordType::A),
-                    };
-                    resolve_recursive_notimeout(
-                        recursion_limit - 1,
-                        metrics,
-                        zones,
-                        cache,
-                        &candidate_question,
-                    )
-                    .instrument(tracing::error_span!("resolve_recursive", %candidate_question))
-                    .await
-                    .map(|res| get_ip(&res.rrs(), &name))
-                }
-            } {
+            if let Some(ip) =
+                resolve_hostname_to_ip(recursion_limit - 1, metrics, zones, cache, candidate).await
+            {
                 if let Some(nameserver_answer) = query_nameserver(ip, question, candidates.match_count())
                     .instrument(tracing::error_span!("query_nameserver", address = %ip, match_count = %candidates.match_count()))
                     .await
@@ -190,6 +173,35 @@ async fn resolve_recursive_notimeout(
     Err(ResolutionError::DeadEnd {
         question: question.clone(),
     })
+}
+
+/// Resolve a hostname into an IP address.
+async fn resolve_hostname_to_ip(
+    recursion_limit: usize,
+    metrics: &mut Metrics,
+    zones: &Zones,
+    cache: &SharedCache,
+    hostname: HostOrIP,
+) -> Option<Ipv4Addr> {
+    match hostname {
+        HostOrIP::IP(ip) => Some(ip),
+        HostOrIP::Host(name) => {
+            let question = Question {
+                name: name.clone(),
+                qclass: QueryClass::Record(RecordClass::IN),
+                qtype: QueryType::Record(RecordType::A),
+            };
+            if let Ok(result) =
+                resolve_recursive_notimeout(recursion_limit - 1, metrics, zones, cache, &question)
+                    .instrument(tracing::error_span!("resolve_hostname_to_ip", %question))
+                    .await
+            {
+                get_ip(&result.rrs(), &name)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 /// Get the best nameservers by non-recursively looking them up for
