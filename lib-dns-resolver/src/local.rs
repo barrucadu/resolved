@@ -10,6 +10,82 @@ use crate::util::types::*;
 /// Query type for CNAMEs - used for cache lookups.
 const CNAME_QTYPE: QueryType = QueryType::Record(RecordType::CNAME);
 
+/// Result of resolving a name using only zones and cache.
+pub enum LocalResolutionResult {
+    Done {
+        resolved: ResolvedRecord,
+    },
+    Partial {
+        rrs: Vec<ResourceRecord>,
+    },
+    Delegation {
+        delegation: Nameservers,
+    },
+    CNAME {
+        rrs: Vec<ResourceRecord>,
+        cname_question: Question,
+    },
+}
+
+/// Attempt to resolve locally.  This converts the `NameserverResponse` of the
+/// local resolver into something a bit easier for the recursive and forwarding
+/// nameservers to use.
+pub fn try_resolve_local(
+    recursion_limit: usize,
+    metrics: &mut Metrics,
+    zones: &Zones,
+    cache: &SharedCache,
+    question: &Question,
+) -> Option<LocalResolutionResult> {
+    match resolve_local(recursion_limit, metrics, zones, cache, question) {
+        Ok(Ok(NameserverResponse::Answer {
+            rrs,
+            authority_rrs,
+            is_authoritative,
+        })) => {
+            if is_authoritative {
+                tracing::trace!("got local authoritative answer");
+                Some(LocalResolutionResult::Done {
+                    resolved: ResolvedRecord::Authoritative { rrs, authority_rrs },
+                })
+            } else if question.qtype != QueryType::Wildcard {
+                tracing::trace!("got local non-authoritative answer to non-wildcard query");
+                Some(LocalResolutionResult::Done {
+                    resolved: ResolvedRecord::NonAuthoritative { rrs },
+                })
+            } else {
+                tracing::trace!("got local non-authoritative answer to wildcard query");
+                Some(LocalResolutionResult::Partial { rrs })
+            }
+        }
+        Ok(Ok(NameserverResponse::Delegation { delegation, .. })) => {
+            tracing::trace!("got local delegation");
+            Some(LocalResolutionResult::Delegation { delegation })
+        }
+        Ok(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
+            tracing::trace!("got local CNAME");
+            let cname_question = Question {
+                name: cname,
+                qclass: question.qclass,
+                qtype: question.qtype,
+            };
+            Some(LocalResolutionResult::CNAME {
+                rrs,
+                cname_question,
+            })
+        }
+        Ok(Err(error)) => {
+            tracing::trace!("got non-recursive error response");
+            Some(LocalResolutionResult::Done {
+                resolved: ResolvedRecord::AuthoritativeNameError {
+                    authority_rrs: vec![error.soa_rr],
+                },
+            })
+        }
+        Err(_) => None,
+    }
+}
+
 /// Local DNS resolution.
 ///
 /// This acts like a pseudo-nameserver, returning a `NameserverResponse` which
