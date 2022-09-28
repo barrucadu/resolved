@@ -47,12 +47,6 @@ pub enum ResolutionError {
         apex: DomainName,
         domain: DomainName,
     },
-    /// Internal error: tried to serve a domain from a local zone with a
-    /// different apex.
-    ZoneApexDomainMismatch {
-        apex: DomainName,
-        domain: DomainName,
-    },
     /// Internal error: got a result from the cache which doesn't match the
     /// querytype.
     CacheTypeMismatch {
@@ -68,7 +62,6 @@ impl std::fmt::Display for ResolutionError {
             ResolutionError::RecursionLimit => write!(f, "CNAME chain too long"),
             ResolutionError::DeadEnd{question} => write!(f, "unable to answer '{} {} {}'", question.name, question.qclass, question.qtype),
             ResolutionError::LocalDelegationMissingNS{apex,domain} => write!(f, "configuration error: got delegation for domain '{}' from zone '{}', but there are no NS records", domain, apex),
-            ResolutionError::ZoneApexDomainMismatch{apex,domain} => write!(f, "internal error (bug): tried to answer query for domain '{}' from zone '{}'", domain, apex),
             ResolutionError::CacheTypeMismatch{query,result} => write!(f, "internal error (bug): tried to fetch '{}' from cache but got '{}' instead", query, result),
         }
     }
@@ -101,94 +94,6 @@ impl Nameservers {
 pub enum HostOrIP {
     Host(DomainName),
     IP(Ipv4Addr),
-}
-
-/// A response from a remote nameserver
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum NameserverResponse {
-    Answer {
-        rrs: Vec<ResourceRecord>,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
-    },
-    CNAME {
-        rrs: Vec<ResourceRecord>,
-        cname: DomainName,
-        is_authoritative: bool,
-    },
-    Delegation {
-        rrs: Vec<ResourceRecord>,
-        delegation: Nameservers,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
-    },
-}
-
-impl From<NameserverResponse> for ResolvedRecord {
-    fn from(nsr: NameserverResponse) -> Self {
-        match nsr {
-            NameserverResponse::Answer {
-                is_authoritative: true,
-                rrs,
-                authority_rrs,
-            } => ResolvedRecord::Authoritative { rrs, authority_rrs },
-            NameserverResponse::Answer {
-                is_authoritative: false,
-                rrs,
-                ..
-            } => ResolvedRecord::NonAuthoritative { rrs },
-            NameserverResponse::CNAME {
-                rrs,
-                is_authoritative,
-                ..
-            } => {
-                if is_authoritative {
-                    ResolvedRecord::Authoritative {
-                        rrs,
-                        authority_rrs: Vec::new(),
-                    }
-                } else {
-                    ResolvedRecord::NonAuthoritative { rrs }
-                }
-            }
-            NameserverResponse::Delegation {
-                rrs,
-                is_authoritative,
-                authority_rrs,
-                ..
-            } => {
-                if is_authoritative {
-                    ResolvedRecord::Authoritative { rrs, authority_rrs }
-                } else {
-                    ResolvedRecord::NonAuthoritative { rrs }
-                }
-            }
-        }
-    }
-}
-
-/// An authoritative name error response, returned by the
-/// non-recursive resolver.
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct AuthoritativeNameError {
-    pub soa_rr: ResourceRecord,
-}
-
-impl From<AuthoritativeNameError> for ResolvedRecord {
-    fn from(error: AuthoritativeNameError) -> Self {
-        ResolvedRecord::AuthoritativeNameError {
-            authority_rrs: vec![error.soa_rr],
-        }
-    }
-}
-
-impl From<Result<NameserverResponse, AuthoritativeNameError>> for ResolvedRecord {
-    fn from(nsr_or_error: Result<NameserverResponse, AuthoritativeNameError>) -> Self {
-        match nsr_or_error {
-            Ok(nsr) => nsr.into(),
-            Err(err) => err.into(),
-        }
-    }
 }
 
 /// Merge two sets of RRs, where records from the second set are
