@@ -72,30 +72,18 @@ async fn resolve_recursive_notimeout(
         Some(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
         Some(LocalResolutionResult::Delegation { delegation }) => candidates = Some(delegation),
         Some(LocalResolutionResult::CNAME {
-            mut rrs,
+            rrs,
             cname_question,
         }) => {
-            return match resolve_recursive_notimeout(
+            return resolve_combined_recursive(
                 recursion_limit - 1,
                 metrics,
                 zones,
                 cache,
-                &cname_question,
+                rrs,
+                cname_question,
             )
-            .instrument(tracing::error_span!("resolve_recursive", %cname_question))
             .await
-            {
-                Ok(resolved) => {
-                    let mut r_rrs = resolved.rrs();
-                    let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
-                    combined_rrs.append(&mut rrs);
-                    combined_rrs.append(&mut r_rrs);
-                    Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
-                }
-                Err(_) => Err(ResolutionError::DeadEnd {
-                    question: cname_question,
-                }),
-            }
         }
         None => (),
     }
@@ -130,30 +118,15 @@ async fn resolve_recursive_notimeout(
                             continue 'query_nameservers;
                         }
                         NameserverResponse::CNAME { rrs, cname, .. } => {
+                            tracing::trace!("got recursive CNAME");
                             cache.insert_all(&rrs);
+                            prioritising_merge(&mut combined_rrs, rrs);
                             let cname_question = Question {
                                 name: cname,
                                 qclass: question.qclass,
                                 qtype: question.qtype,
                             };
-                            tracing::trace!("got recursive CNAME - restarting with CNAME target");
-                            if let Ok(resolved) = resolve_recursive_notimeout(
-                                recursion_limit - 1,
-                                metrics,
-                                zones,
-                                cache,
-                                &cname_question,
-                            )
-                            .instrument(tracing::error_span!("resolve_recursive", %cname_question))
-                            .await
-                            {
-                                prioritising_merge(&mut combined_rrs, rrs);
-                                prioritising_merge(&mut combined_rrs, resolved.rrs());
-                                return Ok(ResolvedRecord::NonAuthoritative {
-                                    rrs: combined_rrs,
-                                });
-                            }
-                            return Err(ResolutionError::DeadEnd{question:cname_question});
+                            return resolve_combined_recursive(recursion_limit - 1, metrics, zones, cache, combined_rrs, cname_question).await;
                         }
                     }
                 }
@@ -173,6 +146,28 @@ async fn resolve_recursive_notimeout(
     Err(ResolutionError::DeadEnd {
         question: question.clone(),
     })
+}
+
+/// Helper function for resolving CNAMEs: resolve, and add some existing RRs to
+/// the ANSWER section of the result.
+async fn resolve_combined_recursive(
+    recursion_limit: usize,
+    metrics: &mut Metrics,
+    zones: &Zones,
+    cache: &SharedCache,
+    mut rrs: Vec<ResourceRecord>,
+    question: Question,
+) -> Result<ResolvedRecord, ResolutionError> {
+    match resolve_recursive_notimeout(recursion_limit - 1, metrics, zones, cache, &question)
+        .instrument(tracing::error_span!("resolve_combined_recursive", %question))
+        .await
+    {
+        Ok(resolved) => {
+            rrs.append(&mut resolved.rrs());
+            Ok(ResolvedRecord::NonAuthoritative { rrs })
+        }
+        Err(_) => Err(ResolutionError::DeadEnd { question }),
+    }
 }
 
 /// Resolve a hostname into an IP address.
