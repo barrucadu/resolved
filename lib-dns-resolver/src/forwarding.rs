@@ -114,10 +114,8 @@ async fn resolve_forwarding_notimeout(
         .await
     {
         metrics.nameserver_hit();
-        for rr in &rrs {
-            cache.insert(rr);
-        }
         tracing::trace!("nameserver HIT");
+        cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);
         Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
     } else {

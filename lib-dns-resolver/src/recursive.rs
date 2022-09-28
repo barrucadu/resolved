@@ -136,24 +136,18 @@ async fn resolve_recursive_notimeout(
                     match nameserver_answer {
                         NameserverResponse::Answer { rrs, .. } => {
                             tracing::trace!("got recursive answer");
-                            for rr in &rrs {
-                                cache.insert(rr);
-                            }
+                            cache.insert_all(&rrs);
                             prioritising_merge(&mut combined_rrs, rrs);
                             return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         }
                         NameserverResponse::Delegation { rrs, delegation, .. } => {
                             tracing::trace!("got recursive delegation - using as candidate");
-                            for rr in &rrs {
-                                cache.insert(rr);
-                            }
+                            cache.insert_all(&rrs);
                             candidates = delegation;
                             continue 'query_nameservers;
                         }
                         NameserverResponse::CNAME { rrs, cname, .. } => {
-                            for rr in &rrs {
-                                cache.insert(rr);
-                            }
+                            cache.insert_all(&rrs);
                             let cname_question = Question {
                                 name: cname,
                                 qclass: question.qclass,
