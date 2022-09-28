@@ -38,78 +38,6 @@ pub fn resolve_local(
     cache: &SharedCache,
     question: &Question,
 ) -> Result<LocalResolutionResult, ResolutionError> {
-    match resolve_local_inner(recursion_limit, metrics, zones, cache, question) {
-        Ok(Ok(NameserverResponse::Answer {
-            rrs,
-            authority_rrs,
-            is_authoritative,
-        })) => {
-            if is_authoritative {
-                tracing::trace!("got local authoritative answer");
-                Ok(LocalResolutionResult::Done {
-                    resolved: ResolvedRecord::Authoritative { rrs, authority_rrs },
-                })
-            } else if question.qtype != QueryType::Wildcard {
-                tracing::trace!("got local non-authoritative answer to non-wildcard query");
-                Ok(LocalResolutionResult::Done {
-                    resolved: ResolvedRecord::NonAuthoritative { rrs },
-                })
-            } else {
-                tracing::trace!("got local non-authoritative answer to wildcard query");
-                Ok(LocalResolutionResult::Partial { rrs })
-            }
-        }
-        Ok(Ok(NameserverResponse::Delegation {
-            rrs,
-            delegation,
-            is_authoritative,
-            authority_rrs,
-        })) => {
-            tracing::trace!("got local delegation");
-            Ok(LocalResolutionResult::Delegation {
-                rrs,
-                delegation,
-                is_authoritative,
-                authority_rrs,
-            })
-        }
-        Ok(Ok(NameserverResponse::CNAME {
-            rrs,
-            cname,
-            is_authoritative,
-        })) => {
-            tracing::trace!("got local CNAME");
-            let cname_question = Question {
-                name: cname,
-                qclass: question.qclass,
-                qtype: question.qtype,
-            };
-            Ok(LocalResolutionResult::CNAME {
-                rrs,
-                cname_question,
-                is_authoritative,
-            })
-        }
-        Ok(Err(error)) => {
-            tracing::trace!("got non-recursive error response");
-            Ok(LocalResolutionResult::Done {
-                resolved: ResolvedRecord::AuthoritativeNameError {
-                    authority_rrs: vec![error.soa_rr],
-                },
-            })
-        }
-        Err(error) => Err(error),
-    }
-}
-
-/// Helper function used by `resolve_local`.
-fn resolve_local_inner(
-    recursion_limit: usize,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
-    question: &Question,
-) -> Result<Result<NameserverResponse, AuthoritativeNameError>, ResolutionError> {
     let _span = tracing::error_span!("resolve_local", %question).entered();
 
     if recursion_limit == 0 {
@@ -141,23 +69,25 @@ fn resolve_local_inner(
             //    to the cache (handled below), and use a prioritising merge to
             //    combine the RR sets, preserving the override behaviour.
             Some(ZoneResult::Answer { rrs }) => {
-                tracing::trace!("got answer");
                 metrics.zoneresult_answer(&rrs, zone, question);
 
                 if let Some(soa_rr) = zone.soa_rr() {
-                    return Ok(Ok(NameserverResponse::Answer {
-                        rrs,
-                        is_authoritative: true,
-                        authority_rrs: vec![soa_rr],
-                    }));
+                    tracing::trace!("got authoritative answer");
+                    return Ok(LocalResolutionResult::Done {
+                        resolved: ResolvedRecord::Authoritative {
+                            rrs,
+                            authority_rrs: vec![soa_rr],
+                        },
+                    });
                 } else if question.qtype != QueryType::Wildcard && !rrs.is_empty() {
-                    return Ok(Ok(NameserverResponse::Answer {
-                        rrs,
-                        is_authoritative: false,
-                        authority_rrs: Vec::new(),
-                    }));
+                    tracing::trace!("got non-authoritative answer");
+                    return Ok(LocalResolutionResult::Done {
+                        resolved: ResolvedRecord::NonAuthoritative { rrs },
+                    });
+                } else {
+                    tracing::trace!("got partial answer");
+                    rrs_from_zone = rrs;
                 }
-                rrs_from_zone = rrs;
             }
             // If the name is a CNAME, try resolving it, then:
             //
@@ -172,56 +102,90 @@ fn resolve_local_inner(
             // - if resolving it fails: return the response, which is
             // authoritative if and only if this starting zone is authoritative.
             Some(ZoneResult::CNAME { cname, rr }) => {
-                tracing::trace!("got cname");
                 metrics.zoneresult_cname(zone);
 
                 let mut rrs = vec![rr];
-                return Ok(Ok(
-                    match resolve_local_inner(
-                        recursion_limit - 1,
-                        metrics,
-                        zones,
-                        cache,
-                        &Question {
-                            name: cname.clone(),
-                            qtype: question.qtype,
-                            qclass: question.qclass,
-                        },
-                    ) {
-                        Ok(Ok(NameserverResponse::Answer {
-                            rrs: mut cname_rrs,
-                            is_authoritative,
-                            ..
-                        })) => {
-                            rrs.append(&mut cname_rrs);
+                let cname_question = Question {
+                    name: cname,
+                    qtype: question.qtype,
+                    qclass: question.qclass,
+                };
 
-                            NameserverResponse::Answer {
+                return Ok(
+                    match resolve_local(recursion_limit - 1, metrics, zones, cache, &cname_question)
+                    {
+                        Ok(LocalResolutionResult::Done { resolved }) => match resolved {
+                            ResolvedRecord::Authoritative {
+                                rrs: mut cname_rrs, ..
+                            } => {
+                                rrs.append(&mut cname_rrs);
+                                if zone.is_authoritative() {
+                                    tracing::trace!("got authoritative cname answer");
+                                    LocalResolutionResult::Done {
+                                        resolved: ResolvedRecord::Authoritative {
+                                            rrs,
+                                            authority_rrs: Vec::new(),
+                                        },
+                                    }
+                                } else {
+                                    tracing::trace!("got non-authoritative cname answer");
+                                    LocalResolutionResult::Done {
+                                        resolved: ResolvedRecord::NonAuthoritative { rrs },
+                                    }
+                                }
+                            }
+                            ResolvedRecord::AuthoritativeNameError { .. } => {
+                                if zone.is_authoritative() {
+                                    tracing::trace!("got authoritative cname answer");
+                                    LocalResolutionResult::Done {
+                                        resolved: ResolvedRecord::Authoritative {
+                                            rrs,
+                                            authority_rrs: Vec::new(),
+                                        },
+                                    }
+                                } else {
+                                    tracing::trace!("got non-authoritative cname answer");
+                                    LocalResolutionResult::Done {
+                                        resolved: ResolvedRecord::NonAuthoritative { rrs },
+                                    }
+                                }
+                            }
+                            ResolvedRecord::NonAuthoritative { rrs: mut cname_rrs } => {
+                                tracing::trace!("got non-authoritative cname answer");
+                                rrs.append(&mut cname_rrs);
+                                LocalResolutionResult::Done {
+                                    resolved: ResolvedRecord::NonAuthoritative { rrs },
+                                }
+                            }
+                        },
+                        Ok(LocalResolutionResult::Partial { rrs: mut cname_rrs }) => {
+                            tracing::trace!("got partial cname answer");
+                            rrs.append(&mut cname_rrs);
+                            LocalResolutionResult::Partial { rrs }
+                        }
+                        Ok(LocalResolutionResult::CNAME {
+                            rrs: mut cname_rrs,
+                            cname_question,
+                            is_authoritative,
+                        }) => {
+                            tracing::trace!("got incomplete cname answer");
+                            rrs.append(&mut cname_rrs);
+                            LocalResolutionResult::CNAME {
                                 rrs,
+                                cname_question,
                                 is_authoritative: is_authoritative && zone.is_authoritative(),
-                                authority_rrs: Vec::new(),
                             }
                         }
-                        Ok(Ok(NameserverResponse::CNAME {
-                            rrs: mut cname_rrs,
-                            cname,
-                            is_authoritative,
-                            ..
-                        })) => {
-                            rrs.append(&mut cname_rrs);
-
-                            NameserverResponse::CNAME {
+                        _ => {
+                            tracing::trace!("got incomplete cname answer");
+                            LocalResolutionResult::CNAME {
                                 rrs,
-                                cname,
-                                is_authoritative: is_authoritative && zone.is_authoritative(),
+                                cname_question,
+                                is_authoritative: zone.is_authoritative(),
                             }
                         }
-                        _ => NameserverResponse::CNAME {
-                            rrs,
-                            cname,
-                            is_authoritative: zone.is_authoritative(),
-                        },
                     },
-                ));
+                );
             }
             // If the name is delegated:
             //
@@ -252,12 +216,12 @@ fn resolve_local_inner(
                         }
                     }
 
-                    return Ok(Ok(NameserverResponse::Delegation {
+                    return Ok(LocalResolutionResult::Delegation {
                         delegation: Nameservers { hostnames, name },
                         rrs: ns_rrs,
                         is_authoritative: true,
                         authority_rrs: vec![soa_rr],
-                    }));
+                    });
                 }
             }
             // If the name could not be resolved:
@@ -271,7 +235,11 @@ fn resolve_local_inner(
                 metrics.zoneresult_nameerror(zone);
 
                 if let Some(soa_rr) = zone.soa_rr() {
-                    return Ok(Err(AuthoritativeNameError { soa_rr }));
+                    return Ok(LocalResolutionResult::Done {
+                        resolved: ResolvedRecord::AuthoritativeNameError {
+                            authority_rrs: vec![soa_rr],
+                        },
+                    });
                 }
             }
             // This shouldn't happen
@@ -327,7 +295,7 @@ fn resolve_local_inner(
             rrs_from_cache = vec![cname_rr.clone()];
 
             if let RecordTypeWithData::CNAME { cname } = cname_rr.rtype_with_data {
-                let resolved_cname = resolve_local_inner(
+                let resolved_cname = resolve_local(
                     recursion_limit - 1,
                     metrics,
                     zones,
@@ -339,12 +307,19 @@ fn resolve_local_inner(
                     },
                 );
                 match resolved_cname {
-                    Ok(Ok(NameserverResponse::Answer { mut rrs, .. })) => {
+                    Ok(LocalResolutionResult::Done { resolved }) => {
+                        rrs_from_cache.append(&mut resolved.rrs());
+                    }
+                    Ok(LocalResolutionResult::Partial { mut rrs }) => {
                         rrs_from_cache.append(&mut rrs);
                     }
-                    Ok(Ok(NameserverResponse::CNAME { mut rrs, cname, .. })) => {
+                    Ok(LocalResolutionResult::CNAME {
+                        mut rrs,
+                        cname_question,
+                        ..
+                    }) => {
                         rrs_from_cache.append(&mut rrs);
-                        final_cname = Some(cname);
+                        final_cname = Some(cname_question.name);
                     }
                     _ => {
                         final_cname = Some(cname);
@@ -368,17 +343,21 @@ fn resolve_local_inner(
             question: question.clone(),
         })
     } else if let Some(cname) = final_cname {
-        Ok(Ok(NameserverResponse::CNAME {
+        Ok(LocalResolutionResult::CNAME {
             rrs,
-            cname,
+            cname_question: Question {
+                name: cname,
+                qtype: question.qtype,
+                qclass: question.qclass,
+            },
             is_authoritative: false,
-        }))
+        })
+    } else if question.qtype == QueryType::Wildcard {
+        Ok(LocalResolutionResult::Partial { rrs })
     } else {
-        Ok(Ok(NameserverResponse::Answer {
-            rrs,
-            is_authoritative: false,
-            authority_rrs: Vec::new(),
-        }))
+        Ok(LocalResolutionResult::Done {
+            resolved: ResolvedRecord::NonAuthoritative { rrs },
+        })
     }
 }
 
