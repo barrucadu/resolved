@@ -129,20 +129,23 @@ async fn resolve_recursive_notimeout(
                             return resolve_combined_recursive(recursion_limit - 1, metrics, zones, cache, combined_rrs, cname_question).await;
                         }
                     }
+                } else {
+                    metrics.nameserver_miss();
+                    // TODO: should distinguish between timeouts and other
+                    // failures here, and try the next nameserver after a
+                    // timeout.
+                    return Err(ResolutionError::DeadEnd {
+                        question: question.clone(),
+                    });
                 }
-                metrics.nameserver_miss();
+            } else {
+                // failed to get an IP for this candidate - loop and try the
+                // next
             }
-
-            // TODO: should distinguish between timeouts and other failures
-            // here, and try the next nameserver after a timeout.
-            return Err(ResolutionError::DeadEnd {
-                question: question.clone(),
-            });
         }
-    } else {
-        tracing::trace!("out of candidates");
     }
 
+    tracing::trace!("out of candidates");
     Err(ResolutionError::DeadEnd {
         question: question.clone(),
     })

@@ -1,4 +1,6 @@
 #![warn(clippy::pedantic)]
+// Sometimes a redundant else is clearer
+#![allow(clippy::redundant_else)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]
