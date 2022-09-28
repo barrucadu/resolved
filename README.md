@@ -119,7 +119,7 @@ modules are:
   - `cache`        - the cache
   - `forwarding`   - the forwarding resolver
   - `metrics`      - resolver-specific metrics
-  - `nonrecursive` - the non-recursive resolver
+  - `local`        - the local resolver (using configuration & cache)
   - `recursive`    - the recursive resolver
   - `util`         - shared types and functions
 

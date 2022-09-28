@@ -9,8 +9,8 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use crate::cache::SharedCache;
+use crate::local::*;
 use crate::metrics::Metrics;
-use crate::nonrecursive::resolve_nonrecursive;
 use crate::util::nameserver::*;
 use crate::util::types::*;
 
@@ -71,39 +71,19 @@ async fn resolve_forwarding_notimeout(
 
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit, metrics, zones, cache, question) {
-        Ok(Ok(NameserverResponse::Answer {
-            rrs,
-            authority_rrs,
-            is_authoritative,
-        })) => {
-            if is_authoritative || question.qtype != QueryType::Wildcard {
-                tracing::trace!("got non-recursive answer");
-                return Ok(NameserverResponse::Answer {
-                    rrs,
-                    authority_rrs,
-                    is_authoritative,
-                }
-                .into());
-            }
-            tracing::trace!(
-                "got non-recursive non-authoritative answer to current wildcard query - continuing"
-            );
-            combined_rrs = rrs;
-        }
-        Ok(Ok(NameserverResponse::Delegation { .. })) => {
-            tracing::trace!(
-                "got non-recursive delegation - ignoring in favour of forwarding nameserver"
-            );
-        }
-        Ok(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
-            tracing::trace!("got non-recursive CNAME - restarting with CNAME target");
-            let cname_question = Question {
-                name: cname,
-                qclass: question.qclass,
-                qtype: question.qtype,
-            };
-            if let Ok(resolved) = resolve_forwarding_notimeout(
+    // this is almost the same as in the recursive resolver, but:
+    //
+    // - delegations are ignored (we just forward to the upstream nameserver)
+    // - CNAMEs are resolved by calling the forwarding resolver recursively
+    match try_resolve_local(recursion_limit, metrics, zones, cache, question) {
+        Some(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
+        Some(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
+        Some(LocalResolutionResult::Delegation { .. }) => (),
+        Some(LocalResolutionResult::CNAME {
+            mut rrs,
+            cname_question,
+        }) => {
+            return match resolve_forwarding_notimeout(
                 recursion_limit - 1,
                 metrics,
                 forward_address,
@@ -114,21 +94,19 @@ async fn resolve_forwarding_notimeout(
             .instrument(tracing::error_span!("resolve_forwarding", %cname_question))
             .await
             {
-                let mut r_rrs = resolved.rrs();
-                let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
-                combined_rrs.append(&mut rrs.clone());
-                combined_rrs.append(&mut r_rrs);
-                return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                Ok(resolved) => {
+                    let mut r_rrs = resolved.rrs();
+                    let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
+                    combined_rrs.append(&mut rrs);
+                    combined_rrs.append(&mut r_rrs);
+                    Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
+                }
+                Err(_) => Err(ResolutionError::DeadEnd {
+                    question: cname_question,
+                }),
             }
-            return Err(ResolutionError::DeadEnd {
-                question: cname_question,
-            });
         }
-        Ok(Err(error)) => {
-            tracing::trace!("got non-recursive error response");
-            return Ok(error.into());
-        }
-        Err(_) => (),
+        None => (),
     }
 
     if let Some(rrs) = query_nameserver(forward_address, question)
@@ -136,10 +114,8 @@ async fn resolve_forwarding_notimeout(
         .await
     {
         metrics.nameserver_hit();
-        for rr in &rrs {
-            cache.insert(rr);
-        }
         tracing::trace!("nameserver HIT");
+        cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);
         Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
     } else {

@@ -72,6 +72,15 @@ impl SharedCache {
         }
     }
 
+    /// Insert multiple entries into the cache.
+    ///
+    /// This just calls `insert` for each element, nothing more clever.
+    pub fn insert_all(&self, records: &[ResourceRecord]) {
+        for record in records {
+            self.insert(record);
+        }
+    }
+
     /// Atomically clears expired entries and, if the cache has grown
     /// beyond its desired size, prunes entries to get down to size.
     ///

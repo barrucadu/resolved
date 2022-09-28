@@ -11,8 +11,8 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use crate::cache::SharedCache;
+use crate::local::*;
 use crate::metrics::Metrics;
-use crate::nonrecursive::resolve_nonrecursive;
 use crate::util::nameserver::*;
 use crate::util::types::*;
 
@@ -64,95 +64,41 @@ async fn resolve_recursive_notimeout(
         return Err(ResolutionError::RecursionLimit);
     }
 
-    let mut candidate_delegation = None;
+    let mut candidates = None;
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit, metrics, zones, cache, question) {
-        Ok(Ok(NameserverResponse::Answer {
+    match try_resolve_local(recursion_limit, metrics, zones, cache, question) {
+        Some(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
+        Some(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
+        Some(LocalResolutionResult::Delegation { delegation }) => candidates = Some(delegation),
+        Some(LocalResolutionResult::CNAME {
             rrs,
-            authority_rrs,
-            is_authoritative,
-        })) => {
-            if is_authoritative || question.qtype != QueryType::Wildcard {
-                tracing::trace!("got non-recursive answer");
-                return Ok(NameserverResponse::Answer {
-                    rrs,
-                    authority_rrs,
-                    is_authoritative,
-                }
-                .into());
-            }
-            tracing::trace!(
-                "got non-recursive non-authoritative answer to current wildcard query - continuing"
-            );
-            combined_rrs = rrs;
-        }
-        Ok(Ok(NameserverResponse::Delegation { delegation, .. })) => {
-            tracing::trace!("got non-recursive delegation - using as candidate");
-            candidate_delegation = Some(delegation);
-        }
-        Ok(Ok(NameserverResponse::CNAME { rrs, cname, .. })) => {
-            tracing::trace!("got non-recursive CNAME - restarting with CNAME target");
-            let cname_question = Question {
-                name: cname,
-                qclass: question.qclass,
-                qtype: question.qtype,
-            };
-            if let Ok(resolved) = resolve_recursive_notimeout(
+            cname_question,
+        }) => {
+            return resolve_combined_recursive(
                 recursion_limit - 1,
                 metrics,
                 zones,
                 cache,
-                &cname_question,
+                rrs,
+                cname_question,
             )
-            .instrument(tracing::error_span!("resolve_nonrecursive", %cname_question))
             .await
-            {
-                let mut r_rrs = resolved.rrs();
-                let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
-                combined_rrs.append(&mut rrs.clone());
-                combined_rrs.append(&mut r_rrs);
-                return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-            }
-            return Err(ResolutionError::DeadEnd {
-                question: cname_question,
-            });
         }
-        Ok(Err(error)) => {
-            tracing::trace!("got non-recursive error response");
-            return Ok(error.into());
-        }
-        Err(_) => (),
+        None => (),
     }
 
-    if candidate_delegation.is_none() {
-        candidate_delegation =
+    if candidates.is_none() {
+        candidates =
             candidate_nameservers(recursion_limit - 1, metrics, zones, cache, &question.name);
     }
 
-    if let Some(mut candidates) = candidate_delegation {
+    if let Some(mut candidates) = candidates {
         'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
             tracing::trace!(?candidate, "got candidate nameserver");
-            if let Ok(Some(ip)) = match candidate {
-                HostOrIP::IP(ip) => Ok(Some(ip)),
-                HostOrIP::Host(name) => {
-                    let candidate_question = Question {
-                        name: name.clone(),
-                        qclass: QueryClass::Record(RecordClass::IN),
-                        qtype: QueryType::Record(RecordType::A),
-                    };
-                    resolve_recursive_notimeout(
-                        recursion_limit - 1,
-                        metrics,
-                        zones,
-                        cache,
-                        &candidate_question,
-                    )
-                    .instrument(tracing::error_span!("resolve_nonrecursive", %candidate_question))
-                    .await
-                    .map(|res| get_ip(&res.rrs(), &name))
-                }
-            } {
+            if let Some(ip) =
+                resolve_hostname_to_ip(recursion_limit - 1, metrics, zones, cache, candidate).await
+            {
                 if let Some(nameserver_answer) = query_nameserver(ip, question, candidates.match_count())
                     .instrument(tracing::error_span!("query_nameserver", address = %ip, match_count = %candidates.match_count()))
                     .await
@@ -161,47 +107,26 @@ async fn resolve_recursive_notimeout(
                     match nameserver_answer {
                         NameserverResponse::Answer { rrs, .. } => {
                             tracing::trace!("got recursive answer");
-                            for rr in &rrs {
-                                cache.insert(rr);
-                            }
+                            cache.insert_all(&rrs);
                             prioritising_merge(&mut combined_rrs, rrs);
                             return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         }
                         NameserverResponse::Delegation { rrs, delegation, .. } => {
                             tracing::trace!("got recursive delegation - using as candidate");
-                            for rr in &rrs {
-                                cache.insert(rr);
-                            }
+                            cache.insert_all(&rrs);
                             candidates = delegation;
                             continue 'query_nameservers;
                         }
                         NameserverResponse::CNAME { rrs, cname, .. } => {
-                            for rr in &rrs {
-                                cache.insert(rr);
-                            }
+                            tracing::trace!("got recursive CNAME");
+                            cache.insert_all(&rrs);
+                            prioritising_merge(&mut combined_rrs, rrs);
                             let cname_question = Question {
                                 name: cname,
                                 qclass: question.qclass,
                                 qtype: question.qtype,
                             };
-                            tracing::trace!("got recursive CNAME - restarting with CNAME target");
-                            if let Ok(resolved) = resolve_recursive_notimeout(
-                                recursion_limit - 1,
-                                metrics,
-                                zones,
-                                cache,
-                                &cname_question,
-                            )
-                            .instrument(tracing::error_span!("resolve_nonrecursive", %cname_question))
-                            .await
-                            {
-                                prioritising_merge(&mut combined_rrs, rrs);
-                                prioritising_merge(&mut combined_rrs, resolved.rrs());
-                                return Ok(ResolvedRecord::NonAuthoritative {
-                                    rrs: combined_rrs,
-                                });
-                            }
-                            return Err(ResolutionError::DeadEnd{question:cname_question});
+                            return resolve_combined_recursive(recursion_limit - 1, metrics, zones, cache, combined_rrs, cname_question).await;
                         }
                     }
                 }
@@ -221,6 +146,57 @@ async fn resolve_recursive_notimeout(
     Err(ResolutionError::DeadEnd {
         question: question.clone(),
     })
+}
+
+/// Helper function for resolving CNAMEs: resolve, and add some existing RRs to
+/// the ANSWER section of the result.
+async fn resolve_combined_recursive(
+    recursion_limit: usize,
+    metrics: &mut Metrics,
+    zones: &Zones,
+    cache: &SharedCache,
+    mut rrs: Vec<ResourceRecord>,
+    question: Question,
+) -> Result<ResolvedRecord, ResolutionError> {
+    match resolve_recursive_notimeout(recursion_limit - 1, metrics, zones, cache, &question)
+        .instrument(tracing::error_span!("resolve_combined_recursive", %question))
+        .await
+    {
+        Ok(resolved) => {
+            rrs.append(&mut resolved.rrs());
+            Ok(ResolvedRecord::NonAuthoritative { rrs })
+        }
+        Err(_) => Err(ResolutionError::DeadEnd { question }),
+    }
+}
+
+/// Resolve a hostname into an IP address.
+async fn resolve_hostname_to_ip(
+    recursion_limit: usize,
+    metrics: &mut Metrics,
+    zones: &Zones,
+    cache: &SharedCache,
+    hostname: HostOrIP,
+) -> Option<Ipv4Addr> {
+    match hostname {
+        HostOrIP::IP(ip) => Some(ip),
+        HostOrIP::Host(name) => {
+            let question = Question {
+                name: name.clone(),
+                qclass: QueryClass::Record(RecordClass::IN),
+                qtype: QueryType::Record(RecordType::A),
+            };
+            if let Ok(result) =
+                resolve_recursive_notimeout(recursion_limit - 1, metrics, zones, cache, &question)
+                    .instrument(tracing::error_span!("resolve_hostname_to_ip", %question))
+                    .await
+            {
+                get_ip(&result.rrs(), &name)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 /// Get the best nameservers by non-recursively looking them up for
@@ -247,7 +223,7 @@ fn candidate_nameservers(
             let mut hostnames = Vec::new();
 
             if let Ok(Ok(NameserverResponse::Answer { rrs, .. })) =
-                resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, &ns_q)
+                resolve_local(recursion_limit - 1, metrics, zones, cache, &ns_q)
             {
                 for ns_rr in rrs {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
