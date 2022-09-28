@@ -67,13 +67,14 @@ async fn resolve_recursive_notimeout(
     let mut candidates = None;
     let mut combined_rrs = Vec::new();
 
-    match try_resolve_local(recursion_limit, metrics, zones, cache, question) {
-        Some(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
-        Some(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
-        Some(LocalResolutionResult::Delegation { delegation }) => candidates = Some(delegation),
-        Some(LocalResolutionResult::CNAME {
+    match resolve_local(recursion_limit, metrics, zones, cache, question) {
+        Ok(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
+        Ok(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
+        Ok(LocalResolutionResult::Delegation { delegation, .. }) => candidates = Some(delegation),
+        Ok(LocalResolutionResult::CNAME {
             rrs,
             cname_question,
+            ..
         }) => {
             return resolve_combined_recursive(
                 recursion_limit - 1,
@@ -85,7 +86,7 @@ async fn resolve_recursive_notimeout(
             )
             .await
         }
-        None => (),
+        Err(_) => (),
     }
 
     if candidates.is_none() {
@@ -225,10 +226,10 @@ fn candidate_nameservers(
 
             let mut hostnames = Vec::new();
 
-            if let Ok(Ok(NameserverResponse::Answer { rrs, .. })) =
+            if let Ok(LocalResolutionResult::Done { resolved }) =
                 resolve_local(recursion_limit - 1, metrics, zones, cache, &ns_q)
             {
-                for ns_rr in rrs {
+                for ns_rr in resolved.rrs() {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
                         hostnames.push(HostOrIP::Host(nsdname.clone()));
                     }

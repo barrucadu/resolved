@@ -75,13 +75,14 @@ async fn resolve_forwarding_notimeout(
     //
     // - delegations are ignored (we just forward to the upstream nameserver)
     // - CNAMEs are resolved by calling the forwarding resolver recursively
-    match try_resolve_local(recursion_limit, metrics, zones, cache, question) {
-        Some(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
-        Some(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
-        Some(LocalResolutionResult::Delegation { .. }) => (),
-        Some(LocalResolutionResult::CNAME {
+    match resolve_local(recursion_limit, metrics, zones, cache, question) {
+        Ok(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
+        Ok(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
+        Ok(LocalResolutionResult::Delegation { .. }) => (),
+        Ok(LocalResolutionResult::CNAME {
             mut rrs,
             cname_question,
+            ..
         }) => {
             return match resolve_forwarding_notimeout(
                 recursion_limit - 1,
@@ -106,7 +107,7 @@ async fn resolve_forwarding_notimeout(
                 }),
             }
         }
-        None => (),
+        Err(_) => (),
     }
 
     if let Some(rrs) = query_nameserver(forward_address, question)
