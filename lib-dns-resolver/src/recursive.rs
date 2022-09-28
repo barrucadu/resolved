@@ -11,8 +11,8 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use crate::cache::SharedCache;
+use crate::local::resolve_local;
 use crate::metrics::Metrics;
-use crate::nonrecursive::resolve_nonrecursive;
 use crate::util::nameserver::*;
 use crate::util::types::*;
 
@@ -67,7 +67,7 @@ async fn resolve_recursive_notimeout(
     let mut candidate_delegation = None;
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit, metrics, zones, cache, question) {
+    match resolve_local(recursion_limit, metrics, zones, cache, question) {
         Ok(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
@@ -105,7 +105,7 @@ async fn resolve_recursive_notimeout(
                 cache,
                 &cname_question,
             )
-            .instrument(tracing::error_span!("resolve_nonrecursive", %cname_question))
+            .instrument(tracing::error_span!("resolve_recursive", %cname_question))
             .await
             {
                 let mut r_rrs = resolved.rrs();
@@ -148,7 +148,7 @@ async fn resolve_recursive_notimeout(
                         cache,
                         &candidate_question,
                     )
-                    .instrument(tracing::error_span!("resolve_nonrecursive", %candidate_question))
+                    .instrument(tracing::error_span!("resolve_recursive", %candidate_question))
                     .await
                     .map(|res| get_ip(&res.rrs(), &name))
                 }
@@ -192,7 +192,7 @@ async fn resolve_recursive_notimeout(
                                 cache,
                                 &cname_question,
                             )
-                            .instrument(tracing::error_span!("resolve_nonrecursive", %cname_question))
+                            .instrument(tracing::error_span!("resolve_recursive", %cname_question))
                             .await
                             {
                                 prioritising_merge(&mut combined_rrs, rrs);
@@ -247,7 +247,7 @@ fn candidate_nameservers(
             let mut hostnames = Vec::new();
 
             if let Ok(Ok(NameserverResponse::Answer { rrs, .. })) =
-                resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, &ns_q)
+                resolve_local(recursion_limit - 1, metrics, zones, cache, &ns_q)
             {
                 for ns_rr in rrs {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {

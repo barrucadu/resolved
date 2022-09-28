@@ -11,8 +11,8 @@
 
 pub mod cache;
 pub mod forwarding;
+pub mod local;
 pub mod metrics;
-pub mod nonrecursive;
 pub mod recursive;
 pub mod util;
 
@@ -24,8 +24,8 @@ use dns_types::zones::types::Zones;
 
 use self::cache::SharedCache;
 use self::forwarding::resolve_forwarding;
+use self::local::resolve_local;
 use self::metrics::Metrics;
-use self::nonrecursive::resolve_nonrecursive;
 use self::recursive::resolve_recursive;
 use self::util::types::{ResolutionError, ResolvedRecord};
 
@@ -65,7 +65,7 @@ pub async fn resolve(
                 .await
         }
     } else {
-        resolve_nonrecursive(RECURSION_LIMIT, &mut metrics, zones, cache, question)
+        resolve_local(RECURSION_LIMIT, &mut metrics, zones, cache, question)
             .map(ResolvedRecord::from)
     };
 

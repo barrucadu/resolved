@@ -9,8 +9,8 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
 use crate::cache::SharedCache;
+use crate::local::resolve_local;
 use crate::metrics::Metrics;
-use crate::nonrecursive::resolve_nonrecursive;
 use crate::util::nameserver::*;
 use crate::util::types::*;
 
@@ -71,7 +71,7 @@ async fn resolve_forwarding_notimeout(
 
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit, metrics, zones, cache, question) {
+    match resolve_local(recursion_limit, metrics, zones, cache, question) {
         Ok(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,

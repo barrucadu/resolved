@@ -43,10 +43,9 @@ fn prune_cache_and_update_metrics(cache: &SharedCache) {
 }
 
 async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
-    // lock zones here, rather than where they're used in
-    // `resolve_nonrecursive`, so that this whole request sees a
-    // consistent version of the zones even if they get updated in the
-    // middle of processing.
+    // lock zones here, rather than where they're used in the resolver, so that
+    // this whole request sees a consistent version of the zones even if they
+    // get updated in the middle of processing.
     let zones = args.zones_lock.read().await;
 
     let mut response = query.make_response();
