@@ -96,27 +96,6 @@ pub enum HostOrIP {
     IP(Ipv4Addr),
 }
 
-/// A response from a remote nameserver
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum NameserverResponse {
-    Answer {
-        rrs: Vec<ResourceRecord>,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
-    },
-    CNAME {
-        rrs: Vec<ResourceRecord>,
-        cname: DomainName,
-        is_authoritative: bool,
-    },
-    Delegation {
-        rrs: Vec<ResourceRecord>,
-        delegation: Nameservers,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
-    },
-}
-
 /// Merge two sets of RRs, where records from the second set are
 /// included if and only if there are no records of matching (name,
 /// type) in the first set.

@@ -543,6 +543,27 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
     None
 }
 
+/// A response from a remote nameserver
+#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum NameserverResponse {
+    Answer {
+        rrs: Vec<ResourceRecord>,
+        is_authoritative: bool,
+        authority_rrs: Vec<ResourceRecord>,
+    },
+    CNAME {
+        rrs: Vec<ResourceRecord>,
+        cname: DomainName,
+        is_authoritative: bool,
+    },
+    Delegation {
+        rrs: Vec<ResourceRecord>,
+        delegation: Nameservers,
+        is_authoritative: bool,
+        authority_rrs: Vec<ResourceRecord>,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use dns_types::protocol::types::test_util::*;
