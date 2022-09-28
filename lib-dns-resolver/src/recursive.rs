@@ -67,7 +67,7 @@ async fn resolve_recursive_notimeout(
     let mut candidate_delegation = None;
     let mut combined_rrs = Vec::new();
 
-    match resolve_nonrecursive(recursion_limit - 1, metrics, zones, cache, question) {
+    match resolve_nonrecursive(recursion_limit, metrics, zones, cache, question) {
         Ok(Ok(NameserverResponse::Answer {
             rrs,
             authority_rrs,
