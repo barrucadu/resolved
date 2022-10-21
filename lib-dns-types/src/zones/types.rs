@@ -616,7 +616,7 @@ fn zone_result_helper(
                         rr,
                     };
                 }
-                panic!("got non-CNAME record for CNAME query: {:?}", rr);
+                panic!("got non-CNAME record for CNAME query: {rr:?}");
             }
         }
     }

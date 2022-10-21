@@ -1,4 +1,5 @@
 //! Deserialisation of DNS messages from the network.  See the `types`
+//!
 //! module for details of the format.
 
 use std::net::{Ipv4Addr, Ipv6Addr};

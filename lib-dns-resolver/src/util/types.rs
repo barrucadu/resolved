@@ -61,8 +61,8 @@ impl std::fmt::Display for ResolutionError {
             ResolutionError::Timeout => write!(f, "timed out"),
             ResolutionError::RecursionLimit => write!(f, "CNAME chain too long"),
             ResolutionError::DeadEnd{question} => write!(f, "unable to answer '{} {} {}'", question.name, question.qclass, question.qtype),
-            ResolutionError::LocalDelegationMissingNS{apex,domain} => write!(f, "configuration error: got delegation for domain '{}' from zone '{}', but there are no NS records", domain, apex),
-            ResolutionError::CacheTypeMismatch{query,result} => write!(f, "internal error (bug): tried to fetch '{}' from cache but got '{}' instead", query, result),
+            ResolutionError::LocalDelegationMissingNS{apex,domain} => write!(f, "configuration error: got delegation for domain '{domain}' from zone '{apex}', but there are no NS records"),
+            ResolutionError::CacheTypeMismatch{query,result} => write!(f, "internal error (bug): tried to fetch '{query}' from cache but got '{result}' instead"),
         }
     }
 }

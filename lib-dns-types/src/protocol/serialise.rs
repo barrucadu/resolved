@@ -259,7 +259,7 @@ impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
             Error::CounterTooLarge { counter, bits } => {
-                write!(f, "'{:?}' cannot be converted to a u{:?}", counter, bits)
+                write!(f, "'{counter}' cannot be converted to a u{bits}")
             }
         }
     }
