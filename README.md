@@ -93,8 +93,6 @@ barrucadu.co.uk.        300     IN      AAAA    2a01:4f8:c0c:bfc1::
 
 See the `--help` text for options, which are a subset of the `resolved` options.
 
-It also uses the same logging environment variables as `resolved`
-
 ### Other Tools
 
 There are also four utility programs---`htoh`, `htoz`, `ztoh`, and
