@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
 
@@ -122,12 +123,12 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Error::ExpectedAscii { octet } => write!(f, "expected ASCII octet, not '{:?}'", octet),
+            Error::ExpectedAscii { octet } => write!(f, "expected ASCII octet, not '{octet:?}'"),
             Error::CouldNotParseAddress { address } => {
-                write!(f, "could not parse address '{:?}'", address)
+                write!(f, "could not parse address '{address:?}'")
             }
             Error::CouldNotParseName { name } => {
-                write!(f, "could not parse domain name '{:?}'", name)
+                write!(f, "could not parse domain name '{name:?}'")
             }
         }
     }

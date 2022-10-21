@@ -787,7 +787,7 @@ mod tests {
 
                 assert_eq!(expected_delegation, actual_delegation);
             }
-            actual => panic!("Expected delegation, got {:?}", actual),
+            actual => panic!("Expected delegation, got {actual:?}"),
         }
     }
 
@@ -908,7 +908,7 @@ mod tests {
 
                 assert_eq!(expected_rrs, actual_rrs);
             }
-            actual => panic!("Expected delegation, got {:?}", actual),
+            actual => panic!("Expected delegation, got {actual:?}"),
         }
     }
 

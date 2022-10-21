@@ -938,9 +938,9 @@ impl DomainName {
         } else {
             let suffix = origin.to_dotted_string();
             if suffix.starts_with('.') {
-                Self::from_dotted_string(&format!("{}{}", s, suffix))
+                Self::from_dotted_string(&format!("{s}{suffix}"))
             } else {
-                Self::from_dotted_string(&format!("{}.{}", s, suffix))
+                Self::from_dotted_string(&format!("{s}.{suffix}"))
             }
         }
     }
@@ -1337,7 +1337,7 @@ impl fmt::Display for RecordType {
             RecordType::TXT => write!(f, "TXT"),
             RecordType::AAAA => write!(f, "AAAA"),
             RecordType::SRV => write!(f, "SRV"),
-            RecordType::Unknown(RecordTypeUnknown(n)) => write!(f, "TYPE{}", n),
+            RecordType::Unknown(RecordTypeUnknown(n)) => write!(f, "TYPE{n}"),
         }
     }
 }
@@ -1490,7 +1490,7 @@ impl fmt::Display for RecordClass {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             RecordClass::IN => write!(f, "IN"),
-            RecordClass::Unknown(RecordClassUnknown(n)) => write!(f, "CLASS{}", n),
+            RecordClass::Unknown(RecordClassUnknown(n)) => write!(f, "CLASS{n}"),
         }
     }
 }
