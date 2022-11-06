@@ -400,46 +400,61 @@ fn begin_logging() {
 #[derive(Clone)]
 struct Args {
     /// Interface to listen on
-    #[clap(short, long, value_parser, default_value_t = Ipv4Addr::UNSPECIFIED)]
+    #[clap(short, long, value_parser, default_value_t = Ipv4Addr::UNSPECIFIED, env = "RESOLVED_INTERFACE")]
     interface: Ipv4Addr,
 
     /// Interface to listen on to serve Prometheus metrics
-    #[clap(long, value_parser, default_value_t = Ipv4Addr::LOCALHOST)]
+    #[clap(long, value_parser, default_value_t = Ipv4Addr::LOCALHOST, env = "RESOLVED_METRICS_INTERFACE")]
     metrics_interface: Ipv4Addr,
 
     /// Port to listen on to serve Prometheus metrics
-    #[clap(long, value_parser, default_value_t = 9420)]
+    #[clap(
+        long,
+        value_parser,
+        default_value_t = 9420,
+        env = "RESOLVED_METRICS_PORT"
+    )]
     metrics_port: u16,
 
     /// Only answer queries for which this server is authoritative: do
     /// not perform recursive or forwarding resolution
-    #[clap(long, action(clap::ArgAction::SetTrue))]
+    #[clap(
+        long,
+        action(clap::ArgAction::SetTrue),
+        env = "RESOLVED_AUTHORITATIVE_ONLY"
+    )]
     authoritative_only: bool,
 
     /// Act as a forwarding resolver, not a recursive resolver:
     /// forward queries which can't be answered from local state to
     /// this nameserver and cache the result
-    #[clap(short, long, value_parser)]
+    #[clap(short, long, value_parser, env = "RESOLVED_FORWARD_ADDRESS")]
     forward_address: Option<Ipv4Addr>,
 
     /// How many records to hold in the cache
-    #[clap(short = 's', long, value_parser, default_value_t = 512)]
+    #[clap(
+        short = 's',
+        long,
+        value_parser,
+        default_value_t = 512,
+        env = "RESOLVED_CACHE_SIZE"
+    )]
     cache_size: usize,
 
     /// Path to a hosts file, can be specified more than once
-    #[clap(short = 'a', long, value_parser)]
+    #[clap(short = 'a', long, value_parser, env = "RESOLVED_HOSTS_FILES")]
     hosts_file: Vec<PathBuf>,
 
     /// Path to a directory to read hosts files from, can be specified more than once
-    #[clap(short = 'A', long, value_parser)]
+    #[clap(short = 'A', long, value_parser, env = "RESOLVED_HOSTS_DIRS")]
     hosts_dir: Vec<PathBuf>,
 
     /// Path to a zone file, can be specified more than once
-    #[clap(short = 'z', long, value_parser)]
+    #[clap(short = 'z', long, value_parser, env = "RESOLVED_ZONE_FILES")]
     zone_file: Vec<PathBuf>,
 
     /// Path to a directory to read zone files from, can be specified more than once
-    #[clap(short = 'Z', long, value_parser)]
+    #[clap(short = 'Z', long, value_parser, env = "RESOLVED_ZONE_FILES")]
     zones_dir: Vec<PathBuf>,
 }
 
