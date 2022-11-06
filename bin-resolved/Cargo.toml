@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 actix-web = "4"
 bytes = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive", "env"] }
 dns-types = { path = "../lib-dns-types" }
 dns-resolver = { path = "../lib-dns-resolver" }
 lazy_static = "1"
