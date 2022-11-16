@@ -397,9 +397,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.0.24"
+version = "4.0.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60494cedb60cb47462c0ff7be53de32c0e42a6fc2c772184554fa12bd9489c03"
+checksum = "389ca505fd2c00136e0d0cd34bcd8b6bd0b59d5779aab396054b716334230c1c"
 dependencies = [
  "atty",
  "bitflags",
@@ -627,7 +627,7 @@ dependencies = [
 name = "dnsq"
 version = "0.1.0"
 dependencies = [
- "clap 4.0.24",
+ "clap 4.0.25",
  "dns-resolver",
  "dns-types",
  "tokio",
@@ -819,7 +819,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 name = "htoh"
 version = "0.1.0"
 dependencies = [
- "clap 4.0.24",
+ "clap 4.0.25",
  "dns-types",
 ]
 
@@ -827,7 +827,7 @@ dependencies = [
 name = "htoz"
 version = "0.1.0"
 dependencies = [
- "clap 4.0.24",
+ "clap 4.0.25",
  "dns-types",
 ]
 
@@ -1359,7 +1359,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "bytes",
- "clap 4.0.24",
+ "clap 4.0.25",
  "dns-resolver",
  "dns-types",
  "lazy_static",
@@ -2040,7 +2040,7 @@ dependencies = [
 name = "ztoh"
 version = "0.1.0"
 dependencies = [
- "clap 4.0.24",
+ "clap 4.0.25",
  "dns-types",
 ]
 
@@ -2048,6 +2048,6 @@ dependencies = [
 name = "ztoz"
 version = "0.1.0"
 dependencies = [
- "clap 4.0.24",
+ "clap 4.0.25",
  "dns-types",
 ]
