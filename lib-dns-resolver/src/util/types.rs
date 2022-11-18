@@ -39,6 +39,8 @@ pub enum ResolutionError {
     Timeout,
     /// Hit the recursion limit while following CNAMEs.
     RecursionLimit,
+    /// Tried to resolve a question while resolving the same question.
+    DuplicateQuestion { question: Question },
     /// Was unable to resolve a necessary record.
     DeadEnd { question: Question },
     /// Configuration error: a local zone delegates without defining NS records.
@@ -59,6 +61,7 @@ impl std::fmt::Display for ResolutionError {
         match self {
             ResolutionError::Timeout => write!(f, "timed out"),
             ResolutionError::RecursionLimit => write!(f, "CNAME chain too long"),
+            ResolutionError::DuplicateQuestion{question} => write!(f, "loop when answering '{} {} {}'", question.name, question.qclass, question.qtype),
             ResolutionError::DeadEnd{question} => write!(f, "unable to answer '{} {} {}'", question.name, question.qclass, question.qtype),
             ResolutionError::LocalDelegationMissingNS{apex,domain} => write!(f, "configuration error: got delegation for domain '{domain}' from zone '{apex}', but there are no NS records"),
             ResolutionError::CacheTypeMismatch{query,result} => write!(f, "internal error (bug): tried to fetch '{query}' from cache but got '{result}' instead"),

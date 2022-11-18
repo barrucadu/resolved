@@ -32,7 +32,7 @@ const CNAME_QTYPE: QueryType = QueryType::Record(RecordType::CNAME);
 ///
 /// See `ResolutionError`.
 pub fn resolve_local(
-    recursion_limit: usize,
+    question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
@@ -40,9 +40,15 @@ pub fn resolve_local(
 ) -> Result<LocalResolutionResult, ResolutionError> {
     let _span = tracing::error_span!("resolve_local", %question).entered();
 
-    if recursion_limit == 0 {
+    if question_stack.len() == question_stack.capacity() {
         tracing::debug!("hit recursion limit");
         return Err(ResolutionError::RecursionLimit);
+    }
+    if question_stack.contains(question) {
+        tracing::debug!("hit duplicate question");
+        return Err(ResolutionError::DuplicateQuestion {
+            question: question.clone(),
+        });
     }
 
     let mut rrs_from_zone = Vec::new();
@@ -111,9 +117,9 @@ pub fn resolve_local(
                     qclass: question.qclass,
                 };
 
-                return Ok(
-                    match resolve_local(recursion_limit - 1, metrics, zones, cache, &cname_question)
-                    {
+                question_stack.push(question.clone());
+                let answer =
+                    match resolve_local(question_stack, metrics, zones, cache, &cname_question) {
                         Ok(LocalResolutionResult::Done { resolved }) => match resolved {
                             ResolvedRecord::Authoritative {
                                 rrs: mut cname_rrs, ..
@@ -184,8 +190,9 @@ pub fn resolve_local(
                                 is_authoritative: zone.is_authoritative(),
                             }
                         }
-                    },
-                );
+                    };
+                question_stack.pop();
+                return Ok(answer);
             }
             // If the name is delegated:
             //
@@ -287,8 +294,9 @@ pub fn resolve_local(
             rrs_from_cache = vec![cname_rr.clone()];
 
             if let RecordTypeWithData::CNAME { cname } = cname_rr.rtype_with_data {
+                question_stack.push(question.clone());
                 let resolved_cname = resolve_local(
-                    recursion_limit - 1,
+                    question_stack,
                     metrics,
                     zones,
                     cache,
@@ -298,6 +306,7 @@ pub fn resolve_local(
                         qclass: question.qclass,
                     },
                 );
+                question_stack.pop();
                 match resolved_cname {
                     Ok(LocalResolutionResult::Done { resolved }) => {
                         rrs_from_cache.append(&mut resolved.rrs());
@@ -442,7 +451,7 @@ mod tests {
                     authority_rrs,
                 },
         }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
@@ -464,7 +473,7 @@ mod tests {
     #[test]
     fn resolve_local_is_partial_for_zones_without_soa() {
         if let Ok(LocalResolutionResult::Partial { rrs }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
@@ -491,7 +500,7 @@ mod tests {
         cache.insert(&rr);
 
         if let Ok(LocalResolutionResult::Partial { rrs }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &cache,
@@ -529,7 +538,7 @@ mod tests {
                     authority_rrs,
                 },
         }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
@@ -559,7 +568,7 @@ mod tests {
         cache.insert(&cache_rr_kept);
 
         if let Ok(LocalResolutionResult::Partial { rrs }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &cache,
@@ -588,7 +597,7 @@ mod tests {
         if let Ok(LocalResolutionResult::Done {
             resolved: ResolvedRecord::Authoritative { rrs, authority_rrs },
         }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
@@ -620,7 +629,7 @@ mod tests {
         if let Ok(LocalResolutionResult::Done {
             resolved: ResolvedRecord::NonAuthoritative { rrs },
         }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &cache,
@@ -640,6 +649,41 @@ mod tests {
     }
 
     #[test]
+    fn resolve_local_handles_cname_cycle() {
+        let cname_ab_rr = cname_record("cname-a.example.com.", "cname-b.example.com.");
+        let cname_ba_rr = cname_record("cname-b.example.com.", "cname-a.example.com.");
+
+        let cache = SharedCache::new();
+        cache.insert(&cname_ab_rr);
+        cache.insert(&cname_ba_rr);
+
+        let question = Question {
+            name: domain("cname-a.example.com."),
+            qtype: QueryType::Record(RecordType::A),
+            qclass: QueryClass::Wildcard,
+        };
+
+        if let Ok(LocalResolutionResult::CNAME {
+            rrs,
+            cname_question,
+            is_authoritative: false,
+        }) = resolve_local(
+            &mut question_stack(),
+            &mut Metrics::new(),
+            &zones(),
+            &cache,
+            &question,
+        ) {
+            assert_eq!(question, cname_question);
+            assert_eq!(2, rrs.len());
+            assert_cache_response(&cname_ab_rr, &[rrs[0].clone()]);
+            assert_cache_response(&cname_ba_rr, &[rrs[1].clone()]);
+        } else {
+            panic!("expected CNAME answer");
+        }
+    }
+
+    #[test]
     fn resolve_local_propagates_cname_nonauthority() {
         let cname_rr = cname_record("cname-na.authoritative.example.com.", "a.example.com.");
         let a_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
@@ -647,7 +691,7 @@ mod tests {
         if let Ok(LocalResolutionResult::Done {
             resolved: ResolvedRecord::NonAuthoritative { rrs },
         }) = resolve_local(
-            10,
+            &mut question_stack(),
             &mut Metrics::new(),
             &zones(),
             &SharedCache::new(),
@@ -687,7 +731,7 @@ mod tests {
                 is_authoritative: false,
             }),
             resolve_local(
-                10,
+                &mut question_stack(),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
@@ -712,7 +756,7 @@ mod tests {
                 }
             }),
             resolve_local(
-                10,
+                &mut question_stack(),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
@@ -738,7 +782,7 @@ mod tests {
                 question: question.clone()
             }),
             resolve_local(
-                10,
+                &mut question_stack(),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
@@ -756,7 +800,7 @@ mod tests {
                 },
             }),
             resolve_local(
-                10,
+                &mut question_stack(),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
@@ -782,7 +826,7 @@ mod tests {
                 question: question.clone()
             }),
             resolve_local(
-                10,
+                &mut question_stack(),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
@@ -791,7 +835,11 @@ mod tests {
         );
     }
 
-    pub fn zones_soa_rr() -> ResourceRecord {
+    fn question_stack() -> Vec<Question> {
+        Vec::with_capacity(10)
+    }
+
+    fn zones_soa_rr() -> ResourceRecord {
         zones()
             .get(&domain("authoritative.example.com."))
             .unwrap()
