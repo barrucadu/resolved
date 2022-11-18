@@ -124,8 +124,16 @@ async fn resolve_recursive_notimeout(
                             return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
                         }
                         NameserverResponse::Delegation { rrs, delegation, .. } => {
-                            tracing::trace!("got recursive delegation - using as candidate");
                             cache.insert_all(&rrs);
+                            if question.qtype == QueryType::Record(RecordType::A) {
+                                if let Some(rr) = get_a(&rrs, &question.name) {
+                                    tracing::trace!("got recursive delegation - using glue A record");
+                                    prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
+                                    question_stack.pop();
+                                    return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                                }
+                            }
+                            tracing::trace!("got recursive delegation - using as candidate");
                             candidates = delegation;
                             continue 'query_nameservers;
                         }
@@ -540,7 +548,7 @@ pub fn get_better_ns_names(
 /// record.
 pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
     if let Some((final_name, _)) = follow_cnames(rrs, target, &QueryType::Record(RecordType::A)) {
-        for rr in rrs {
+        if let Some(rr) = get_a(rrs, &final_name) {
             match &rr.rtype_with_data {
                 RecordTypeWithData::A { address } if rr.name == final_name => {
                     return Some(*address);
@@ -551,6 +559,13 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
     }
 
     None
+}
+
+/// Given a set of RRs and a domain we're looking for, return the `A` record (if
+/// any).  Unlike `get_ip` this does not follow `CNAME`s.
+pub fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a ResourceRecord> {
+    rrs.iter()
+        .find(|&rr| rr.rtype_with_data.rtype() == RecordType::A && rr.name == *target)
 }
 
 /// A response from a remote nameserver
