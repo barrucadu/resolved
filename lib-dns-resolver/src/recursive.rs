@@ -180,26 +180,21 @@ async fn resolve_hostname_to_ip(
     metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
-    hostname: HostOrIP,
+    hostname: DomainName,
 ) -> Option<Ipv4Addr> {
-    match hostname {
-        HostOrIP::IP(ip) => Some(ip),
-        HostOrIP::Host(name) => {
-            let question = Question {
-                name: name.clone(),
-                qclass: QueryClass::Record(RecordClass::IN),
-                qtype: QueryType::Record(RecordType::A),
-            };
-            if let Ok(result) =
-                resolve_recursive_notimeout(recursion_limit - 1, metrics, zones, cache, &question)
-                    .instrument(tracing::error_span!("resolve_hostname_to_ip", %question))
-                    .await
-            {
-                get_ip(&result.rrs(), &name)
-            } else {
-                None
-            }
-        }
+    let question = Question {
+        name: hostname.clone(),
+        qclass: QueryClass::Record(RecordClass::IN),
+        qtype: QueryType::Record(RecordType::A),
+    };
+    if let Ok(result) =
+        resolve_recursive_notimeout(recursion_limit - 1, metrics, zones, cache, &question)
+            .instrument(tracing::error_span!("resolve_hostname_to_ip", %question))
+            .await
+    {
+        get_ip(&result.rrs(), &hostname)
+    } else {
+        None
     }
 }
 
@@ -231,7 +226,7 @@ fn candidate_nameservers(
             {
                 for ns_rr in resolved.rrs() {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
-                        hostnames.push(HostOrIP::Host(nsdname.clone()));
+                        hostnames.push(nsdname.clone());
                     }
                 }
             }
@@ -444,7 +439,7 @@ fn validate_nameserver_response(
             authority_rrs: Vec::new(),
             is_authoritative: false,
             delegation: Nameservers {
-                hostnames: ns_names.into_iter().map(HostOrIP::Host).collect(),
+                hostnames: ns_names.into_iter().collect(),
                 name: match_name,
             },
         })
@@ -577,10 +572,7 @@ mod tests {
         let qdomain = domain("com.");
         assert_eq!(
             Some(Nameservers {
-                hostnames: vec![
-                    HostOrIP::Host(domain("ns1.example.com.")),
-                    HostOrIP::Host(domain("ns2.example.com."))
-                ],
+                hostnames: vec![domain("ns1.example.com."), domain("ns2.example.com.")],
                 name: qdomain.clone(),
             }),
             candidate_nameservers(
@@ -597,10 +589,7 @@ mod tests {
     fn candidate_nameservers_returns_longest_match() {
         assert_eq!(
             Some(Nameservers {
-                hostnames: vec![
-                    HostOrIP::Host(domain("ns1.example.com.")),
-                    HostOrIP::Host(domain("ns2.example.com."))
-                ],
+                hostnames: vec![domain("ns1.example.com."), domain("ns2.example.com.")],
                 name: domain("example.com."),
             }),
             candidate_nameservers(
@@ -775,10 +764,7 @@ mod tests {
                 assert_eq!(expected_rrs, actual_rrs);
 
                 let mut expected_delegation = Nameservers {
-                    hostnames: vec![
-                        HostOrIP::Host(domain("ns-an.example.net.")),
-                        HostOrIP::Host(domain("ns-ns.example.net.")),
-                    ],
+                    hostnames: vec![domain("ns-an.example.net."), domain("ns-ns.example.net.")],
                     name: domain("example.com."),
                 };
 
@@ -840,7 +826,7 @@ mod tests {
                 authority_rrs: Vec::new(),
                 is_authoritative: false,
                 delegation: Nameservers {
-                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net."))],
+                    hostnames: vec![domain("ns-better.example.net.")],
                     name: domain("subdomain.example.com."),
                 },
             }),
@@ -856,7 +842,7 @@ mod tests {
                 authority_rrs: Vec::new(),
                 is_authoritative: false,
                 delegation: Nameservers {
-                    hostnames: vec![HostOrIP::Host(domain("ns-better.example.net."))],
+                    hostnames: vec![domain("ns-better.example.net.")],
                     name: domain("subdomain.example.com."),
                 },
             }),

@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
 
 use dns_types::protocol::types::*;
 
@@ -79,7 +78,7 @@ pub struct Nameservers {
     /// Guaranteed to be non-empty.
     ///
     /// TODO: find a non-empty-vec type
-    pub hostnames: Vec<HostOrIP>,
+    pub hostnames: Vec<DomainName>,
     pub name: DomainName,
 }
 
@@ -87,13 +86,6 @@ impl Nameservers {
     pub fn match_count(&self) -> usize {
         self.name.labels.len()
     }
-}
-
-/// A hostname or an IP
-#[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub enum HostOrIP {
-    Host(DomainName),
-    IP(Ipv4Addr),
 }
 
 /// Merge two sets of RRs, where records from the second set are
@@ -142,6 +134,8 @@ pub fn prioritising_merge(priority: &mut Vec<ResourceRecord>, new: Vec<ResourceR
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use dns_types::protocol::types::test_util::*;
 
     use super::*;
