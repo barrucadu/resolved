@@ -210,7 +210,7 @@ pub fn resolve_local(
                     let mut hostnames = Vec::with_capacity(ns_rrs.len());
                     for rr in &ns_rrs {
                         if let RecordTypeWithData::NS { nsdname } = &rr.rtype_with_data {
-                            hostnames.push(HostOrIP::Host(nsdname.clone()));
+                            hostnames.push(nsdname.clone());
                         } else {
                             tracing::warn!(rtype = %rr.rtype_with_data.rtype(), "got non-NS RR in a delegation");
                         }
@@ -708,9 +708,7 @@ mod tests {
                 is_authoritative: true,
                 delegation: Nameservers {
                     name: domain("delegated.authoritative.example.com."),
-                    hostnames: vec![HostOrIP::Host(domain(
-                        "ns.delegated.authoritative.example.com."
-                    ))],
+                    hostnames: vec![domain("ns.delegated.authoritative.example.com.")],
                 }
             }),
             resolve_local(
