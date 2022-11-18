@@ -47,12 +47,13 @@ pub async fn resolve(
     cache: &SharedCache,
     question: &Question,
 ) -> (Metrics, Result<ResolvedRecord, ResolutionError>) {
+    let mut question_stack = Vec::with_capacity(RECURSION_LIMIT);
     let mut metrics = Metrics::new();
 
     let rr = if is_recursive {
         if let Some(address) = forward_address {
             resolve_forwarding(
-                RECURSION_LIMIT,
+                &mut question_stack,
                 &mut metrics,
                 address,
                 zones,
@@ -62,12 +63,12 @@ pub async fn resolve(
             .instrument(tracing::error_span!("resolve_forwarding", %address, %question))
             .await
         } else {
-            resolve_recursive(RECURSION_LIMIT, &mut metrics, zones, cache, question)
+            resolve_recursive(&mut question_stack, &mut metrics, zones, cache, question)
                 .instrument(tracing::error_span!("resolve_recursive", %question))
                 .await
         }
     } else {
-        resolve_local(RECURSION_LIMIT, &mut metrics, zones, cache, question)
+        resolve_local(&mut question_stack, &mut metrics, zones, cache, question)
             .map(ResolvedRecord::from)
     };
 

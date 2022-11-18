@@ -27,7 +27,7 @@ use crate::util::types::*;
 ///
 /// See `ResolutionError`.
 pub async fn resolve_forwarding(
-    recursion_limit: usize,
+    question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     forward_address: Ipv4Addr,
     zones: &Zones,
@@ -37,7 +37,7 @@ pub async fn resolve_forwarding(
     if let Ok(res) = timeout(
         Duration::from_secs(60),
         resolve_forwarding_notimeout(
-            recursion_limit,
+            question_stack,
             metrics,
             forward_address,
             zones,
@@ -57,16 +57,22 @@ pub async fn resolve_forwarding(
 /// Timeout-less version of `resolve_forwarding`.
 #[async_recursion]
 async fn resolve_forwarding_notimeout(
-    recursion_limit: usize,
+    question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     forward_address: Ipv4Addr,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
-    if recursion_limit == 0 {
+    if question_stack.len() == question_stack.capacity() {
         tracing::debug!("hit recursion limit");
         return Err(ResolutionError::RecursionLimit);
+    }
+    if question_stack.contains(question) {
+        tracing::debug!("hit duplicate question");
+        return Err(ResolutionError::DuplicateQuestion {
+            question: question.clone(),
+        });
     }
 
     let mut combined_rrs = Vec::new();
@@ -75,7 +81,7 @@ async fn resolve_forwarding_notimeout(
     //
     // - delegations are ignored (we just forward to the upstream nameserver)
     // - CNAMEs are resolved by calling the forwarding resolver recursively
-    match resolve_local(recursion_limit, metrics, zones, cache, question) {
+    match resolve_local(question_stack, metrics, zones, cache, question) {
         Ok(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
         Ok(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
         Ok(LocalResolutionResult::Delegation { .. }) => (),
@@ -84,8 +90,9 @@ async fn resolve_forwarding_notimeout(
             cname_question,
             ..
         }) => {
-            return match resolve_forwarding_notimeout(
-                recursion_limit - 1,
+            question_stack.push(question.clone());
+            let answer = match resolve_forwarding_notimeout(
+                question_stack,
                 metrics,
                 forward_address,
                 zones,
@@ -105,7 +112,9 @@ async fn resolve_forwarding_notimeout(
                 Err(_) => Err(ResolutionError::DeadEnd {
                     question: cname_question,
                 }),
-            }
+            };
+            question_stack.pop();
+            return answer;
         }
         Err(_) => (),
     }
