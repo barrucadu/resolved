@@ -55,7 +55,7 @@ fn bench__get_without_checking_expiration__hit(c: &mut Criterion) {
                 || build_cache(size, rrs),
                 |mut cache| {
                     for (name, rtype) in &queries {
-                        cache.get_without_checking_expiration(name, &QueryType::Record(*rtype));
+                        cache.get_without_checking_expiration(name, QueryType::Record(*rtype));
                     }
                 },
                 BatchSize::SmallInput,
@@ -80,7 +80,7 @@ fn bench__get_without_checking_expiration__miss(c: &mut Criterion) {
                 || build_cache(size, rrs),
                 |mut cache| {
                     for (_, rtype) in &queries {
-                        cache.get_without_checking_expiration(&name, &QueryType::Record(*rtype));
+                        cache.get_without_checking_expiration(&name, QueryType::Record(*rtype));
                     }
                 },
                 BatchSize::SmallInput,

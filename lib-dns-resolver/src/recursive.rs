@@ -451,7 +451,7 @@ fn validate_nameserver_response(
             let rtype = an.rtype_with_data.rtype();
             all_unknown = false;
 
-            if rtype.matches(&question.qtype) && an.name == final_name {
+            if rtype.matches(question.qtype) && an.name == final_name {
                 rrs_for_query.push(an.clone());
                 seen_final_record = true;
             } else if rtype == RecordType::CNAME && cname_map.contains_key(&an.name) {
@@ -564,7 +564,7 @@ fn follow_cnames(
     let mut got_match = false;
     let mut cname_map = HashMap::<DomainName, DomainName>::new();
     for rr in rrs {
-        if &rr.name == target && rr.rtype_with_data.matches(&qtype) {
+        if &rr.name == target && rr.rtype_with_data.matches(qtype) {
             got_match = true;
         }
         if let RecordTypeWithData::CNAME { cname } = &rr.rtype_with_data {

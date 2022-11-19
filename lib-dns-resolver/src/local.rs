@@ -269,7 +269,7 @@ pub fn resolve_local(
     // In all cases, consult the cache for an answer to the question, and
     // combine with the RRs we already have.
 
-    let mut rrs_from_cache = cache.get(&question.name, &question.qtype);
+    let mut rrs_from_cache = cache.get(&question.name, question.qtype);
     if rrs_from_cache.is_empty() {
         tracing::trace!(qtype = %question.qtype, "cache MISS");
         metrics.cache_miss();
@@ -280,7 +280,7 @@ pub fn resolve_local(
 
     let mut final_cname = None;
     if rrs_from_cache.is_empty() && question.qtype != CNAME_QTYPE {
-        let cache_cname_rrs = cache.get(&question.name, &CNAME_QTYPE);
+        let cache_cname_rrs = cache.get(&question.name, CNAME_QTYPE);
         if cache_cname_rrs.is_empty() {
             tracing::trace!(qtype = %CNAME_QTYPE, "cache MISS");
             metrics.cache_miss();

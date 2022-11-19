@@ -39,7 +39,7 @@ impl SharedCache {
     /// The TTL in the returned `ResourceRecord` is relative to the
     /// current time - not when the record was inserted into the
     /// cache.
-    pub fn get(&self, name: &DomainName, qtype: &QueryType) -> Vec<ResourceRecord> {
+    pub fn get(&self, name: &DomainName, qtype: QueryType) -> Vec<ResourceRecord> {
         let mut rrs = self.get_without_checking_expiration(name, qtype);
         rrs.retain(|rr| rr.ttl > 0);
         rrs
@@ -52,7 +52,7 @@ impl SharedCache {
     pub fn get_without_checking_expiration(
         &self,
         name: &DomainName,
-        qtype: &QueryType,
+        qtype: QueryType,
     ) -> Vec<ResourceRecord> {
         self.cache
             .lock()
@@ -196,7 +196,7 @@ impl Cache {
     pub fn get_without_checking_expiration(
         &mut self,
         name: &DomainName,
-        qtype: &QueryType,
+        qtype: QueryType,
     ) -> Vec<ResourceRecord> {
         if let Some(entry) = self.entries.get_mut(name) {
             let now = Instant::now();
@@ -208,7 +208,7 @@ impl Cache {
                     }
                 }
                 QueryType::Record(rtype) => {
-                    if let Some(tuples) = entry.records.get(rtype) {
+                    if let Some(tuples) = entry.records.get(&rtype) {
                         to_rrs(name, now, tuples, &mut rrs);
                     }
                 }
@@ -445,12 +445,12 @@ mod tests {
                 &rr,
                 &cache.get_without_checking_expiration(
                     &rr.name,
-                    &QueryType::Record(rr.rtype_with_data.rtype()),
+                    QueryType::Record(rr.rtype_with_data.rtype()),
                 ),
             );
             assert_cache_response(
                 &rr,
-                &cache.get_without_checking_expiration(&rr.name, &QueryType::Wildcard),
+                &cache.get_without_checking_expiration(&rr.name, QueryType::Wildcard),
             );
         }
     }
@@ -496,7 +496,7 @@ mod tests {
             ));
         }
         for (name, qtype) in queries {
-            cache.get_without_checking_expiration(&name, &qtype);
+            cache.get_without_checking_expiration(&name, qtype);
         }
 
         assert_invariants(&cache);
