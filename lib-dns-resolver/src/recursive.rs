@@ -362,7 +362,7 @@ async fn query_nameserver(
 
     tracing::trace!("forwarding query to nameserver");
 
-    match request.clone().to_octets() {
+    match request.clone().into_octets() {
         Ok(mut serialised_request) => {
             let udp_response = query_nameserver_udp(address, &mut serialised_request)
                 .await
@@ -435,7 +435,7 @@ fn validate_nameserver_response(
     }
 
     if let Some((final_name, cname_map)) =
-        follow_cnames(&response.answers, &question.name, &question.qtype)
+        follow_cnames(&response.answers, &question.name, question.qtype)
     {
         // step 2.1: get RRs matching the query name or the names it
         // `CNAME`s to
@@ -451,7 +451,7 @@ fn validate_nameserver_response(
             let rtype = an.rtype_with_data.rtype();
             all_unknown = false;
 
-            if rtype.matches(&question.qtype) && an.name == final_name {
+            if rtype.matches(question.qtype) && an.name == final_name {
                 rrs_for_query.push(an.clone());
                 seen_final_record = true;
             } else if rtype == RecordType::CNAME && cname_map.contains_key(&an.name) {
@@ -556,10 +556,10 @@ fn validate_nameserver_response(
 ///
 /// Returns `None` if CNAMEs form a loop, or there is no RR which
 /// matches the target name (a CNAME or one with the right type).
-pub fn follow_cnames(
+fn follow_cnames(
     rrs: &[ResourceRecord],
     target: &DomainName,
-    qtype: &QueryType,
+    qtype: QueryType,
 ) -> Option<(DomainName, HashMap<DomainName, DomainName>)> {
     let mut got_match = false;
     let mut cname_map = HashMap::<DomainName, DomainName>::new();
@@ -592,7 +592,7 @@ pub fn follow_cnames(
 /// Given a set of RRs and a domain name we're looking for, look for
 /// better matching NS RRs (by comparing the current match count).
 /// Returns the new matching superdomain and the nameserver hostnames.
-pub fn get_better_ns_names(
+fn get_better_ns_names(
     rrs: &[ResourceRecord],
     target: &DomainName,
     current_match_count: usize,
@@ -627,8 +627,8 @@ pub fn get_better_ns_names(
 /// Given a set of RRs and a domain name we're looking for, follow any
 /// `CNAME`s in the response and get the address from the final `A`
 /// record.
-pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
-    if let Some((final_name, _)) = follow_cnames(rrs, target, &QueryType::Record(RecordType::A)) {
+fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
+    if let Some((final_name, _)) = follow_cnames(rrs, target, QueryType::Record(RecordType::A)) {
         if let Some(rr) = get_a(rrs, &final_name) {
             match &rr.rtype_with_data {
                 RecordTypeWithData::A { address } if rr.name == final_name => {
@@ -644,7 +644,7 @@ pub fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
 
 /// Given a set of RRs and a domain we're looking for, return the `A` record (if
 /// any).  Unlike `get_ip` this does not follow `CNAME`s.
-pub fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a ResourceRecord> {
+fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a ResourceRecord> {
     rrs.iter()
         .find(|&rr| rr.rtype_with_data.rtype() == RecordType::A && rr.name == *target)
 }
@@ -1016,7 +1016,7 @@ mod tests {
     fn follow_cnames_empty() {
         assert_eq!(
             None,
-            follow_cnames(&[], &domain("www.example.com."), &QueryType::Wildcard)
+            follow_cnames(&[], &domain("www.example.com."), QueryType::Wildcard)
         );
     }
 
@@ -1027,7 +1027,7 @@ mod tests {
             follow_cnames(
                 &[a_record("www.example.net.", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com."),
-                &QueryType::Wildcard
+                QueryType::Wildcard
             )
         );
     }
@@ -1039,7 +1039,7 @@ mod tests {
             follow_cnames(
                 &[a_record("www.example.net.", Ipv4Addr::new(1, 1, 1, 1))],
                 &domain("www.example.com."),
-                &QueryType::Record(RecordType::NS)
+                QueryType::Record(RecordType::NS)
             )
         );
     }
@@ -1049,7 +1049,7 @@ mod tests {
         let rr_a = a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(
             Some((domain("www.example.com."), HashMap::new())),
-            follow_cnames(&[rr_a], &domain("www.example.com."), &QueryType::Wildcard)
+            follow_cnames(&[rr_a], &domain("www.example.com."), QueryType::Wildcard)
         );
     }
 
@@ -1071,7 +1071,7 @@ mod tests {
             follow_cnames(
                 &[rr_a, rr_cname2, rr_cname1],
                 &domain("www.example.com."),
-                &QueryType::Wildcard
+                QueryType::Wildcard
             )
         );
     }
@@ -1086,7 +1086,7 @@ mod tests {
             follow_cnames(
                 &[rr_cname1, rr_cname2],
                 &domain("www.example.com."),
-                &QueryType::Wildcard
+                QueryType::Wildcard
             )
         );
     }

@@ -17,12 +17,12 @@ fn bench__question(c: &mut Criterion) {
     c.bench_function("serialise/question", |b| {
         b.iter_batched(
             || message.clone(),
-            |message| message.to_octets(),
+            |message| message.into_octets(),
             BatchSize::SmallInput,
         )
     });
 
-    let serialised = message.clone().to_octets().unwrap();
+    let serialised = message.clone().into_octets().unwrap();
     c.bench_function("deserialise/question", |b| {
         b.iter(|| Message::from_octets(black_box(&serialised)))
     });
@@ -45,12 +45,12 @@ fn bench__answer__small(c: &mut Criterion) {
     c.bench_function("serialise/answer/small", |b| {
         b.iter_batched(
             || message.clone(),
-            |message| message.to_octets(),
+            |message| message.into_octets(),
             BatchSize::SmallInput,
         )
     });
 
-    let serialised = message.clone().to_octets().unwrap();
+    let serialised = message.clone().into_octets().unwrap();
     c.bench_function("deserialise/answer/small", |b| {
         b.iter(|| Message::from_octets(black_box(&serialised)))
     });
@@ -92,12 +92,12 @@ fn bench__answer__big(c: &mut Criterion) {
     c.bench_function("serialise/answer/big", |b| {
         b.iter_batched(
             || message.clone(),
-            |message| message.to_octets(),
+            |message| message.into_octets(),
             BatchSize::SmallInput,
         )
     });
 
-    let serialised = message.clone().to_octets().unwrap();
+    let serialised = message.clone().into_octets().unwrap();
     c.bench_function("deserialise/answer/big", |b| {
         b.iter(|| Message::from_octets(black_box(&serialised)))
     });

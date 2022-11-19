@@ -8,7 +8,7 @@ impl Message {
     ///
     /// If the message is invalid (the `Message` type permits more
     /// states than strictly allowed).
-    pub fn to_octets(self) -> Result<Vec<u8>, Error> {
+    pub fn into_octets(self) -> Result<Vec<u8>, Error> {
         let mut buffer = WritableBuffer::default();
         self.serialise(&mut buffer)?;
         Ok(buffer.octets)

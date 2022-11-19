@@ -366,7 +366,7 @@ impl ResourceRecord {
     }
 
     pub fn matches(&self, question: &Question) -> bool {
-        self.rtype_with_data.matches(&question.qtype) && self.rclass.matches(&question.qclass)
+        self.rtype_with_data.matches(question.qtype) && self.rclass.matches(question.qclass)
     }
 }
 
@@ -656,7 +656,7 @@ impl RecordTypeWithData {
         self.rtype().is_unknown()
     }
 
-    pub fn matches(&self, qtype: &QueryType) -> bool {
+    pub fn matches(&self, qtype: QueryType) -> bool {
         self.rtype().matches(qtype)
     }
 
@@ -1307,10 +1307,10 @@ impl RecordType {
         matches!(self, RecordType::Unknown(_))
     }
 
-    pub fn matches(&self, qtype: &QueryType) -> bool {
+    pub fn matches(&self, qtype: QueryType) -> bool {
         match qtype {
             QueryType::Wildcard => true,
-            QueryType::Record(rtype) => rtype == self,
+            QueryType::Record(rtype) => rtype == *self,
             _ => false,
         }
     }
@@ -1478,10 +1478,10 @@ impl RecordClass {
         matches!(self, RecordClass::Unknown(_))
     }
 
-    pub fn matches(&self, qclass: &QueryClass) -> bool {
+    pub fn matches(&self, qclass: QueryClass) -> bool {
         match qclass {
             QueryClass::Wildcard => true,
-            QueryClass::Record(rclass) => rclass == self,
+            QueryClass::Record(rclass) => rclass == *self,
         }
     }
 }

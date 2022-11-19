@@ -606,7 +606,7 @@ fn zone_result_helper(
         }
     }
 
-    if !RecordType::CNAME.matches(&qtype) {
+    if !RecordType::CNAME.matches(qtype) {
         if let Some(cname_zrs) = records.get(&RecordType::CNAME) {
             if !cname_zrs.is_empty() {
                 let rr = cname_zrs[0].to_rr(name);
