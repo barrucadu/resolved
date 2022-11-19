@@ -104,51 +104,57 @@ async fn resolve_recursive_notimeout(
         candidates = candidate_nameservers(question_stack, metrics, zones, cache, &question.name);
     }
 
-    if let Some(mut candidates) = candidates {
-        'query_nameservers: while let Some(candidate) = candidates.hostnames.pop() {
+    if let Some(candidates) = candidates {
+        let mut match_count = candidates.match_count();
+        let mut candidate_hostnames = candidates.hostnames;
+        let mut next_candidate_hostnames = Vec::with_capacity(candidate_hostnames.len());
+        let mut resolve_candidates_locally = true;
+
+        while let Some(candidate) = candidate_hostnames.pop() {
             tracing::trace!(?candidate, "got candidate nameserver");
-            if let Some(ip) =
-                resolve_hostname_to_ip(question_stack, metrics, zones, cache, candidate).await
+            if let Some(ip) = resolve_hostname_to_ip(
+                question_stack,
+                metrics,
+                zones,
+                cache,
+                resolve_candidates_locally,
+                candidate.clone(),
+            )
+            .await
             {
-                if let Some(nameserver_answer) = query_nameserver(ip, question, candidates.match_count())
-                    .instrument(tracing::error_span!("query_nameserver", address = %ip, match_count = %candidates.match_count()))
+                if let Some(nameserver_response) = query_nameserver(ip, question, match_count)
+                    .instrument(
+                        tracing::error_span!("query_nameserver", address = %ip, %match_count),
+                    )
                     .await
                 {
+                    if resolve_candidates_locally {
+                        tracing::trace!(?candidate, "resolved fast candidate");
+                    } else {
+                        tracing::trace!(?candidate, "resolved slow candidate");
+                    }
                     metrics.nameserver_hit();
-                    match nameserver_answer {
-                        NameserverResponse::Answer { rrs, .. } => {
-                            tracing::trace!("got recursive answer");
-                            cache.insert_all(&rrs);
-                            prioritising_merge(&mut combined_rrs, rrs);
+                    match resolve_with_nameserver_response(
+                        question_stack,
+                        metrics,
+                        zones,
+                        cache,
+                        question,
+                        combined_rrs.clone(),
+                        nameserver_response,
+                    )
+                    .await
+                    {
+                        Ok(result) => {
                             question_stack.pop();
-                            return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
+                            return result;
                         }
-                        NameserverResponse::Delegation { rrs, delegation, .. } => {
-                            cache.insert_all(&rrs);
-                            if question.qtype == QueryType::Record(RecordType::A) {
-                                if let Some(rr) = get_a(&rrs, &question.name) {
-                                    tracing::trace!("got recursive delegation - using glue A record");
-                                    prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
-                                    question_stack.pop();
-                                    return Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs });
-                                }
-                            }
-                            tracing::trace!("got recursive delegation - using as candidate");
-                            candidates = delegation;
-                            continue 'query_nameservers;
-                        }
-                        NameserverResponse::CNAME { rrs, cname, .. } => {
-                            tracing::trace!("got recursive CNAME");
-                            cache.insert_all(&rrs);
-                            prioritising_merge(&mut combined_rrs, rrs);
-                            let cname_question = Question {
-                                name: cname,
-                                qclass: question.qclass,
-                                qtype: question.qtype,
-                            };
-                            let answer = resolve_combined_recursive(question_stack, metrics, zones, cache, combined_rrs, cname_question).await;
-                            question_stack.pop();
-                            return answer
+                        Err(delegation) => {
+                            match_count = delegation.match_count();
+                            candidate_hostnames = delegation.hostnames;
+                            next_candidate_hostnames =
+                                Vec::with_capacity(candidate_hostnames.len());
+                            resolve_candidates_locally = true;
                         }
                     }
                 } else {
@@ -161,9 +167,19 @@ async fn resolve_recursive_notimeout(
                         question: question.clone(),
                     });
                 }
+            } else if resolve_candidates_locally {
+                tracing::trace!(?candidate, "skipping slow candidate");
+                next_candidate_hostnames.push(candidate.clone());
+                // try slow candidates if out of fast ones
+                if candidate_hostnames.is_empty() {
+                    tracing::trace!("restarting with slow candidates");
+                    candidate_hostnames = next_candidate_hostnames;
+                    next_candidate_hostnames = Vec::new();
+                    resolve_candidates_locally = false;
+                }
             } else {
-                // failed to get an IP for this candidate - loop and try the
-                // next
+                // failed to resolve the candidate recursively, just drop it.
+                tracing::trace!(?candidate, "dropping unresolvable candidate");
             }
         }
     }
@@ -173,6 +189,62 @@ async fn resolve_recursive_notimeout(
     Err(ResolutionError::DeadEnd {
         question: question.clone(),
     })
+}
+
+/// Helper function for answering a question given a response from an upstream
+/// nameserver: this will only do further querying if the response is a CNAME.
+#[async_recursion]
+async fn resolve_with_nameserver_response(
+    question_stack: &mut Vec<Question>,
+    metrics: &mut Metrics,
+    zones: &Zones,
+    cache: &SharedCache,
+    question: &Question,
+    mut combined_rrs: Vec<ResourceRecord>,
+    nameserver_response: NameserverResponse,
+) -> Result<Result<ResolvedRecord, ResolutionError>, Nameservers> {
+    match nameserver_response {
+        NameserverResponse::Answer { rrs, .. } => {
+            tracing::trace!("got recursive answer");
+            cache.insert_all(&rrs);
+            prioritising_merge(&mut combined_rrs, rrs);
+            Ok(Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs }))
+        }
+        NameserverResponse::Delegation {
+            rrs, delegation, ..
+        } => {
+            cache.insert_all(&rrs);
+            if question.qtype == QueryType::Record(RecordType::A) {
+                if let Some(rr) = get_a(&rrs, &question.name) {
+                    tracing::trace!("got recursive delegation - using glue A record");
+                    prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
+                    return Ok(Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs }));
+                }
+            }
+            tracing::trace!("got recursive delegation - using as candidate");
+            Err(delegation)
+        }
+        NameserverResponse::CNAME { rrs, cname, .. } => {
+            tracing::trace!("got recursive CNAME");
+            cache.insert_all(&rrs);
+            prioritising_merge(&mut combined_rrs, rrs);
+            let cname_question = Question {
+                name: cname,
+                qclass: question.qclass,
+                qtype: question.qtype,
+            };
+            let cname_answer = resolve_combined_recursive(
+                question_stack,
+                metrics,
+                zones,
+                cache,
+                combined_rrs,
+                cname_question,
+            )
+            .await;
+            Ok(cname_answer)
+        }
+    }
 }
 
 /// Helper function for resolving CNAMEs: resolve, and add some existing RRs to
@@ -197,12 +269,14 @@ async fn resolve_combined_recursive(
     }
 }
 
-/// Resolve a hostname into an IP address.
+/// Resolve a hostname into an IP address, optionally only doing local
+/// resolution.
 async fn resolve_hostname_to_ip(
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
+    resolve_locally: bool,
     hostname: DomainName,
 ) -> Option<Ipv4Addr> {
     let question = Question {
@@ -210,10 +284,17 @@ async fn resolve_hostname_to_ip(
         qclass: QueryClass::Record(RecordClass::IN),
         qtype: QueryType::Record(RecordType::A),
     };
-    if let Ok(result) =
-        resolve_recursive_notimeout(question_stack, metrics, zones, cache, &question)
-            .instrument(tracing::error_span!("resolve_hostname_to_ip", %question))
-            .await
+
+    if resolve_locally {
+        if let Ok(LocalResolutionResult::Done { resolved }) =
+            resolve_local(question_stack, metrics, zones, cache, &question)
+        {
+            get_ip(&resolved.rrs(), &hostname)
+        } else {
+            None
+        }
+    } else if let Ok(result) =
+        resolve_recursive_notimeout(question_stack, metrics, zones, cache, &question).await
     {
         get_ip(&result.rrs(), &hostname)
     } else {
