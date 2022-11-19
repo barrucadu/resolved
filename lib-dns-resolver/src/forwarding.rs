@@ -149,7 +149,7 @@ async fn query_nameserver(address: Ipv4Addr, question: &Question) -> Option<Vec<
 
     tracing::trace!("forwarding query to nameserver");
 
-    match request.clone().to_octets() {
+    match request.clone().into_octets() {
         Ok(mut serialised_request) => {
             if let Some(response) = query_nameserver_udp(address, &mut serialised_request).await {
                 if response_matches_request(&request, &response) {

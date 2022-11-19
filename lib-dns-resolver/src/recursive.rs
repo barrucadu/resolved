@@ -362,7 +362,7 @@ async fn query_nameserver(
 
     tracing::trace!("forwarding query to nameserver");
 
-    match request.clone().to_octets() {
+    match request.clone().into_octets() {
         Ok(mut serialised_request) => {
             let udp_response = query_nameserver_udp(address, &mut serialised_request)
                 .await
