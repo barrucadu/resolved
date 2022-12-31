@@ -17,14 +17,14 @@ fn main() {
 
     let mut buf = String::new();
     if let Err(err) = stdin().read_to_string(&mut buf) {
-        eprintln!("error reading hosts file from stdin: {:?}", err);
+        eprintln!("error reading hosts file from stdin: {err:?}");
         process::exit(1);
     }
 
     match Hosts::deserialise(&buf) {
         Ok(hosts) => print!("{}", hosts.serialise()),
         Err(err) => {
-            eprintln!("error parsing hosts file from stdin: {:?}", err);
+            eprintln!("error parsing hosts file from stdin: {err:?}");
             process::exit(1);
         }
     }

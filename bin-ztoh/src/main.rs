@@ -26,7 +26,7 @@ fn main() {
 
     let mut buf = String::new();
     if let Err(err) = stdin().read_to_string(&mut buf) {
-        eprintln!("error reading zone file from stdin: {:?}", err);
+        eprintln!("error reading zone file from stdin: {err:?}");
         process::exit(1);
     }
 
@@ -40,13 +40,13 @@ fn main() {
             match try_hosts {
                 Ok(hosts) => print!("{}", hosts.serialise()),
                 Err(err) => {
-                    eprintln!("error converting zone file to hosts file: {:?}", err);
+                    eprintln!("error converting zone file to hosts file: {err:?}");
                     process::exit(1);
                 }
             }
         }
         Err(err) => {
-            eprintln!("error parsing zone file from stdin: {:?}", err);
+            eprintln!("error parsing zone file from stdin: {err:?}");
             process::exit(1);
         }
     }

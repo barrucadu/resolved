@@ -112,7 +112,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
                 }
                 "ok".to_string()
             }
-            Err(err) => format!("error: {}", err),
+            Err(err) => format!("error: {err}"),
         };
 
         let duration_seconds = question_timer.stop_and_record();
