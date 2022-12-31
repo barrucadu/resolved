@@ -17,7 +17,7 @@ fn print_section(heading: &str, rrs: &[ResourceRecord]) {
         return;
     }
 
-    println!("\n;; {}", heading);
+    println!("\n;; {heading}");
     for rr in rrs {
         let rdata = Zone::default().serialise_rdata(&rr.rtype_with_data);
         println!(
@@ -130,7 +130,7 @@ async fn main() {
         },
         Err(err) => {
             println!("\n;; ANSWER");
-            println!("; {}", err);
+            println!("; {err}");
             process::exit(1);
         }
     }
