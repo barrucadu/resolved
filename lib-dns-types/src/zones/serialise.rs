@@ -20,11 +20,11 @@ impl Zone {
             );
 
             if show_origin {
-                let _ = writeln!(&mut out, "$ORIGIN {serialised_apex}");
+                _ = writeln!(&mut out, "$ORIGIN {serialised_apex}");
                 out.push('\n');
             }
 
-            let _ = writeln!(
+            _ = writeln!(
                 &mut out,
                 "{} IN SOA {}",
                 if show_origin { "@" } else { &serialised_apex },
@@ -59,7 +59,7 @@ impl Zone {
                         continue;
                     }
 
-                    let _ = writeln!(
+                    _ = writeln!(
                         &mut out,
                         "{}{} {} IN {} {}",
                         self.serialise_domain(domain),
@@ -72,7 +72,7 @@ impl Zone {
             }
             if let Some(zrs) = all_wildcard_records.get(domain) {
                 for zr in zrs {
-                    let _ = writeln!(
+                    _ = writeln!(
                         &mut out,
                         "*.{} {} IN {} {}",
                         self.serialise_domain(domain),
