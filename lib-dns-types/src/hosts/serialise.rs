@@ -31,10 +31,10 @@ impl Hosts {
             };
 
             if let Some(addr) = self.v4.get(domain) {
-                let _ = writeln!(&mut out, "{addr} {domain_str}");
+                _ = writeln!(&mut out, "{addr} {domain_str}");
             }
             if let Some(addr) = self.v6.get(domain) {
-                let _ = writeln!(&mut out, "{addr} {domain_str}");
+                _ = writeln!(&mut out, "{addr} {domain_str}");
             }
             out.push('\n');
         }
