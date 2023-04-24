@@ -15,4 +15,4 @@ lazy_static = "1"
 prometheus = { version = "0.13.3", features = ["process"] }
 tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
 tracing = "0.1.37"
-tracing-subscriber = { version = "0.3.16", features = ["env-filter", "json"] }
+tracing-subscriber = { version = "0.3.17", features = ["env-filter", "json"] }
