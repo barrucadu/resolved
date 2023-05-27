@@ -1,5 +1,4 @@
 use async_recursion::async_recursion;
-use rand::Rng;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -119,12 +118,13 @@ async fn resolve_forwarding_notimeout(
         Err(_) => (),
     }
 
-    if let Some(rrs) = query_nameserver(forward_address, question)
+    if let Some(response) = query_nameserver(forward_address, question, true)
         .instrument(tracing::error_span!("query_nameserver"))
         .await
     {
         metrics.nameserver_hit();
         tracing::trace!("nameserver HIT");
+        let rrs = response.answers;
         cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);
         Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
@@ -134,38 +134,5 @@ async fn resolve_forwarding_notimeout(
         Err(ResolutionError::DeadEnd {
             question: question.clone(),
         })
-    }
-}
-/// Query a remote nameserver to answer a question.
-///
-/// This does a recursive query.
-///
-/// TODO: should this pass on authority and name errors?  the forwarding
-/// nameserver is being treated as an untrusted cache right now, which limits
-/// what resolved can return.
-async fn query_nameserver(address: Ipv4Addr, question: &Question) -> Option<Vec<ResourceRecord>> {
-    let mut request = Message::from_question(rand::thread_rng().gen(), question.clone());
-    request.header.recursion_desired = true;
-
-    tracing::trace!("forwarding query to nameserver");
-
-    match request.clone().into_octets() {
-        Ok(mut serialised_request) => {
-            if let Some(response) = query_nameserver_udp(address, &mut serialised_request).await {
-                if response_matches_request(&request, &response) {
-                    return Some(response.answers);
-                }
-            }
-            if let Some(response) = query_nameserver_tcp(address, &mut serialised_request).await {
-                if response_matches_request(&request, &response) {
-                    return Some(response.answers);
-                }
-            }
-            None
-        }
-        Err(error) => {
-            tracing::warn!(message = ?request, ?error, "could not serialise message");
-            None
-        }
     }
 }

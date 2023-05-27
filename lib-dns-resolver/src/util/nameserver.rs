@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
@@ -6,6 +7,47 @@ use tokio::time::timeout;
 use dns_types::protocol::types::*;
 
 use crate::util::net::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
+
+/// Send a message to a remote nameserver, preferring UDP if the request is
+/// small enough.  If the request is too large, or if the UDP response is
+/// truncated, tries again using TCP.
+///
+/// If an error occurs while sending the message or receiving the response, or
+/// the response does not match the request, `None` is returned.
+///
+/// This has a 5s timeout for each request, so 10s in total.
+pub async fn query_nameserver(
+    address: Ipv4Addr,
+    question: &Question,
+    recursion_desired: bool,
+) -> Option<Message> {
+    let mut request = Message::from_question(rand::thread_rng().gen(), question.clone());
+    request.header.recursion_desired = recursion_desired;
+
+    match request.clone().into_octets() {
+        Ok(mut serialised_request) => {
+            tracing::trace!(message = ?request, ?address, "forwarding query to nameserver");
+
+            if let Some(response) = query_nameserver_udp(address, &mut serialised_request).await {
+                if response_matches_request(&request, &response) {
+                    return Some(response);
+                }
+            }
+
+            if let Some(response) = query_nameserver_tcp(address, &mut serialised_request).await {
+                if response_matches_request(&request, &response) {
+                    return Some(response);
+                }
+            }
+
+            None
+        }
+        Err(error) => {
+            tracing::warn!(message = ?request, ?error, "could not serialise message");
+            None
+        }
+    }
+}
 
 /// Send a message to a remote nameserver over UDP, returning the
 /// response.  If the message would be truncated, or an error occurs
@@ -39,22 +81,12 @@ async fn query_nameserver_udp_notimeout(
     }
 
     let mut buf = vec![0u8; 512];
-    match UdpSocket::bind("0.0.0.0:0").await {
-        Ok(sock) => match sock.connect((address, 53)).await {
-            Ok(_) => match send_udp_bytes(&sock, serialised_request).await {
-                Ok(_) => match sock.recv(&mut buf).await {
-                    Ok(_) => match Message::from_octets(&buf) {
-                        Ok(response) => Some(response),
-                        _ => None,
-                    },
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        },
-        _ => None,
-    }
+    let sock = UdpSocket::bind("0.0.0.0:0").await.ok()?;
+    sock.connect((address, 53)).await.ok()?;
+    send_udp_bytes(&sock, serialised_request).await.ok()?;
+    sock.recv(&mut buf).await.ok()?;
+
+    Message::from_octets(&buf).ok()
 }
 
 /// Send a message to a remote nameserver over TCP, returning the
@@ -82,19 +114,11 @@ async fn query_nameserver_tcp_notimeout(
     address: Ipv4Addr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
-    match TcpStream::connect((address, 53)).await {
-        Ok(mut stream) => match send_tcp_bytes(&mut stream, serialised_request).await {
-            Ok(_) => match read_tcp_bytes(&mut stream).await {
-                Ok(bytes) => match Message::from_octets(bytes.as_ref()) {
-                    Ok(response) => Some(response),
-                    _ => None,
-                },
-                _ => None,
-            },
-            _ => None,
-        },
-        _ => None,
-    }
+    let mut stream = TcpStream::connect((address, 53)).await.ok()?;
+    send_tcp_bytes(&mut stream, serialised_request).await.ok()?;
+    let bytes = read_tcp_bytes(&mut stream).await.ok()?;
+
+    Message::from_octets(bytes.as_ref()).ok()
 }
 
 /// Very basic validation that a nameserver response matches a
