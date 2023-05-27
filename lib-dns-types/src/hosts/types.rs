@@ -184,13 +184,14 @@ pub mod test_util {
     use super::*;
 
     use arbitrary::{Arbitrary, Unstructured};
-    use fake::{Fake, Faker};
+    use rand::Rng;
 
     pub fn arbitrary_hosts() -> Hosts {
+        let mut rng = rand::thread_rng();
         for size in [128, 256, 512, 1024, 2048, 4096] {
             let mut buf = Vec::new();
             for _ in 0..size {
-                buf.push(Faker.fake());
+                buf.push(rng.gen());
             }
 
             if let Ok(rr) = Hosts::arbitrary(&mut Unstructured::new(&buf)) {
