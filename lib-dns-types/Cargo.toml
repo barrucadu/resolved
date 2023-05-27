@@ -7,15 +7,15 @@ edition = "2021"
 
 [dependencies]
 arbitrary = { version = "1", features = ["derive"], optional = true }
-fake = { version = "2", optional = true }
+rand = { version = "0.8.5", optional = true }
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 criterion = "0.4.0"
-fake = "2"
+rand = "0.8.5"
 
 [features]
-test-util = ["arbitrary", "fake"]
+test-util = ["arbitrary", "rand"]
 
 [[bench]]
 name = "serialise_deserialise"

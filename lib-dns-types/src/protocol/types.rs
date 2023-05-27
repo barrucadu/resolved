@@ -1565,7 +1565,7 @@ impl<'a> arbitrary::Arbitrary<'a> for RecordClass {
 
 #[cfg(test)]
 mod tests {
-    use fake::Fake;
+    use rand::Rng;
 
     use super::test_util::*;
     use super::*;
@@ -1674,15 +1674,16 @@ mod tests {
 
     #[test]
     fn domainname_conversions() {
+        let mut rng = rand::thread_rng();
         for _ in 0..100 {
-            let labels_len = (0..5).fake::<usize>();
+            let labels_len = rng.gen_range(0..5);
 
             let mut dotted_string_input = String::new();
             let mut labels_input = Vec::with_capacity(labels_len);
             let mut output = String::new();
 
             for i in 0..labels_len {
-                let label_len = (1..10).fake::<usize>();
+                let label_len = rng.gen_range(1..10);
 
                 if i > 0 {
                     dotted_string_input.push('.');
@@ -1691,7 +1692,7 @@ mod tests {
 
                 let mut octets = Vec::with_capacity(label_len);
                 for _ in 0..label_len {
-                    let mut chr = (32..126).fake::<u8>();
+                    let mut chr = rng.gen_range(32..126);
 
                     if chr == b'.'
                         || chr == b'*'
@@ -1737,13 +1738,14 @@ pub mod test_util {
     use super::*;
 
     use arbitrary::{Arbitrary, Unstructured};
-    use fake::{Fake, Faker};
+    use rand::Rng;
 
     pub fn arbitrary_resourcerecord() -> ResourceRecord {
+        let mut rng = rand::thread_rng();
         for size in [128, 256, 512, 1024, 2048, 4096] {
             let mut buf = Vec::new();
             for _ in 0..size {
-                buf.push(Faker.fake());
+                buf.push(rng.gen());
             }
 
             if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf)) {
