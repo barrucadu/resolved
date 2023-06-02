@@ -150,7 +150,13 @@ async fn handle_raw_message<'a>(args: ListenArgs, buf: &[u8]) -> Option<Message>
     match res {
         Ok(msg) => {
             if msg.header.is_response {
-                Some(Message::make_format_error_response(msg.header.id))
+                // Do not respond to response messages: this is because an
+                // inbound message could spoof its source address / port to
+                // match resolved's, and so make it respond to itself, which
+                // triggers another response, etc
+                //
+                // See #246
+                None
             } else if msg.header.opcode == Opcode::Standard {
                 Some(resolve_and_build_response(args, msg).await)
             } else {
@@ -159,6 +165,11 @@ async fn handle_raw_message<'a>(args: ListenArgs, buf: &[u8]) -> Option<Message>
                 Some(response)
             }
         }
+
+        // An attacker could craft an incomplete message with the source address
+        // / port being resolved's, which would make resolved respond to itself
+        // here, but this is fine so long as (1) the response we send is valid
+        // and (2) we don't reply to a valid message which is a response.
         Err(err) => err.id().map(Message::make_format_error_response),
     }
 }
