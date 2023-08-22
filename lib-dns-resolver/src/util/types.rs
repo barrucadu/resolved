@@ -124,7 +124,7 @@ impl Nameservers {
 pub fn prioritising_merge(priority: &mut Vec<ResourceRecord>, new: Vec<ResourceRecord>) {
     let mut seen = HashSet::new();
 
-    for rr in priority.iter() {
+    for rr in &*priority {
         seen.insert((rr.name.clone(), rr.rtype_with_data.rtype()));
     }
 

@@ -39,6 +39,10 @@ impl SharedCache {
     /// The TTL in the returned `ResourceRecord` is relative to the
     /// current time - not when the record was inserted into the
     /// cache.
+    ///
+    /// # Panics
+    ///
+    /// If the mutex has been poisoned.
     pub fn get(&self, name: &DomainName, qtype: QueryType) -> Vec<ResourceRecord> {
         let mut rrs = self.get_without_checking_expiration(name, qtype);
         rrs.retain(|rr| rr.ttl > 0);
@@ -49,6 +53,10 @@ impl SharedCache {
     ///
     /// Consumers MUST check that the TTL of a record is nonzero
     /// before using it!
+    ///
+    /// # Panics
+    ///
+    /// If the mutex has been poisoned.
     pub fn get_without_checking_expiration(
         &self,
         name: &DomainName,
@@ -65,6 +73,10 @@ impl SharedCache {
     /// It is not inserted if its TTL is zero.
     ///
     /// This may make the cache grow beyond the desired size.
+    ///
+    /// # Panics
+    ///
+    /// If the mutex has been poisoned.
     pub fn insert(&self, record: &ResourceRecord) {
         if record.ttl > 0 {
             let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
@@ -75,6 +87,10 @@ impl SharedCache {
     /// Insert multiple entries into the cache.
     ///
     /// This just calls `insert` for each element, nothing more clever.
+    ///
+    /// # Panics
+    ///
+    /// If the mutex has been poisoned.
     pub fn insert_all(&self, records: &[ResourceRecord]) {
         for record in records {
             self.insert(record);
@@ -85,6 +101,10 @@ impl SharedCache {
     /// beyond its desired size, prunes entries to get down to size.
     ///
     /// Returns `(has overflowed?, current size, num expired, num pruned)`.
+    ///
+    /// # Panics
+    ///
+    /// If the mutex has been poisoned.
     pub fn prune(&self) -> (bool, usize, usize, usize) {
         self.cache.lock().expect(MUTEX_POISON_MESSAGE).prune()
     }
