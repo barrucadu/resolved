@@ -102,11 +102,15 @@ async fn resolve_forwarding_notimeout(
             .await
             {
                 Ok(resolved) => {
+                    let soa_rr = resolved.soa_rr();
                     let mut r_rrs = resolved.rrs();
                     let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
                     combined_rrs.append(&mut rrs);
                     combined_rrs.append(&mut r_rrs);
-                    Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
+                    Ok(ResolvedRecord::NonAuthoritative {
+                        rrs: combined_rrs,
+                        soa_rr,
+                    })
                 }
                 Err(_) => Err(ResolutionError::DeadEnd {
                     question: cname_question,
@@ -122,12 +126,16 @@ async fn resolve_forwarding_notimeout(
         .instrument(tracing::error_span!("query_nameserver"))
         .await
     {
+        // TODO: propagate SOA RR
         metrics.nameserver_hit();
         tracing::trace!("nameserver HIT");
         let rrs = response.answers;
         cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);
-        Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs })
+        Ok(ResolvedRecord::NonAuthoritative {
+            rrs: combined_rrs,
+            soa_rr: None,
+        })
     } else {
         metrics.nameserver_miss();
         tracing::trace!("nameserver MISS");

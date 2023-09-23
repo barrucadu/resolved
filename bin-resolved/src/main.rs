@@ -116,8 +116,11 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
                             response.header.rcode = Rcode::NameError;
                             response.header.is_authoritative = true;
                         }
-                        ResolvedRecord::NonAuthoritative { mut rrs } => {
+                        ResolvedRecord::NonAuthoritative { mut rrs, soa_rr } => {
                             response.answers.append(&mut rrs);
+                            if let Some(soa_rr) = soa_rr {
+                                response.authority.push(soa_rr);
+                            }
                             response.header.is_authoritative = false;
                         }
                     }

@@ -85,7 +85,7 @@ pub fn resolve_local(
                 } else if question.qtype != QueryType::Wildcard && !rrs.is_empty() {
                     tracing::trace!("got non-authoritative answer");
                     return Ok(LocalResolutionResult::Done {
-                        resolved: ResolvedRecord::NonAuthoritative { rrs },
+                        resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },
                     });
                 } else {
                     tracing::trace!("got partial answer");
@@ -134,11 +134,14 @@ pub fn resolve_local(
                                     resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
                                 }
                             }
-                            ResolvedRecord::NonAuthoritative { rrs: mut cname_rrs } => {
+                            ResolvedRecord::NonAuthoritative {
+                                rrs: mut cname_rrs,
+                                soa_rr,
+                            } => {
                                 tracing::trace!("got non-authoritative cname answer");
                                 rrs.append(&mut cname_rrs);
                                 LocalResolutionResult::Done {
-                                    resolved: ResolvedRecord::NonAuthoritative { rrs },
+                                    resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr },
                                 }
                             }
                         },
@@ -327,7 +330,7 @@ pub fn resolve_local(
         Ok(LocalResolutionResult::Partial { rrs })
     } else {
         Ok(LocalResolutionResult::Done {
-            resolved: ResolvedRecord::NonAuthoritative { rrs },
+            resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },
         })
     }
 }
@@ -356,15 +359,19 @@ impl From<LocalResolutionResult> for ResolvedRecord {
     fn from(lsr: LocalResolutionResult) -> Self {
         match lsr {
             LocalResolutionResult::Done { resolved } => resolved,
-            LocalResolutionResult::Partial { rrs } => ResolvedRecord::NonAuthoritative { rrs },
+            LocalResolutionResult::Partial { rrs } => {
+                ResolvedRecord::NonAuthoritative { rrs, soa_rr: None }
+            }
             LocalResolutionResult::Delegation { rrs, soa_rr, .. } => {
                 if let Some(soa_rr) = soa_rr {
                     ResolvedRecord::Authoritative { rrs, soa_rr }
                 } else {
-                    ResolvedRecord::NonAuthoritative { rrs }
+                    ResolvedRecord::NonAuthoritative { rrs, soa_rr: None }
                 }
             }
-            LocalResolutionResult::CNAME { rrs, .. } => ResolvedRecord::NonAuthoritative { rrs },
+            LocalResolutionResult::CNAME { rrs, .. } => {
+                ResolvedRecord::NonAuthoritative { rrs, soa_rr: None }
+            }
         }
     }
 }
@@ -554,7 +561,7 @@ mod tests {
         cache.insert(&cname_rr2);
 
         if let Ok(LocalResolutionResult::Done {
-            resolved: ResolvedRecord::NonAuthoritative { rrs },
+            resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },
         }) = test_resolve_local_with_cache(
             "cname-1.example.com.",
             &cache,
@@ -605,6 +612,7 @@ mod tests {
                         ),
                         a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
                     ],
+                    soa_rr: None,
                 },
             }),
         );

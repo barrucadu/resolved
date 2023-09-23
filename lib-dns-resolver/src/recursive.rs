@@ -204,11 +204,14 @@ async fn resolve_with_nameserver_response(
     nameserver_response: NameserverResponse,
 ) -> Result<Result<ResolvedRecord, ResolutionError>, Nameservers> {
     match nameserver_response {
-        NameserverResponse::Answer { rrs, .. } => {
+        NameserverResponse::Answer { rrs, soa_rr, .. } => {
             tracing::trace!("got recursive answer");
             cache.insert_all(&rrs);
             prioritising_merge(&mut combined_rrs, rrs);
-            Ok(Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs }))
+            Ok(Ok(ResolvedRecord::NonAuthoritative {
+                rrs: combined_rrs,
+                soa_rr,
+            }))
         }
         NameserverResponse::Delegation {
             rrs, delegation, ..
@@ -218,7 +221,10 @@ async fn resolve_with_nameserver_response(
                 if let Some(rr) = get_a(&rrs, &question.name) {
                     tracing::trace!("got recursive delegation - using glue A record");
                     prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
-                    return Ok(Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs }));
+                    return Ok(Ok(ResolvedRecord::NonAuthoritative {
+                        rrs: combined_rrs,
+                        soa_rr: None,
+                    }));
                 }
             }
             tracing::trace!("got recursive delegation - using as candidate");
@@ -262,8 +268,9 @@ async fn resolve_combined_recursive(
         .await
     {
         Ok(resolved) => {
+            let soa_rr = resolved.soa_rr();
             rrs.append(&mut resolved.rrs());
-            Ok(ResolvedRecord::NonAuthoritative { rrs })
+            Ok(ResolvedRecord::NonAuthoritative { rrs, soa_rr })
         }
         Err(_) => Err(ResolutionError::DeadEnd { question }),
     }
@@ -402,6 +409,8 @@ fn validate_nameserver_response(
             }
         }
 
+        // TODO: propagate SOA RR
+
         if all_unknown {
             None
         } else if rrs_for_query.is_empty() {
@@ -410,7 +419,10 @@ fn validate_nameserver_response(
         } else {
             // what sort of answer is this?
             if seen_final_record {
-                Some(NameserverResponse::Answer { rrs: rrs_for_query })
+                Some(NameserverResponse::Answer {
+                    rrs: rrs_for_query,
+                    soa_rr: None,
+                })
             } else {
                 Some(NameserverResponse::CNAME {
                     rrs: rrs_for_query,
@@ -588,6 +600,7 @@ fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a Resou
 pub enum NameserverResponse {
     Answer {
         rrs: Vec<ResourceRecord>,
+        soa_rr: Option<ResourceRecord>,
     },
     CNAME {
         rrs: Vec<ResourceRecord>,
@@ -668,6 +681,7 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
+                soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -694,6 +708,7 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
+                soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -741,6 +756,7 @@ mod tests {
                     cname_record("www.example.com.", "cname-target.example.com."),
                     a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1))
                 ],
+                soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );

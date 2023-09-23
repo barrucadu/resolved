@@ -124,8 +124,11 @@ async fn main() {
                 println!("; name does not exist");
                 print_section("AUTHORITY", &[soa_rr]);
             }
-            ResolvedRecord::NonAuthoritative { rrs } => {
+            ResolvedRecord::NonAuthoritative { rrs, soa_rr } => {
                 print_section("ANSWER", &rrs);
+                if let Some(soa_rr) = soa_rr {
+                    print_section("AUTHORITY", &[soa_rr]);
+                }
             }
         },
         Err(err) => {
