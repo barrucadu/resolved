@@ -1,4 +1,5 @@
 use rand::Rng;
+use std::cmp::Ordering;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
@@ -126,7 +127,9 @@ async fn query_nameserver_tcp_notimeout(
 ///
 /// - Check the ID, opcode, and questions match the question.
 ///
-/// - Check it is a response and no error is signalled.
+/// - Check it is a response.
+///
+/// - Check the response code is either `NoError` or `NameError`.
 ///
 /// - Check it is not truncated.
 pub fn response_matches_request(request: &Message, response: &Message) -> bool {
@@ -142,7 +145,7 @@ pub fn response_matches_request(request: &Message, response: &Message) -> bool {
     if response.header.is_truncated {
         return false;
     }
-    if response.header.rcode != Rcode::NoError {
+    if !(response.header.rcode == Rcode::NoError || response.header.rcode == Rcode::NameError) {
         return false;
     }
     if request.questions != response.questions {
@@ -150,6 +153,50 @@ pub fn response_matches_request(request: &Message, response: &Message) -> bool {
     }
 
     true
+}
+
+/// Check if this is an NXDOMAIN or NODATA response and return the SOA if so.
+///
+/// Also sanity checks that the SOA record could be authoritative for the query
+/// domain: the domain has to be a subdomain of the SOA, and the SOA has to have
+/// at least the current match count.
+pub fn get_nxdomain_nodata_soa(
+    question: &Question,
+    response: &Message,
+    current_match_count: usize,
+) -> Option<ResourceRecord> {
+    if !response.answers.is_empty() {
+        return None;
+    }
+    if !(response.header.rcode == Rcode::NameError || response.header.rcode == Rcode::NoError) {
+        return None;
+    }
+
+    let mut soa_rr = None;
+    for rr in &response.authority {
+        if rr.rtype_with_data.rtype() == RecordType::SOA {
+            // multiple SOAs: abort, abort!
+            if soa_rr.is_some() {
+                return None;
+            }
+
+            soa_rr = Some(rr);
+        }
+    }
+
+    if let Some(rr) = soa_rr {
+        if !question.name.is_subdomain_of(&rr.name) {
+            return None;
+        }
+
+        if rr.name.labels.len().cmp(&current_match_count) == Ordering::Less {
+            return None;
+        }
+
+        return Some(rr.clone());
+    }
+
+    None
 }
 
 #[cfg(test)]

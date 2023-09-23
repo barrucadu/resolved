@@ -12,13 +12,14 @@ use dns_types::protocol::types::*;
 pub enum ResolvedRecord {
     Authoritative {
         rrs: Vec<ResourceRecord>,
-        authority_rrs: Vec<ResourceRecord>,
+        soa_rr: ResourceRecord,
     },
     AuthoritativeNameError {
-        authority_rrs: Vec<ResourceRecord>,
+        soa_rr: ResourceRecord,
     },
     NonAuthoritative {
         rrs: Vec<ResourceRecord>,
+        soa_rr: Option<ResourceRecord>,
     },
 }
 
@@ -27,7 +28,15 @@ impl ResolvedRecord {
         match self {
             ResolvedRecord::Authoritative { rrs, .. } => rrs,
             ResolvedRecord::AuthoritativeNameError { .. } => Vec::new(),
-            ResolvedRecord::NonAuthoritative { rrs } => rrs,
+            ResolvedRecord::NonAuthoritative { rrs, .. } => rrs,
+        }
+    }
+
+    pub fn soa_rr(&self) -> Option<ResourceRecord> {
+        match self {
+            ResolvedRecord::Authoritative { soa_rr, .. } => Some(soa_rr.clone()),
+            ResolvedRecord::AuthoritativeNameError { soa_rr } => Some(soa_rr.clone()),
+            ResolvedRecord::NonAuthoritative { soa_rr, .. } => soa_rr.clone(),
         }
     }
 }

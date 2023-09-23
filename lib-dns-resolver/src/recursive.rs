@@ -204,11 +204,14 @@ async fn resolve_with_nameserver_response(
     nameserver_response: NameserverResponse,
 ) -> Result<Result<ResolvedRecord, ResolutionError>, Nameservers> {
     match nameserver_response {
-        NameserverResponse::Answer { rrs, .. } => {
+        NameserverResponse::Answer { rrs, soa_rr, .. } => {
             tracing::trace!("got recursive answer");
             cache.insert_all(&rrs);
             prioritising_merge(&mut combined_rrs, rrs);
-            Ok(Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs }))
+            Ok(Ok(ResolvedRecord::NonAuthoritative {
+                rrs: combined_rrs,
+                soa_rr,
+            }))
         }
         NameserverResponse::Delegation {
             rrs, delegation, ..
@@ -218,7 +221,10 @@ async fn resolve_with_nameserver_response(
                 if let Some(rr) = get_a(&rrs, &question.name) {
                     tracing::trace!("got recursive delegation - using glue A record");
                     prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
-                    return Ok(Ok(ResolvedRecord::NonAuthoritative { rrs: combined_rrs }));
+                    return Ok(Ok(ResolvedRecord::NonAuthoritative {
+                        rrs: combined_rrs,
+                        soa_rr: None,
+                    }));
                 }
             }
             tracing::trace!("got recursive delegation - using as candidate");
@@ -262,8 +268,9 @@ async fn resolve_combined_recursive(
         .await
     {
         Ok(resolved) => {
+            let soa_rr = resolved.soa_rr();
             rrs.append(&mut resolved.rrs());
-            Ok(ResolvedRecord::NonAuthoritative { rrs })
+            Ok(ResolvedRecord::NonAuthoritative { rrs, soa_rr })
         }
         Err(_) => Err(ResolutionError::DeadEnd { question }),
     }
@@ -412,14 +419,12 @@ fn validate_nameserver_response(
             if seen_final_record {
                 Some(NameserverResponse::Answer {
                     rrs: rrs_for_query,
-                    is_authoritative: false,
-                    authority_rrs: Vec::new(),
+                    soa_rr: None,
                 })
             } else {
                 Some(NameserverResponse::CNAME {
                     rrs: rrs_for_query,
                     cname: final_name,
-                    is_authoritative: false,
                 })
             }
         }
@@ -443,7 +448,16 @@ fn validate_nameserver_response(
                 }
                 (Some((mn, nss)), None) => (mn, nss),
                 (None, Some((mn, nss))) => (mn, nss),
-                (None, None) => return None,
+                (None, None) => {
+                    // No records and no delegation - check if this is an
+                    // NXDOMAIN / NODATA response and if so propagate the SOA RR
+                    return get_nxdomain_nodata_soa(question, response, current_match_count).map(
+                        |soa_rr| NameserverResponse::Answer {
+                            rrs: Vec::new(),
+                            soa_rr: Some(soa_rr),
+                        },
+                    );
+                }
             }
         };
 
@@ -481,8 +495,6 @@ fn validate_nameserver_response(
         // this is a delegation
         Some(NameserverResponse::Delegation {
             rrs: nameserver_rrs,
-            authority_rrs: Vec::new(),
-            is_authoritative: false,
             delegation: Nameservers {
                 hostnames: ns_names.into_iter().collect(),
                 name: match_name,
@@ -595,29 +607,25 @@ fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a Resou
 pub enum NameserverResponse {
     Answer {
         rrs: Vec<ResourceRecord>,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
+        soa_rr: Option<ResourceRecord>,
     },
     CNAME {
         rrs: Vec<ResourceRecord>,
         cname: DomainName,
-        is_authoritative: bool,
     },
     Delegation {
         rrs: Vec<ResourceRecord>,
         delegation: Nameservers,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
     },
 }
 
 #[cfg(test)]
 mod tests {
     use dns_types::protocol::types::test_util::*;
+    use dns_types::zones::types::*;
 
     use super::*;
     use crate::util::nameserver::test_util::*;
-    use crate::util::test_util::*;
 
     #[test]
     fn candidate_nameservers_gets_all_matches() {
@@ -630,7 +638,7 @@ mod tests {
             candidate_nameservers(
                 &mut question_stack(),
                 &mut Metrics::new(),
-                &zones(),
+                &Zones::new(),
                 &cache_with_nameservers(&["com."]),
                 &qdomain
             )
@@ -647,7 +655,7 @@ mod tests {
             candidate_nameservers(
                 &mut question_stack(),
                 &mut Metrics::new(),
-                &zones(),
+                &Zones::new(),
                 &cache_with_nameservers(&["example.com.", "com."]),
                 &domain("www.example.com.")
             )
@@ -661,7 +669,7 @@ mod tests {
             candidate_nameservers(
                 &mut question_stack(),
                 &mut Metrics::new(),
-                &zones(),
+                &Zones::new(),
                 &cache_with_nameservers(&["com."]),
                 &domain("net.")
             )
@@ -680,8 +688,7 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
-                is_authoritative: false,
-                authority_rrs: Vec::new(),
+                soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -708,8 +715,7 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
-                is_authoritative: false,
-                authority_rrs: Vec::new(),
+                soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -757,8 +763,7 @@ mod tests {
                     cname_record("www.example.com.", "cname-target.example.com."),
                     a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1))
                 ],
-                is_authoritative: false,
-                authority_rrs: Vec::new(),
+                soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -783,7 +788,6 @@ mod tests {
                     "cname-target.example.com."
                 )],
                 cname: domain("cname-target.example.com."),
-                is_authoritative: false,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -802,12 +806,7 @@ mod tests {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: mut actual_delegation,
-                is_authoritative,
-                authority_rrs,
             }) => {
-                assert!(!is_authoritative);
-                assert!(authority_rrs.is_empty());
-
                 let mut expected_rrs = vec![
                     ns_record("example.com.", "ns-an.example.net."),
                     ns_record("example.com.", "ns-ns.example.net."),
@@ -878,8 +877,6 @@ mod tests {
                     "subdomain.example.com.",
                     "ns-better.example.net."
                 )],
-                authority_rrs: Vec::new(),
-                is_authoritative: false,
                 delegation: Nameservers {
                     hostnames: vec![domain("ns-better.example.net.")],
                     name: domain("subdomain.example.com."),
@@ -894,8 +891,6 @@ mod tests {
                     "subdomain.example.com.",
                     "ns-better.example.net."
                 )],
-                authority_rrs: Vec::new(),
-                is_authoritative: false,
                 delegation: Nameservers {
                     hostnames: vec![domain("ns-better.example.net.")],
                     name: domain("subdomain.example.com."),
@@ -929,12 +924,7 @@ mod tests {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: _,
-                authority_rrs,
-                is_authoritative,
             }) => {
-                assert!(!is_authoritative);
-                assert!(authority_rrs.is_empty());
-
                 let mut expected_rrs = vec![
                     ns_record("example.com.", "ns-an.example.net."),
                     ns_record("example.com.", "ns-ns.example.net."),
@@ -954,7 +944,86 @@ mod tests {
     }
 
     #[test]
-    fn validate_nameserver_response_returns_none_if_no_matching_records() {}
+    fn validate_nameserver_response_propagates_nodata() {
+        let soa_record = ResourceRecord {
+            name: domain("com."),
+            rtype_with_data: RecordTypeWithData::SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let (request, response) =
+            nameserver_response("www.example.com.", &[], &[soa_record.clone()], &[]);
+
+        assert_eq!(
+            validate_nameserver_response(&request.questions[0], &response, 0),
+            Some(NameserverResponse::Answer {
+                rrs: Vec::new(),
+                soa_rr: Some(soa_record)
+            }),
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_rejects_nodata_if_soa_too_generic() {
+        let soa_record = ResourceRecord {
+            name: domain("com."),
+            rtype_with_data: RecordTypeWithData::SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let (request, response) = nameserver_response("www.example.com.", &[], &[soa_record], &[]);
+
+        // pretend we're querying the nameserver for example.com
+        let current_match_count = domain("example.com.").labels.len();
+
+        assert_eq!(
+            validate_nameserver_response(&request.questions[0], &response, current_match_count),
+            None,
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_rejects_nodata_if_soa_too_specific() {
+        let soa_record = ResourceRecord {
+            name: domain("foo.example.com."),
+            rtype_with_data: RecordTypeWithData::SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let (request, response) = nameserver_response("www.example.com.", &[], &[soa_record], &[]);
+
+        assert_eq!(
+            validate_nameserver_response(&request.questions[0], &response, 0),
+            None,
+        );
+    }
 
     #[test]
     fn follow_cnames_empty() {

@@ -80,15 +80,12 @@ pub fn resolve_local(
                 if let Some(soa_rr) = zone.soa_rr() {
                     tracing::trace!("got authoritative answer");
                     return Ok(LocalResolutionResult::Done {
-                        resolved: ResolvedRecord::Authoritative {
-                            rrs,
-                            authority_rrs: vec![soa_rr],
-                        },
+                        resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
                     });
                 } else if question.qtype != QueryType::Wildcard && !rrs.is_empty() {
                     tracing::trace!("got non-authoritative answer");
                     return Ok(LocalResolutionResult::Done {
-                        resolved: ResolvedRecord::NonAuthoritative { rrs },
+                        resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },
                     });
                 } else {
                     tracing::trace!("got partial answer");
@@ -122,45 +119,29 @@ pub fn resolve_local(
                     match resolve_local(question_stack, metrics, zones, cache, &cname_question) {
                         Ok(LocalResolutionResult::Done { resolved }) => match resolved {
                             ResolvedRecord::Authoritative {
-                                rrs: mut cname_rrs, ..
+                                rrs: mut cname_rrs,
+                                soa_rr,
                             } => {
                                 rrs.append(&mut cname_rrs);
-                                if zone.is_authoritative() {
-                                    tracing::trace!("got authoritative cname answer");
-                                    LocalResolutionResult::Done {
-                                        resolved: ResolvedRecord::Authoritative {
-                                            rrs,
-                                            authority_rrs: Vec::new(),
-                                        },
-                                    }
-                                } else {
-                                    tracing::trace!("got non-authoritative cname answer");
-                                    LocalResolutionResult::Done {
-                                        resolved: ResolvedRecord::NonAuthoritative { rrs },
-                                    }
+                                tracing::trace!("got authoritative cname answer");
+                                LocalResolutionResult::Done {
+                                    resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
                                 }
                             }
-                            ResolvedRecord::AuthoritativeNameError { .. } => {
-                                if zone.is_authoritative() {
-                                    tracing::trace!("got authoritative cname answer");
-                                    LocalResolutionResult::Done {
-                                        resolved: ResolvedRecord::Authoritative {
-                                            rrs,
-                                            authority_rrs: Vec::new(),
-                                        },
-                                    }
-                                } else {
-                                    tracing::trace!("got non-authoritative cname answer");
-                                    LocalResolutionResult::Done {
-                                        resolved: ResolvedRecord::NonAuthoritative { rrs },
-                                    }
+                            ResolvedRecord::AuthoritativeNameError { soa_rr } => {
+                                tracing::trace!("got authoritative cname answer");
+                                LocalResolutionResult::Done {
+                                    resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
                                 }
                             }
-                            ResolvedRecord::NonAuthoritative { rrs: mut cname_rrs } => {
+                            ResolvedRecord::NonAuthoritative {
+                                rrs: mut cname_rrs,
+                                soa_rr,
+                            } => {
                                 tracing::trace!("got non-authoritative cname answer");
                                 rrs.append(&mut cname_rrs);
                                 LocalResolutionResult::Done {
-                                    resolved: ResolvedRecord::NonAuthoritative { rrs },
+                                    resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr },
                                 }
                             }
                         },
@@ -172,14 +153,12 @@ pub fn resolve_local(
                         Ok(LocalResolutionResult::CNAME {
                             rrs: mut cname_rrs,
                             cname_question,
-                            is_authoritative,
                         }) => {
                             tracing::trace!("got incomplete cname answer");
                             rrs.append(&mut cname_rrs);
                             LocalResolutionResult::CNAME {
                                 rrs,
                                 cname_question,
-                                is_authoritative: is_authoritative && zone.is_authoritative(),
                             }
                         }
                         _ => {
@@ -187,7 +166,6 @@ pub fn resolve_local(
                             LocalResolutionResult::CNAME {
                                 rrs,
                                 cname_question,
-                                is_authoritative: zone.is_authoritative(),
                             }
                         }
                     };
@@ -226,8 +204,7 @@ pub fn resolve_local(
                     return Ok(LocalResolutionResult::Delegation {
                         delegation: Nameservers { hostnames, name },
                         rrs: ns_rrs,
-                        is_authoritative: true,
-                        authority_rrs: vec![soa_rr],
+                        soa_rr: Some(soa_rr),
                     });
                 }
             }
@@ -243,9 +220,7 @@ pub fn resolve_local(
 
                 if let Some(soa_rr) = zone.soa_rr() {
                     return Ok(LocalResolutionResult::Done {
-                        resolved: ResolvedRecord::AuthoritativeNameError {
-                            authority_rrs: vec![soa_rr],
-                        },
+                        resolved: ResolvedRecord::AuthoritativeNameError { soa_rr },
                     });
                 }
             }
@@ -317,7 +292,6 @@ pub fn resolve_local(
                     Ok(LocalResolutionResult::CNAME {
                         mut rrs,
                         cname_question,
-                        ..
                     }) => {
                         rrs_from_cache.append(&mut rrs);
                         final_cname = Some(cname_question.name);
@@ -351,13 +325,12 @@ pub fn resolve_local(
                 qtype: question.qtype,
                 qclass: question.qclass,
             },
-            is_authoritative: false,
         })
     } else if question.qtype == QueryType::Wildcard {
         Ok(LocalResolutionResult::Partial { rrs })
     } else {
         Ok(LocalResolutionResult::Done {
-            resolved: ResolvedRecord::NonAuthoritative { rrs },
+            resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },
         })
     }
 }
@@ -373,14 +346,12 @@ pub enum LocalResolutionResult {
     },
     Delegation {
         rrs: Vec<ResourceRecord>,
-        authority_rrs: Vec<ResourceRecord>,
+        soa_rr: Option<ResourceRecord>,
         delegation: Nameservers,
-        is_authoritative: bool,
     },
     CNAME {
         rrs: Vec<ResourceRecord>,
         cname_question: Question,
-        is_authoritative: bool,
     },
 }
 
@@ -388,32 +359,18 @@ impl From<LocalResolutionResult> for ResolvedRecord {
     fn from(lsr: LocalResolutionResult) -> Self {
         match lsr {
             LocalResolutionResult::Done { resolved } => resolved,
-            LocalResolutionResult::Partial { rrs } => ResolvedRecord::NonAuthoritative { rrs },
-            LocalResolutionResult::Delegation {
-                rrs,
-                is_authoritative,
-                authority_rrs,
-                ..
-            } => {
-                if is_authoritative {
-                    ResolvedRecord::Authoritative { rrs, authority_rrs }
+            LocalResolutionResult::Partial { rrs } => {
+                ResolvedRecord::NonAuthoritative { rrs, soa_rr: None }
+            }
+            LocalResolutionResult::Delegation { rrs, soa_rr, .. } => {
+                if let Some(soa_rr) = soa_rr {
+                    ResolvedRecord::Authoritative { rrs, soa_rr }
                 } else {
-                    ResolvedRecord::NonAuthoritative { rrs }
+                    ResolvedRecord::NonAuthoritative { rrs, soa_rr: None }
                 }
             }
-            LocalResolutionResult::CNAME {
-                rrs,
-                is_authoritative,
-                ..
-            } => {
-                if is_authoritative {
-                    ResolvedRecord::Authoritative {
-                        rrs,
-                        authority_rrs: Vec::new(),
-                    }
-                } else {
-                    ResolvedRecord::NonAuthoritative { rrs }
-                }
+            LocalResolutionResult::CNAME { rrs, .. } => {
+                ResolvedRecord::NonAuthoritative { rrs, soa_rr: None }
             }
         }
     }
@@ -429,67 +386,36 @@ pub struct AuthoritativeNameError {
 #[cfg(test)]
 mod tests {
     use dns_types::protocol::types::test_util::*;
+    use dns_types::zones::types::*;
     use std::net::Ipv4Addr;
 
     use super::*;
     use crate::cache::test_util::*;
-    use crate::util::test_util::*;
 
     #[test]
     fn resolve_local_is_authoritative_for_zones_with_soa() {
-        let soa_rr = zones_soa_rr();
-        let mut expected = vec![
-            a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
-            soa_rr.clone(),
-        ];
-        expected.sort();
-
-        if let Ok(LocalResolutionResult::Done {
-            resolved:
-                ResolvedRecord::Authoritative {
-                    mut rrs,
-                    authority_rrs,
+        assert_eq!(
+            test_resolve_local("www.authoritative.example.com.", QueryType::Wildcard),
+            Ok(LocalResolutionResult::Done {
+                resolved: ResolvedRecord::Authoritative {
+                    rrs: vec![a_record(
+                        "www.authoritative.example.com.",
+                        Ipv4Addr::new(1, 1, 1, 1)
+                    )],
+                    soa_rr: soa_rr(),
                 },
-        }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &SharedCache::new(),
-            &Question {
-                name: domain("authoritative.example.com."),
-                qtype: QueryType::Wildcard,
-                qclass: QueryClass::Wildcard,
-            },
-        ) {
-            rrs.sort();
-
-            assert_eq!(vec![soa_rr], authority_rrs);
-            assert_eq!(expected, rrs);
-        } else {
-            panic!("expected authoritative answer");
-        }
+            })
+        );
     }
 
     #[test]
     fn resolve_local_is_partial_for_zones_without_soa() {
-        if let Ok(LocalResolutionResult::Partial { rrs }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &SharedCache::new(),
-            &Question {
-                name: domain("a.example.com."),
-                qtype: QueryType::Wildcard,
-                qclass: QueryClass::Wildcard,
-            },
-        ) {
-            assert_eq!(
-                vec![a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
-                rrs
-            );
-        } else {
-            panic!("expected non-authoritative answer");
-        }
+        assert_eq!(
+            test_resolve_local("a.example.com.", QueryType::Wildcard),
+            Ok(LocalResolutionResult::Partial {
+                rrs: vec![a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
+            })
+        );
     }
 
     #[test]
@@ -499,17 +425,9 @@ mod tests {
         let cache = SharedCache::new();
         cache.insert(&rr);
 
-        if let Ok(LocalResolutionResult::Partial { rrs }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &cache,
-            &Question {
-                name: domain("cached.example.com."),
-                qtype: QueryType::Wildcard,
-                qclass: QueryClass::Wildcard,
-            },
-        ) {
+        if let Ok(LocalResolutionResult::Partial { rrs }) =
+            test_resolve_local_with_cache("cached.example.com.", &cache, QueryType::Wildcard)
+        {
             assert_cache_response(&rr, &rrs);
         } else {
             panic!("expected non-authoritative answer");
@@ -517,103 +435,119 @@ mod tests {
     }
 
     #[test]
-    fn resolve_local_prefers_authoritative_zones() {
-        let soa_rr = zones_soa_rr();
-        let mut expected = vec![
-            a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
-            soa_rr.clone(),
-        ];
-        expected.sort();
-
-        let cache = SharedCache::new();
-        cache.insert(&a_record(
-            "authoritative.example.com.",
-            Ipv4Addr::new(8, 8, 8, 8),
-        ));
-
+    fn resolve_local_returns_all_record_types() {
         if let Ok(LocalResolutionResult::Done {
             resolved:
                 ResolvedRecord::Authoritative {
-                    mut rrs,
-                    authority_rrs,
+                    rrs: mut actual_rrs,
+                    soa_rr: actual_soa_rr,
                 },
-        }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &SharedCache::new(),
-            &Question {
-                name: domain("authoritative.example.com."),
-                qtype: QueryType::Wildcard,
-                qclass: QueryClass::Wildcard,
-            },
+        }) = test_resolve_local(
+            "cname-and-a.authoritative.example.com.",
+            QueryType::Wildcard,
         ) {
-            rrs.sort();
+            // sometimes these can be returned in a different order (hashmap
+            // shenanigans?) so explicitly sort in the test
+            actual_rrs.sort();
 
-            assert_eq!(vec![soa_rr], authority_rrs);
-            assert_eq!(expected, rrs);
+            assert_eq!(
+                actual_rrs,
+                vec![
+                    a_record(
+                        "cname-and-a.authoritative.example.com.",
+                        Ipv4Addr::new(1, 1, 1, 1)
+                    ),
+                    cname_record(
+                        "cname-and-a.authoritative.example.com.",
+                        "www.authoritative.example.com."
+                    ),
+                ]
+            );
+            assert_eq!(actual_soa_rr, soa_rr());
         } else {
             panic!("expected authoritative answer");
         }
     }
 
     #[test]
+    fn resolve_local_prefers_authoritative_zones() {
+        let cache = SharedCache::new();
+        cache.insert(&a_record(
+            "www.authoritative.example.com.",
+            Ipv4Addr::new(8, 8, 8, 8),
+        ));
+
+        assert_eq!(
+            test_resolve_local_with_cache(
+                "www.authoritative.example.com.",
+                &cache,
+                QueryType::Wildcard
+            ),
+            Ok(LocalResolutionResult::Done {
+                resolved: ResolvedRecord::Authoritative {
+                    rrs: vec![a_record(
+                        "www.authoritative.example.com.",
+                        Ipv4Addr::new(1, 1, 1, 1)
+                    )],
+                    soa_rr: soa_rr(),
+                },
+            })
+        );
+    }
+
+    #[test]
     fn resolve_local_combines_nonauthoritative_zones_with_cache() {
         let zone_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
-        let cache_rr_dropped = a_record("a.example.com.", Ipv4Addr::new(8, 8, 8, 8));
-        let cache_rr_kept = cname_record("a.example.com.", "b.example.com.");
+        let cache_rr = cname_record("a.example.com.", "b.example.com.");
 
         let cache = SharedCache::new();
-        cache.insert(&cache_rr_dropped);
-        cache.insert(&cache_rr_kept);
+        cache.insert(&cache_rr);
 
-        if let Ok(LocalResolutionResult::Partial { rrs }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &cache,
-            &Question {
-                name: domain("a.example.com."),
-                qtype: QueryType::Wildcard,
-                qclass: QueryClass::Wildcard,
-            },
-        ) {
+        if let Ok(LocalResolutionResult::Partial { rrs }) =
+            test_resolve_local_with_cache("a.example.com.", &cache, QueryType::Wildcard)
+        {
             assert_eq!(2, rrs.len());
             assert_eq!(zone_rr, rrs[0]);
-            assert_cache_response(&cache_rr_kept, &[rrs[1].clone()]);
+            assert_cache_response(&cache_rr, &[rrs[1].clone()]);
         } else {
             panic!("expected non-authoritative answer");
         }
     }
 
     #[test]
-    fn resolve_local_expands_cnames_from_zone() {
-        let cname_rr = cname_record(
-            "cname-a.authoritative.example.com.",
-            "authoritative.example.com.",
-        );
-        let a_rr = a_record("authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+    fn resolve_local_overrides_cache_with_nonauthoritative_zones() {
+        let zone_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+        let cache_rr = a_record("a.example.com.", Ipv4Addr::new(8, 8, 8, 8));
 
-        if let Ok(LocalResolutionResult::Done {
-            resolved: ResolvedRecord::Authoritative { rrs, authority_rrs },
-        }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &SharedCache::new(),
-            &Question {
-                name: domain("cname-a.authoritative.example.com."),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Wildcard,
-            },
-        ) {
-            assert!(authority_rrs.is_empty());
-            assert_eq!(2, rrs.len());
-            assert_cache_response(&cname_rr, &[rrs[0].clone()]);
-            assert_cache_response(&a_rr, &[rrs[1].clone()]);
-        } else {
-            panic!("expected authoritative answer");
-        }
+        let cache = SharedCache::new();
+        cache.insert(&cache_rr);
+
+        assert_eq!(
+            test_resolve_local("a.example.com.", QueryType::Wildcard),
+            Ok(LocalResolutionResult::Partial { rrs: vec![zone_rr] })
+        );
+    }
+
+    #[test]
+    fn resolve_local_expands_cnames_from_zone() {
+        assert_eq!(
+            test_resolve_local(
+                "cname-authoritative.authoritative.example.com.",
+                QueryType::Record(RecordType::A)
+            ),
+            Ok(LocalResolutionResult::Done {
+                resolved: ResolvedRecord::Authoritative {
+                    rrs: vec![
+                        cname_record(
+                            "cname-authoritative.authoritative.example.com.",
+                            "www.authoritative.example.com."
+                        ),
+                        a_record("www.authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
+                    ],
+                    soa_rr: soa_rr(),
+                },
+            }),
+        );
     }
 
     #[test]
@@ -627,17 +561,11 @@ mod tests {
         cache.insert(&cname_rr2);
 
         if let Ok(LocalResolutionResult::Done {
-            resolved: ResolvedRecord::NonAuthoritative { rrs },
-        }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
+            resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },
+        }) = test_resolve_local_with_cache(
+            "cname-1.example.com.",
             &cache,
-            &Question {
-                name: domain("cname-1.example.com."),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Wildcard,
-            },
+            QueryType::Record(RecordType::A),
         ) {
             assert_eq!(3, rrs.len());
             assert_cache_response(&cname_rr1, &[rrs[0].clone()]);
@@ -650,74 +578,74 @@ mod tests {
 
     #[test]
     fn resolve_local_handles_cname_cycle() {
-        let cname_ab_rr = cname_record("cname-a.example.com.", "cname-b.example.com.");
-        let cname_ba_rr = cname_record("cname-b.example.com.", "cname-a.example.com.");
+        let qtype = QueryType::Record(RecordType::A);
 
-        let cache = SharedCache::new();
-        cache.insert(&cname_ab_rr);
-        cache.insert(&cname_ba_rr);
-
-        let question = Question {
-            name: domain("cname-a.example.com."),
-            qtype: QueryType::Record(RecordType::A),
-            qclass: QueryClass::Wildcard,
-        };
-
-        if let Ok(LocalResolutionResult::CNAME {
-            rrs,
-            cname_question,
-            is_authoritative: false,
-        }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &cache,
-            &question,
-        ) {
-            assert_eq!(question, cname_question);
-            assert_eq!(2, rrs.len());
-            assert_cache_response(&cname_ab_rr, &[rrs[0].clone()]);
-            assert_cache_response(&cname_ba_rr, &[rrs[1].clone()]);
-        } else {
-            panic!("expected CNAME answer");
-        }
+        assert_eq!(
+            test_resolve_local("cname-cycle-a.example.com.", qtype),
+            Ok(LocalResolutionResult::CNAME {
+                rrs: vec![
+                    cname_record("cname-cycle-a.example.com.", "cname-cycle-b.example.com."),
+                    cname_record("cname-cycle-b.example.com.", "cname-cycle-a.example.com."),
+                ],
+                cname_question: Question {
+                    name: domain("cname-cycle-a.example.com."),
+                    qclass: QueryClass::Wildcard,
+                    qtype,
+                },
+            }),
+        );
     }
 
     #[test]
     fn resolve_local_propagates_cname_nonauthority() {
-        let cname_rr = cname_record("cname-na.authoritative.example.com.", "a.example.com.");
-        let a_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+        assert_eq!(
+            test_resolve_local(
+                "cname-nonauthoritative.authoritative.example.com.",
+                QueryType::Record(RecordType::A)
+            ),
+            Ok(LocalResolutionResult::Done {
+                resolved: ResolvedRecord::NonAuthoritative {
+                    rrs: vec![
+                        cname_record(
+                            "cname-nonauthoritative.authoritative.example.com.",
+                            "a.example.com."
+                        ),
+                        a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
+                    ],
+                    soa_rr: None,
+                },
+            }),
+        );
+    }
 
-        if let Ok(LocalResolutionResult::Done {
-            resolved: ResolvedRecord::NonAuthoritative { rrs },
-        }) = resolve_local(
-            &mut question_stack(),
-            &mut Metrics::new(),
-            &zones(),
-            &SharedCache::new(),
-            &Question {
-                name: domain("cname-na.authoritative.example.com."),
-                qtype: QueryType::Record(RecordType::A),
-                qclass: QueryClass::Wildcard,
-            },
-        ) {
-            assert_eq!(2, rrs.len());
-            assert_cache_response(&cname_rr, &[rrs[0].clone()]);
-            assert_cache_response(&a_rr, &[rrs[1].clone()]);
-        } else {
-            panic!("expected non-authoritative answer");
-        }
+    #[test]
+    fn resolve_local_uses_most_specific_cname_authority() {
+        assert_eq!(
+            test_resolve_local(
+                "cname.authoritative-2.example.com.",
+                QueryType::Record(RecordType::A)
+            ),
+            Ok(LocalResolutionResult::Done {
+                resolved: ResolvedRecord::Authoritative {
+                    rrs: vec![
+                        cname_record(
+                            "cname.authoritative-2.example.com.",
+                            "www.authoritative.example.com."
+                        ),
+                        a_record("www.authoritative.example.com.", Ipv4Addr::new(1, 1, 1, 1)),
+                    ],
+                    soa_rr: soa_rr(),
+                },
+            }),
+        );
     }
 
     #[test]
     fn resolve_local_returns_cname_response_if_unable_to_fully_resolve() {
-        let question = Question {
-            name: domain("trailing-cname.example.com."),
-            qtype: QueryType::Record(RecordType::A),
-            qclass: QueryClass::Wildcard,
-        };
+        let qtype = QueryType::Record(RecordType::A);
 
         assert_eq!(
+            test_resolve_local("trailing-cname.example.com.", qtype),
             Ok(LocalResolutionResult::CNAME {
                 rrs: vec![cname_record(
                     "trailing-cname.example.com.",
@@ -725,47 +653,31 @@ mod tests {
                 )],
                 cname_question: Question {
                     name: domain("somewhere-else.example.com."),
-                    qclass: question.qclass,
-                    qtype: question.qtype,
+                    qclass: QueryClass::Wildcard,
+                    qtype,
                 },
-                is_authoritative: false,
-            }),
-            resolve_local(
-                &mut question_stack(),
-                &mut Metrics::new(),
-                &zones(),
-                &SharedCache::new(),
-                &question,
-            )
+            })
         );
     }
 
     #[test]
     fn resolve_local_delegates_from_authoritative_zone() {
         assert_eq!(
+            test_resolve_local(
+                "www.delegated.authoritative.example.com.",
+                QueryType::Wildcard
+            ),
             Ok(LocalResolutionResult::Delegation {
                 rrs: vec![ns_record(
                     "delegated.authoritative.example.com.",
                     "ns.delegated.authoritative.example.com."
                 )],
-                authority_rrs: vec![zones_soa_rr()],
-                is_authoritative: true,
+                soa_rr: Some(soa_rr()),
                 delegation: Nameservers {
                     name: domain("delegated.authoritative.example.com."),
                     hostnames: vec![domain("ns.delegated.authoritative.example.com.")],
                 }
-            }),
-            resolve_local(
-                &mut question_stack(),
-                &mut Metrics::new(),
-                &zones(),
-                &SharedCache::new(),
-                &Question {
-                    name: domain("www.delegated.authoritative.example.com."),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard,
-                }
-            )
+            })
         );
     }
 
@@ -778,38 +690,29 @@ mod tests {
         };
 
         assert_eq!(
-            Err(ResolutionError::DeadEnd {
-                question: question.clone()
-            }),
             resolve_local(
-                &mut question_stack(),
+                &mut Vec::with_capacity(10),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &question
-            )
+            ),
+            Err(ResolutionError::DeadEnd {
+                question: question.clone()
+            })
         );
     }
 
     #[test]
     fn resolve_local_nameerrors_from_authoritative_zone() {
         assert_eq!(
+            test_resolve_local(
+                "no.such.name.authoritative.example.com.",
+                QueryType::Wildcard
+            ),
             Ok(LocalResolutionResult::Done {
-                resolved: ResolvedRecord::AuthoritativeNameError {
-                    authority_rrs: vec![zones_soa_rr()],
-                },
+                resolved: ResolvedRecord::AuthoritativeNameError { soa_rr: soa_rr() },
             }),
-            resolve_local(
-                &mut question_stack(),
-                &mut Metrics::new(),
-                &zones(),
-                &SharedCache::new(),
-                &Question {
-                    name: domain("no.such.name.authoritative.example.com."),
-                    qtype: QueryType::Wildcard,
-                    qclass: QueryClass::Wildcard,
-                },
-            )
         );
     }
 
@@ -822,28 +725,105 @@ mod tests {
         };
 
         assert_eq!(
-            Err(ResolutionError::DeadEnd {
-                question: question.clone()
-            }),
             resolve_local(
-                &mut question_stack(),
+                &mut Vec::with_capacity(10),
                 &mut Metrics::new(),
                 &zones(),
                 &SharedCache::new(),
                 &question,
-            )
+            ),
+            Err(ResolutionError::DeadEnd {
+                question: question.clone()
+            }),
         );
     }
 
-    fn question_stack() -> Vec<Question> {
-        Vec::with_capacity(10)
+    fn test_resolve_local(
+        name: &str,
+        qtype: QueryType,
+    ) -> Result<LocalResolutionResult, ResolutionError> {
+        test_resolve_local_with_cache(name, &SharedCache::new(), qtype)
     }
 
-    fn zones_soa_rr() -> ResourceRecord {
+    fn test_resolve_local_with_cache(
+        name: &str,
+        cache: &SharedCache,
+        qtype: QueryType,
+    ) -> Result<LocalResolutionResult, ResolutionError> {
+        resolve_local(
+            &mut Vec::with_capacity(10),
+            &mut Metrics::new(),
+            &zones(),
+            cache,
+            &Question {
+                name: domain(name),
+                qclass: QueryClass::Wildcard,
+                qtype,
+            },
+        )
+    }
+
+    fn soa_rr() -> ResourceRecord {
         zones()
             .get(&domain("authoritative.example.com."))
             .unwrap()
             .soa_rr()
             .unwrap()
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    fn zones() -> Zones {
+        // use TTL 300 for all records because that's what the other spec
+        // helpers have
+        let mut zones = Zones::new();
+
+        zones.insert(
+            Zone::deserialise(
+                r#"
+$ORIGIN example.com.
+
+a              300 IN A     1.1.1.1
+blocked        300 IN A     0.0.0.0
+cname-cycle-a  300 IN CNAME cname-cycle-b
+cname-cycle-b  300 IN CNAME cname-cycle-a
+delegated      300 IN NS    ns.delegated
+trailing-cname 300 IN CNAME somewhere-else
+"#,
+            )
+            .unwrap(),
+        );
+
+        zones.insert(
+            Zone::deserialise(
+                r#"
+$ORIGIN authoritative.example.com.
+
+@ IN SOA mname rname 1 30 30 30 30
+
+www                    300 IN A     1.1.1.1
+cname-and-a            300 IN A     1.1.1.1
+cname-and-a            300 IN CNAME www
+cname-authoritative    300 IN CNAME www
+cname-nonauthoritative 300 IN CNAME a.example.com.
+delegated              300 IN NS    ns.delegated
+"#,
+            )
+            .unwrap(),
+        );
+
+        zones.insert(
+            Zone::deserialise(
+                r#"
+$ORIGIN authoritative-2.example.com.
+
+@ IN SOA mname rname 1 30 30 30 30
+
+cname 300 IN CNAME www.authoritative.example.com.
+"#,
+            )
+            .unwrap(),
+        );
+
+        zones
     }
 }
