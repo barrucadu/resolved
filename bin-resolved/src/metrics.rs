@@ -28,6 +28,9 @@ pub const RESPONSE_TIME_BUCKETS: &[f64] = &[
 // get more granularity on the lower end
 pub const PROCESSING_TIME_BUCKETS: &[f64] = RESPONSE_TIME_BUCKETS;
 
+pub const REFUSED_FOR_MULTIPLE_QUESTIONS: &str = "multiple_questions";
+pub const REFUSED_FOR_UNKNOWN_QTYPE_OR_QCLASS: &str = "unknown_qtype_or_qclass";
+
 lazy_static! {
     pub static ref DNS_REQUESTS_TOTAL: IntCounterVec = register_int_counter_vec!(
         opts!(
@@ -35,6 +38,14 @@ lazy_static! {
             "Total number of DNS requests received, whether valid or invalid."
         ),
         &["protocol"]
+    )
+    .unwrap();
+    pub static ref DNS_REQUESTS_REFUSED_TOTAL: IntCounterVec = register_int_counter_vec!(
+        opts!(
+            "dns_requests_refused_total",
+            "Total number of DNS requests refused."
+        ),
+        &["reason"]
     )
     .unwrap();
     pub static ref DNS_RESPONSES_TOTAL: IntCounterVec = register_int_counter_vec!(

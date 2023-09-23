@@ -42,100 +42,112 @@ fn prune_cache_and_update_metrics(cache: &SharedCache) {
     }
 }
 
-async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
-    // lock zones here, rather than where they're used in the resolver, so that
-    // this whole request sees a consistent version of the zones even if they
-    // get updated in the middle of processing.
-    let zones = args.zones_lock.read().await;
+fn triage(query: &Message) -> Result<Option<&'_ Question>, &'static str> {
+    if query.questions.is_empty() {
+        Ok(None)
+    } else if query.questions.len() == 1 {
+        let question = &query.questions[0];
+        if question.is_unknown() {
+            Err(REFUSED_FOR_UNKNOWN_QTYPE_OR_QCLASS)
+        } else {
+            Ok(Some(question))
+        }
+    } else {
+        Err(REFUSED_FOR_MULTIPLE_QUESTIONS)
+    }
+}
 
+async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message {
     let mut response = query.make_response();
-    response.header.is_authoritative = true;
     response.header.recursion_available = !args.authoritative_only;
 
-    let mut is_refused = false;
-
-    for question in &query.questions {
-        let question_labels: &[&str] = &[
-            &query.header.recursion_desired.to_string(),
-            &question.qtype.to_string(),
-            &question.qclass.to_string(),
-        ];
-        DNS_QUESTIONS_TOTAL.with_label_values(question_labels).inc();
-        let question_timer = DNS_QUESTION_PROCESSING_TIME_SECONDS
-            .with_label_values(question_labels)
-            .start_timer();
-
-        if question.is_unknown() {
-            is_refused = true;
-            question_timer.observe_duration();
-            tracing::info!(%question, "refused");
-            continue;
+    match triage(&query) {
+        Err(reason) => {
+            DNS_REQUESTS_REFUSED_TOTAL
+                .with_label_values(&[reason])
+                .inc();
+            tracing::info!(%reason, "refused");
+            response.header.rcode = Rcode::Refused;
         }
+        Ok(None) => {}
+        Ok(Some(question)) => {
+            let question_labels: &[&str] = &[
+                &query.header.recursion_desired.to_string(),
+                &question.qtype.to_string(),
+                &question.qclass.to_string(),
+            ];
+            DNS_QUESTIONS_TOTAL.with_label_values(question_labels).inc();
+            let question_timer = DNS_QUESTION_PROCESSING_TIME_SECONDS
+                .with_label_values(question_labels)
+                .start_timer();
 
-        let (metrics, answer) = resolve(
-            query.header.recursion_desired && response.header.recursion_available,
-            args.forward_address,
-            &zones,
-            &args.cache,
-            question,
-        )
-        .await;
+            // lock zones here, rather than where they're used in the resolver,
+            // so that this whole request sees a consistent version of the zones
+            // even if they get updated in the middle of processing.
+            let zones = args.zones_lock.read().await;
 
-        DNS_RESOLVER_AUTHORITATIVE_HIT_TOTAL.inc_by(metrics.authoritative_hits);
-        DNS_RESOLVER_OVERRIDE_HIT_TOTAL.inc_by(metrics.override_hits);
-        DNS_RESOLVER_BLOCKED_TOTAL.inc_by(metrics.blocked);
-        DNS_RESOLVER_CACHE_HIT_TOTAL.inc_by(metrics.cache_hits);
-        DNS_RESOLVER_CACHE_MISS_TOTAL.inc_by(metrics.cache_misses);
-        DNS_RESOLVER_NAMESERVER_HIT_TOTAL.inc_by(metrics.nameserver_hits);
-        DNS_RESOLVER_NAMESERVER_MISS_TOTAL.inc_by(metrics.nameserver_misses);
+            let (metrics, answer) = resolve(
+                query.header.recursion_desired && response.header.recursion_available,
+                args.forward_address,
+                &zones,
+                &args.cache,
+                question,
+            )
+            .await;
 
-        let message = match answer {
-            Ok(rr) => {
-                match rr {
-                    ResolvedRecord::Authoritative {
-                        mut rrs,
-                        mut authority_rrs,
-                    } => {
-                        response.answers.append(&mut rrs);
-                        response.authority.append(&mut authority_rrs);
-                    }
-                    ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
-                        response.authority.append(&mut authority_rrs);
-                        if query.questions.len() == 1 {
+            DNS_RESOLVER_AUTHORITATIVE_HIT_TOTAL.inc_by(metrics.authoritative_hits);
+            DNS_RESOLVER_OVERRIDE_HIT_TOTAL.inc_by(metrics.override_hits);
+            DNS_RESOLVER_BLOCKED_TOTAL.inc_by(metrics.blocked);
+            DNS_RESOLVER_CACHE_HIT_TOTAL.inc_by(metrics.cache_hits);
+            DNS_RESOLVER_CACHE_MISS_TOTAL.inc_by(metrics.cache_misses);
+            DNS_RESOLVER_NAMESERVER_HIT_TOTAL.inc_by(metrics.nameserver_hits);
+            DNS_RESOLVER_NAMESERVER_MISS_TOTAL.inc_by(metrics.nameserver_misses);
+
+            let message = match answer {
+                Ok(rr) => {
+                    match rr {
+                        ResolvedRecord::Authoritative {
+                            mut rrs,
+                            mut authority_rrs,
+                        } => {
+                            response.answers.append(&mut rrs);
+                            response.authority.append(&mut authority_rrs);
+                            response.header.is_authoritative = true;
+                        }
+                        ResolvedRecord::AuthoritativeNameError { mut authority_rrs } => {
+                            response.authority.append(&mut authority_rrs);
                             response.header.rcode = Rcode::NameError;
+                            response.header.is_authoritative = true;
+                        }
+                        ResolvedRecord::NonAuthoritative { mut rrs } => {
+                            response.answers.append(&mut rrs);
+                            response.header.is_authoritative = false;
                         }
                     }
-                    ResolvedRecord::NonAuthoritative { mut rrs } => {
-                        response.answers.append(&mut rrs);
-                        response.header.is_authoritative = false;
-                    }
+                    "ok".to_string()
                 }
-                "ok".to_string()
-            }
-            Err(err) => format!("error: {err}"),
-        };
+                Err(err) => format!("error: {err}"),
+            };
 
-        let duration_seconds = question_timer.stop_and_record();
-        tracing::info!(
-            %question,
-            authoritative_hits = %metrics.authoritative_hits,
-            override_hits = %metrics.override_hits,
-            blocked = %metrics.blocked,
-            cache_hits = %metrics.cache_hits,
-            cache_misses = %metrics.cache_misses,
-            nameserver_hits = %metrics.nameserver_hits,
-            nameserver_misses = %metrics.nameserver_misses,
-            %duration_seconds,
-            message
-        );
+            let duration_seconds = question_timer.stop_and_record();
+            tracing::info!(
+                %question,
+                authoritative_hits = %metrics.authoritative_hits,
+                override_hits = %metrics.override_hits,
+                blocked = %metrics.blocked,
+                cache_hits = %metrics.cache_hits,
+                cache_misses = %metrics.cache_misses,
+                nameserver_hits = %metrics.nameserver_hits,
+                nameserver_misses = %metrics.nameserver_misses,
+                %duration_seconds,
+                message
+            );
+        }
     }
 
     prune_cache_and_update_metrics(&args.cache);
 
-    if is_refused {
-        response.header.rcode = Rcode::Refused;
-        response.header.is_authoritative = false;
-    } else if response.answers.is_empty() && response.header.rcode != Rcode::NameError {
+    if response.answers.is_empty() && response.header.rcode == Rcode::NoError {
         response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
