@@ -147,7 +147,10 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
 
     prune_cache_and_update_metrics(&args.cache);
 
-    if response.answers.is_empty() && response.header.rcode == Rcode::NoError {
+    if response.answers.is_empty()
+        && response.authority.is_empty()
+        && response.header.rcode == Rcode::NoError
+    {
         response.header.rcode = Rcode::ServerFailure;
         response.header.is_authoritative = false;
     }
