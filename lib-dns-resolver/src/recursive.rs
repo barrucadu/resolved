@@ -410,16 +410,11 @@ fn validate_nameserver_response(
         } else {
             // what sort of answer is this?
             if seen_final_record {
-                Some(NameserverResponse::Answer {
-                    rrs: rrs_for_query,
-                    is_authoritative: false,
-                    authority_rrs: Vec::new(),
-                })
+                Some(NameserverResponse::Answer { rrs: rrs_for_query })
             } else {
                 Some(NameserverResponse::CNAME {
                     rrs: rrs_for_query,
                     cname: final_name,
-                    is_authoritative: false,
                 })
             }
         }
@@ -481,8 +476,6 @@ fn validate_nameserver_response(
         // this is a delegation
         Some(NameserverResponse::Delegation {
             rrs: nameserver_rrs,
-            authority_rrs: Vec::new(),
-            is_authoritative: false,
             delegation: Nameservers {
                 hostnames: ns_names.into_iter().collect(),
                 name: match_name,
@@ -595,19 +588,14 @@ fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a Resou
 pub enum NameserverResponse {
     Answer {
         rrs: Vec<ResourceRecord>,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
     },
     CNAME {
         rrs: Vec<ResourceRecord>,
         cname: DomainName,
-        is_authoritative: bool,
     },
     Delegation {
         rrs: Vec<ResourceRecord>,
         delegation: Nameservers,
-        is_authoritative: bool,
-        authority_rrs: Vec<ResourceRecord>,
     },
 }
 
@@ -680,8 +668,6 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
-                is_authoritative: false,
-                authority_rrs: Vec::new(),
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -708,8 +694,6 @@ mod tests {
         assert_eq!(
             Some(NameserverResponse::Answer {
                 rrs: vec![a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1))],
-                is_authoritative: false,
-                authority_rrs: Vec::new(),
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -757,8 +741,6 @@ mod tests {
                     cname_record("www.example.com.", "cname-target.example.com."),
                     a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1))
                 ],
-                is_authoritative: false,
-                authority_rrs: Vec::new(),
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -783,7 +765,6 @@ mod tests {
                     "cname-target.example.com."
                 )],
                 cname: domain("cname-target.example.com."),
-                is_authoritative: false,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
         );
@@ -802,12 +783,7 @@ mod tests {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: mut actual_delegation,
-                is_authoritative,
-                authority_rrs,
             }) => {
-                assert!(!is_authoritative);
-                assert!(authority_rrs.is_empty());
-
                 let mut expected_rrs = vec![
                     ns_record("example.com.", "ns-an.example.net."),
                     ns_record("example.com.", "ns-ns.example.net."),
@@ -878,8 +854,6 @@ mod tests {
                     "subdomain.example.com.",
                     "ns-better.example.net."
                 )],
-                authority_rrs: Vec::new(),
-                is_authoritative: false,
                 delegation: Nameservers {
                     hostnames: vec![domain("ns-better.example.net.")],
                     name: domain("subdomain.example.com."),
@@ -894,8 +868,6 @@ mod tests {
                     "subdomain.example.com.",
                     "ns-better.example.net."
                 )],
-                authority_rrs: Vec::new(),
-                is_authoritative: false,
                 delegation: Nameservers {
                     hostnames: vec![domain("ns-better.example.net.")],
                     name: domain("subdomain.example.com."),
@@ -929,12 +901,7 @@ mod tests {
             Some(NameserverResponse::Delegation {
                 rrs: mut actual_rrs,
                 delegation: _,
-                authority_rrs,
-                is_authoritative,
             }) => {
-                assert!(!is_authoritative);
-                assert!(authority_rrs.is_empty());
-
                 let mut expected_rrs = vec![
                     ns_record("example.com.", "ns-an.example.net."),
                     ns_record("example.com.", "ns-ns.example.net."),
