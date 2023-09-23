@@ -409,8 +409,6 @@ fn validate_nameserver_response(
             }
         }
 
-        // TODO: propagate SOA RR
-
         if all_unknown {
             None
         } else if rrs_for_query.is_empty() {
@@ -450,7 +448,16 @@ fn validate_nameserver_response(
                 }
                 (Some((mn, nss)), None) => (mn, nss),
                 (None, Some((mn, nss))) => (mn, nss),
-                (None, None) => return None,
+                (None, None) => {
+                    // No records and no delegation - check if this is an
+                    // NXDOMAIN / NODATA response and if so propagate the SOA RR
+                    return get_nxdomain_nodata_soa(question, response, current_match_count).map(
+                        |soa_rr| NameserverResponse::Answer {
+                            rrs: Vec::new(),
+                            soa_rr: Some(soa_rr),
+                        },
+                    );
+                }
             }
         };
 
@@ -937,7 +944,86 @@ mod tests {
     }
 
     #[test]
-    fn validate_nameserver_response_returns_none_if_no_matching_records() {}
+    fn validate_nameserver_response_propagates_nodata() {
+        let soa_record = ResourceRecord {
+            name: domain("com."),
+            rtype_with_data: RecordTypeWithData::SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let (request, response) =
+            nameserver_response("www.example.com.", &[], &[soa_record.clone()], &[]);
+
+        assert_eq!(
+            validate_nameserver_response(&request.questions[0], &response, 0),
+            Some(NameserverResponse::Answer {
+                rrs: Vec::new(),
+                soa_rr: Some(soa_record)
+            }),
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_rejects_nodata_if_soa_too_generic() {
+        let soa_record = ResourceRecord {
+            name: domain("com."),
+            rtype_with_data: RecordTypeWithData::SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let (request, response) = nameserver_response("www.example.com.", &[], &[soa_record], &[]);
+
+        // pretend we're querying the nameserver for example.com
+        let current_match_count = domain("example.com.").labels.len();
+
+        assert_eq!(
+            validate_nameserver_response(&request.questions[0], &response, current_match_count),
+            None,
+        );
+    }
+
+    #[test]
+    fn validate_nameserver_response_rejects_nodata_if_soa_too_specific() {
+        let soa_record = ResourceRecord {
+            name: domain("foo.example.com."),
+            rtype_with_data: RecordTypeWithData::SOA {
+                mname: domain("mname."),
+                rname: domain("rname."),
+                serial: 0,
+                refresh: 0,
+                retry: 0,
+                expire: 0,
+                minimum: 0,
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+
+        let (request, response) = nameserver_response("www.example.com.", &[], &[soa_record], &[]);
+
+        assert_eq!(
+            validate_nameserver_response(&request.questions[0], &response, 0),
+            None,
+        );
+    }
 
     #[test]
     fn follow_cnames_empty() {

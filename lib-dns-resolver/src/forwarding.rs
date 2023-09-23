@@ -126,15 +126,16 @@ async fn resolve_forwarding_notimeout(
         .instrument(tracing::error_span!("query_nameserver"))
         .await
     {
-        // TODO: propagate SOA RR
         metrics.nameserver_hit();
         tracing::trace!("nameserver HIT");
+        // Propagate SOA RR for NXDOMAIN / NODATA responses
+        let soa_rr = get_nxdomain_nodata_soa(question, &response, 0);
         let rrs = response.answers;
         cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);
         Ok(ResolvedRecord::NonAuthoritative {
             rrs: combined_rrs,
-            soa_rr: None,
+            soa_rr,
         })
     } else {
         metrics.nameserver_miss();
