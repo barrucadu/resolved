@@ -602,10 +602,10 @@ pub enum NameserverResponse {
 #[cfg(test)]
 mod tests {
     use dns_types::protocol::types::test_util::*;
+    use dns_types::zones::types::*;
 
     use super::*;
     use crate::util::nameserver::test_util::*;
-    use crate::util::test_util::*;
 
     #[test]
     fn candidate_nameservers_gets_all_matches() {
@@ -618,7 +618,7 @@ mod tests {
             candidate_nameservers(
                 &mut question_stack(),
                 &mut Metrics::new(),
-                &zones(),
+                &Zones::new(),
                 &cache_with_nameservers(&["com."]),
                 &qdomain
             )
@@ -635,7 +635,7 @@ mod tests {
             candidate_nameservers(
                 &mut question_stack(),
                 &mut Metrics::new(),
-                &zones(),
+                &Zones::new(),
                 &cache_with_nameservers(&["example.com.", "com."]),
                 &domain("www.example.com.")
             )
@@ -649,7 +649,7 @@ mod tests {
             candidate_nameservers(
                 &mut question_stack(),
                 &mut Metrics::new(),
-                &zones(),
+                &Zones::new(),
                 &cache_with_nameservers(&["com."]),
                 &domain("net.")
             )

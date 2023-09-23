@@ -115,14 +115,14 @@ async fn main() {
 
     match response {
         Ok(response) => match response {
-            ResolvedRecord::Authoritative { rrs, authority_rrs } => {
+            ResolvedRecord::Authoritative { rrs, soa_rr } => {
                 print_section("ANSWER", &rrs);
-                print_section("AUTHORITY", &authority_rrs);
+                print_section("AUTHORITY", &[soa_rr]);
             }
-            ResolvedRecord::AuthoritativeNameError { authority_rrs } => {
+            ResolvedRecord::AuthoritativeNameError { soa_rr } => {
                 println!("\n;; ANSWER");
                 println!("; name does not exist");
-                print_section("AUTHORITY", &authority_rrs);
+                print_section("AUTHORITY", &[soa_rr]);
             }
             ResolvedRecord::NonAuthoritative { rrs } => {
                 print_section("ANSWER", &rrs);

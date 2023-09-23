@@ -12,10 +12,10 @@ use dns_types::protocol::types::*;
 pub enum ResolvedRecord {
     Authoritative {
         rrs: Vec<ResourceRecord>,
-        authority_rrs: Vec<ResourceRecord>,
+        soa_rr: ResourceRecord,
     },
     AuthoritativeNameError {
-        authority_rrs: Vec<ResourceRecord>,
+        soa_rr: ResourceRecord,
     },
     NonAuthoritative {
         rrs: Vec<ResourceRecord>,
