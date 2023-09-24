@@ -1,6 +1,54 @@
 use std::collections::HashSet;
+use std::fmt;
+use std::str::FromStr;
 
 use dns_types::protocol::types::*;
+
+pub const CANNOT_PARSE_PROTOCOL_MODE: &str =
+    "expected one of 'only-v4', 'prefer-v4', 'prefer-v6', 'only'v6'";
+
+/// How the recursive resolver should choose which IP address to try for
+/// upstream nameservers.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum ProtocolMode {
+    /// Only use IPv4 (e.g. this is an IPv4-only network), rejecting a
+    /// nameserver if it is only available over IPv6.
+    OnlyV4,
+    /// If a nameserver is only available over IPv6, use that; but if it is
+    /// available over both IPv4 and IPv6 (or only IPv4), use the IPv4 address.
+    PreferV4,
+    /// If a nameserver is only available over IPv4, use that; but if it is
+    /// available over both IPv4 and IPv6 (or only IPv6), use the IPv6 address.
+    PreferV6,
+    /// Only use IPv6 (e.g. this is an IPv6-only network), rejecting a
+    /// nameserver if it is only available over IPv4.
+    OnlyV6,
+}
+
+impl fmt::Display for ProtocolMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ProtocolMode::OnlyV4 => write!(f, "only-v4"),
+            ProtocolMode::PreferV4 => write!(f, "prefer-v4"),
+            ProtocolMode::PreferV6 => write!(f, "prefer-v6"),
+            ProtocolMode::OnlyV6 => write!(f, "only-v6"),
+        }
+    }
+}
+
+impl FromStr for ProtocolMode {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "only-v4" => Ok(ProtocolMode::OnlyV4),
+            "prefer-v4" => Ok(ProtocolMode::PreferV4),
+            "prefer-v6" => Ok(ProtocolMode::PreferV6),
+            "only-v6" => Ok(ProtocolMode::OnlyV6),
+            _ => Err(CANNOT_PARSE_PROTOCOL_MODE),
+        }
+    }
+}
 
 /// The result of a name resolution attempt.
 ///

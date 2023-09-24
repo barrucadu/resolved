@@ -6,7 +6,7 @@ use std::process;
 use dns_resolver::cache::SharedCache;
 use dns_resolver::resolve;
 use dns_resolver::util::fs::load_zone_configuration;
-use dns_resolver::util::types::ResolvedRecord;
+use dns_resolver::util::types::{ProtocolMode, ResolvedRecord};
 use dns_types::protocol::types::{
     DomainName, QueryClass, QueryType, Question, RecordClass, RecordType, ResourceRecord,
 };
@@ -50,6 +50,12 @@ struct Args {
     /// not perform recursive or forwarding resolution
     #[clap(long, action(clap::ArgAction::SetTrue))]
     authoritative_only: bool,
+
+    /// How to choose between connecting to upstream nameservers over IPv4 or
+    /// IPv6 when acting as a recursive resolver: one of 'only-v4', 'prefer-v4',
+    /// 'prefer-v6', 'only-v6'
+    #[clap(short, long, default_value_t = ProtocolMode::OnlyV4, value_parser)]
+    protocol_mode: ProtocolMode,
 
     /// Act as a forwarding resolver, not a recursive resolver: forward queries
     /// which can't be answered from local state to this nameserver (in
@@ -107,6 +113,7 @@ async fn main() {
     // TODO: log upstream queries as they happen
     let (_, response) = resolve(
         !args.authoritative_only,
+        args.protocol_mode,
         args.forward_address,
         &zones,
         &SharedCache::new(),
