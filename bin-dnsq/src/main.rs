@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process;
 
@@ -52,9 +52,10 @@ struct Args {
     authoritative_only: bool,
 
     /// Act as a forwarding resolver, not a recursive resolver: forward queries
-    /// which can't be answered from local state to this nameserver
+    /// which can't be answered from local state to this nameserver (in
+    /// `ip:port` form)
     #[clap(short, long, value_parser)]
-    forward_address: Option<Ipv4Addr>,
+    forward_address: Option<SocketAddr>,
 
     /// Path to a hosts file, can be specified more than once
     #[clap(short = 'a', long, value_parser)]

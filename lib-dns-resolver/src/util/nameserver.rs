@@ -1,6 +1,6 @@
 use rand::Rng;
 use std::cmp::Ordering;
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::time::timeout;
@@ -18,7 +18,7 @@ use crate::util::net::{read_tcp_bytes, send_tcp_bytes, send_udp_bytes};
 ///
 /// This has a 5s timeout for each request, so 10s in total.
 pub async fn query_nameserver(
-    address: Ipv4Addr,
+    address: SocketAddr,
     question: &Question,
     recursion_desired: bool,
 ) -> Option<Message> {
@@ -58,7 +58,7 @@ pub async fn query_nameserver(
 ///
 /// This has a 5s timeout.
 pub async fn query_nameserver_udp(
-    address: Ipv4Addr,
+    address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
     match timeout(
@@ -74,7 +74,7 @@ pub async fn query_nameserver_udp(
 
 /// Timeout-less version of `query_nameserver_udp`.
 async fn query_nameserver_udp_notimeout(
-    address: Ipv4Addr,
+    address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
     if serialised_request.len() > 512 {
@@ -83,7 +83,7 @@ async fn query_nameserver_udp_notimeout(
 
     let mut buf = vec![0u8; 512];
     let sock = UdpSocket::bind("0.0.0.0:0").await.ok()?;
-    sock.connect((address, 53)).await.ok()?;
+    sock.connect(address).await.ok()?;
     send_udp_bytes(&sock, serialised_request).await.ok()?;
     sock.recv(&mut buf).await.ok()?;
 
@@ -96,7 +96,7 @@ async fn query_nameserver_udp_notimeout(
 ///
 /// This has a 5s timeout.
 pub async fn query_nameserver_tcp(
-    address: Ipv4Addr,
+    address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
     match timeout(
@@ -112,10 +112,10 @@ pub async fn query_nameserver_tcp(
 
 /// Timeout-less version of `query_nameserver_tcp`.
 async fn query_nameserver_tcp_notimeout(
-    address: Ipv4Addr,
+    address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
-    let mut stream = TcpStream::connect((address, 53)).await.ok()?;
+    let mut stream = TcpStream::connect(address).await.ok()?;
     send_tcp_bytes(&mut stream, serialised_request).await.ok()?;
     let bytes = read_tcp_bytes(&mut stream).await.ok()?;
 

@@ -18,7 +18,7 @@ pub mod metrics;
 pub mod recursive;
 pub mod util;
 
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use tracing::Instrument;
 
 use dns_types::protocol::types::Question;
@@ -42,7 +42,7 @@ pub const RECURSION_LIMIT: usize = 32;
 /// Resolve a question using the standard DNS algorithms.
 pub async fn resolve(
     is_recursive: bool,
-    forward_address: Option<Ipv4Addr>,
+    forward_address: Option<SocketAddr>,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,

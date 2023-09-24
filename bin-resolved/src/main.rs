@@ -2,7 +2,7 @@ use bytes::BytesMut;
 use clap::Parser;
 use std::collections::HashSet;
 use std::env;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::process;
 use std::sync::Arc;
@@ -307,7 +307,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
 #[derive(Debug, Clone)]
 struct ListenArgs {
     authoritative_only: bool,
-    forward_address: Option<Ipv4Addr>,
+    forward_address: Option<SocketAddr>,
     zones_lock: Arc<RwLock<Zones>>,
     cache: SharedCache,
 }
@@ -453,9 +453,9 @@ struct Args {
 
     /// Act as a forwarding resolver, not a recursive resolver:
     /// forward queries which can't be answered from local state to
-    /// this nameserver and cache the result
+    /// this nameserver (in `ip:port` form) and cache the result
     #[clap(short, long, value_parser, env = "RESOLVED_FORWARD_ADDRESS")]
-    forward_address: Option<Ipv4Addr>,
+    forward_address: Option<SocketAddr>,
 
     /// How many records to hold in the cache
     #[clap(
