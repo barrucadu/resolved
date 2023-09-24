@@ -1,7 +1,7 @@
 use async_recursion::async_recursion;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::Instrument;
@@ -32,6 +32,7 @@ pub const UPSTREAM_DNS_PORT: u16 = 53;
 ///
 /// See `ResolutionError`.
 pub async fn resolve_recursive(
+    protocol_mode: ProtocolMode,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -40,7 +41,14 @@ pub async fn resolve_recursive(
 ) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
         Duration::from_secs(60),
-        resolve_recursive_notimeout(question_stack, metrics, zones, cache, question),
+        resolve_recursive_notimeout(
+            protocol_mode,
+            question_stack,
+            metrics,
+            zones,
+            cache,
+            question,
+        ),
     )
     .await
     {
@@ -54,6 +62,7 @@ pub async fn resolve_recursive(
 /// Timeout-less version of `resolve_recursive`.
 #[async_recursion]
 async fn resolve_recursive_notimeout(
+    protocol_mode: ProtocolMode,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -85,6 +94,7 @@ async fn resolve_recursive_notimeout(
         }) => {
             question_stack.push(question.clone());
             let answer = resolve_combined_recursive(
+                protocol_mode,
                 question_stack,
                 metrics,
                 zones,
@@ -114,6 +124,7 @@ async fn resolve_recursive_notimeout(
         while let Some(candidate) = candidate_hostnames.pop() {
             tracing::trace!(?candidate, "got candidate nameserver");
             if let Some(ip) = resolve_hostname_to_ip(
+                protocol_mode,
                 question_stack,
                 metrics,
                 zones,
@@ -138,6 +149,7 @@ async fn resolve_recursive_notimeout(
                     }
                     metrics.nameserver_hit();
                     match resolve_with_nameserver_response(
+                        protocol_mode,
                         question_stack,
                         metrics,
                         zones,
@@ -196,8 +208,10 @@ async fn resolve_recursive_notimeout(
 
 /// Helper function for answering a question given a response from an upstream
 /// nameserver: this will only do further querying if the response is a CNAME.
+#[allow(clippy::too_many_arguments)]
 #[async_recursion]
 async fn resolve_with_nameserver_response(
+    protocol_mode: ProtocolMode,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -221,8 +235,17 @@ async fn resolve_with_nameserver_response(
         } => {
             cache.insert_all(&rrs);
             if question.qtype == QueryType::Record(RecordType::A) {
-                if let Some(rr) = get_a(&rrs, &question.name) {
+                if let Some(rr) = get_record(&rrs, &question.name, RecordType::A) {
                     tracing::trace!("got recursive delegation - using glue A record");
+                    prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
+                    return Ok(Ok(ResolvedRecord::NonAuthoritative {
+                        rrs: combined_rrs,
+                        soa_rr: None,
+                    }));
+                }
+            } else if question.qtype == QueryType::Record(RecordType::AAAA) {
+                if let Some(rr) = get_record(&rrs, &question.name, RecordType::AAAA) {
+                    tracing::trace!("got recursive delegation - using glue AAAA record");
                     prioritising_merge(&mut combined_rrs, vec![rr.clone()]);
                     return Ok(Ok(ResolvedRecord::NonAuthoritative {
                         rrs: combined_rrs,
@@ -243,6 +266,7 @@ async fn resolve_with_nameserver_response(
                 qtype: question.qtype,
             };
             let cname_answer = resolve_combined_recursive(
+                protocol_mode,
                 question_stack,
                 metrics,
                 zones,
@@ -259,6 +283,7 @@ async fn resolve_with_nameserver_response(
 /// Helper function for resolving CNAMEs: resolve, and add some existing RRs to
 /// the ANSWER section of the result.
 async fn resolve_combined_recursive(
+    protocol_mode: ProtocolMode,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -266,9 +291,16 @@ async fn resolve_combined_recursive(
     mut rrs: Vec<ResourceRecord>,
     question: Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
-    match resolve_recursive_notimeout(question_stack, metrics, zones, cache, &question)
-        .instrument(tracing::error_span!("resolve_combined_recursive", %question))
-        .await
+    match resolve_recursive_notimeout(
+        protocol_mode,
+        question_stack,
+        metrics,
+        zones,
+        cache,
+        &question,
+    )
+    .instrument(tracing::error_span!("resolve_combined_recursive", %question))
+    .await
     {
         Ok(resolved) => {
             let soa_rr = resolved.soa_rr();
@@ -282,34 +314,55 @@ async fn resolve_combined_recursive(
 /// Resolve a hostname into an IP address, optionally only doing local
 /// resolution.
 async fn resolve_hostname_to_ip(
+    protocol_mode: ProtocolMode,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
     cache: &SharedCache,
     resolve_locally: bool,
     hostname: DomainName,
-) -> Option<Ipv4Addr> {
-    let question = Question {
-        name: hostname.clone(),
-        qclass: QueryClass::Record(RecordClass::IN),
-        qtype: QueryType::Record(RecordType::A),
+) -> Option<IpAddr> {
+    let rtypes = match protocol_mode {
+        ProtocolMode::OnlyV4 => vec![RecordType::A],
+        ProtocolMode::PreferV4 => vec![RecordType::A, RecordType::AAAA],
+        ProtocolMode::PreferV6 => vec![RecordType::AAAA, RecordType::A],
+        ProtocolMode::OnlyV6 => vec![RecordType::AAAA],
     };
 
-    if resolve_locally {
-        if let Ok(LocalResolutionResult::Done { resolved }) =
-            resolve_local(question_stack, metrics, zones, cache, &question)
+    for rtype in rtypes {
+        let question = Question {
+            name: hostname.clone(),
+            qclass: QueryClass::Record(RecordClass::IN),
+            qtype: QueryType::Record(rtype),
+        };
+
+        if resolve_locally {
+            if let Ok(LocalResolutionResult::Done { resolved }) =
+                resolve_local(question_stack, metrics, zones, cache, &question)
+            {
+                let address = get_ip(&resolved.rrs(), &hostname, rtype);
+                if address.is_some() {
+                    return address;
+                }
+            }
+        } else if let Ok(result) = resolve_recursive_notimeout(
+            protocol_mode,
+            question_stack,
+            metrics,
+            zones,
+            cache,
+            &question,
+        )
+        .await
         {
-            get_ip(&resolved.rrs(), &hostname)
-        } else {
-            None
+            let address = get_ip(&result.rrs(), &hostname, rtype);
+            if address.is_some() {
+                return address;
+            }
         }
-    } else if let Ok(result) =
-        resolve_recursive_notimeout(question_stack, metrics, zones, cache, &question).await
-    {
-        get_ip(&result.rrs(), &hostname)
-    } else {
-        None
     }
+
+    None
 }
 
 /// Get the best nameservers by non-recursively looking them up for
@@ -475,6 +528,9 @@ fn validate_nameserver_response(
                 RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
                     nameserver_rrs.push(rr.clone());
                 }
+                RecordTypeWithData::AAAA { .. } if ns_names.contains(&rr.name) => {
+                    nameserver_rrs.push(rr.clone());
+                }
                 _ => (),
             }
         }
@@ -489,6 +545,9 @@ fn validate_nameserver_response(
         for rr in &response.additional {
             match &rr.rtype_with_data {
                 RecordTypeWithData::A { .. } if ns_names.contains(&rr.name) => {
+                    nameserver_rrs.push(rr.clone());
+                }
+                RecordTypeWithData::AAAA { .. } if ns_names.contains(&rr.name) => {
                     nameserver_rrs.push(rr.clone());
                 }
                 _ => (),
@@ -581,28 +640,35 @@ fn get_better_ns_names(
 }
 
 /// Given a set of RRs and a domain name we're looking for, follow any
-/// `CNAME`s in the response and get the address from the final `A`
+/// `CNAME`s in the response and get the address from the final `A` / `AAAA`
 /// record.
-fn get_ip(rrs: &[ResourceRecord], target: &DomainName) -> Option<Ipv4Addr> {
-    if let Some((final_name, _)) = follow_cnames(rrs, target, QueryType::Record(RecordType::A)) {
-        if let Some(rr) = get_a(rrs, &final_name) {
-            match &rr.rtype_with_data {
-                RecordTypeWithData::A { address } if rr.name == final_name => {
-                    return Some(*address);
-                }
-                _ => (),
+fn get_ip(rrs: &[ResourceRecord], target: &DomainName, rtype: RecordType) -> Option<IpAddr> {
+    if let Some((final_name, _)) = follow_cnames(rrs, target, QueryType::Wildcard) {
+        if let Some(rr) = get_record(rrs, &final_name, rtype) {
+            match rr.rtype_with_data {
+                RecordTypeWithData::A { address } => Some(IpAddr::V4(address)),
+                RecordTypeWithData::AAAA { address } => Some(IpAddr::V6(address)),
+                _ => None,
             }
+        } else {
+            None
         }
+    } else {
+        None
     }
-
-    None
 }
 
-/// Given a set of RRs and a domain we're looking for, return the `A` record (if
-/// any).  Unlike `get_ip` this does not follow `CNAME`s.
-fn get_a<'a>(rrs: &'a [ResourceRecord], target: &DomainName) -> Option<&'a ResourceRecord> {
+/// Given a set of RRs and a domain we're looking for, return the record we're
+/// looking for (if any).
+///
+/// Unlike `get_ip` this does not follow `CNAME`s.
+fn get_record<'a>(
+    rrs: &'a [ResourceRecord],
+    target: &DomainName,
+    rtype: RecordType,
+) -> Option<&'a ResourceRecord> {
     rrs.iter()
-        .find(|&rr| rr.rtype_with_data.rtype() == RecordType::A && rr.name == *target)
+        .find(|&rr| rr.rtype_with_data.rtype() == rtype && rr.name == *target)
 }
 
 /// A response from a remote nameserver
@@ -624,6 +690,8 @@ pub enum NameserverResponse {
 
 #[cfg(test)]
 mod tests {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
     use dns_types::protocol::types::test_util::*;
     use dns_types::zones::types::*;
 
@@ -1151,17 +1219,35 @@ mod tests {
     }
 
     #[test]
-    fn get_ip_no_match() {
+    fn get_ip_domain_mismatch() {
         let a_rr = a_record("www.example.net.", Ipv4Addr::new(127, 0, 0, 1));
-        assert_eq!(None, get_ip(&[a_rr], &domain("www.example.com.")));
+        assert_eq!(
+            None,
+            get_ip(&[a_rr], &domain("www.example.com."), RecordType::A)
+        );
     }
 
     #[test]
-    fn get_ip_direct_match() {
-        let a_rr = a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1));
+    fn get_ip_type_mismatch() {
+        let aaaa_rr = aaaa_record("www.example.com.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
         assert_eq!(
-            Some(Ipv4Addr::new(127, 0, 0, 1)),
-            get_ip(&[a_rr], &domain("www.example.com."))
+            None,
+            get_ip(&[aaaa_rr], &domain("www.example.com."), RecordType::A,)
+        );
+    }
+
+    #[test]
+    fn get_ip_domain_and_type_match() {
+        let a_rr = a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1));
+        let aaaa_rr = aaaa_record("www.example.com.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
+        let rrs = [a_rr, aaaa_rr];
+        assert_eq!(
+            Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+            get_ip(&rrs, &domain("www.example.com."), RecordType::A)
+        );
+        assert_eq!(
+            Some(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
+            get_ip(&rrs, &domain("www.example.com."), RecordType::AAAA)
         );
     }
 
@@ -1170,8 +1256,12 @@ mod tests {
         let cname_rr = cname_record("www.example.com.", "www.example.net.");
         let a_rr = a_record("www.example.net.", Ipv4Addr::new(127, 0, 0, 1));
         assert_eq!(
-            Some(Ipv4Addr::new(127, 0, 0, 1)),
-            get_ip(&[cname_rr, a_rr], &domain("www.example.com."))
+            Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+            get_ip(
+                &[cname_rr, a_rr],
+                &domain("www.example.com."),
+                RecordType::A,
+            )
         );
     }
 

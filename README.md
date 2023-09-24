@@ -9,8 +9,9 @@ server for home networks.  To that end, it supports:
 - Hosts files
 - Zone files
 
-It does not support querying upstream nameservers over IPv6: I don't
-have IPv6 at home, so this code doesn't support it yet.
+It supports querying upstream nameservers over IPv6 in principle (if
+`--protocol-mode` is not set to `only-v4`), but this isn't really tested since I
+don't have IPv6 at home.
 
 
 Usage

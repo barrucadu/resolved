@@ -29,7 +29,7 @@ use self::forwarding::resolve_forwarding;
 use self::local::resolve_local;
 use self::metrics::Metrics;
 use self::recursive::resolve_recursive;
-use self::util::types::{ResolutionError, ResolvedRecord};
+use self::util::types::{ProtocolMode, ResolutionError, ResolvedRecord};
 
 /// Maximum recursion depth.  Recursion is used to resolve CNAMEs, so
 /// a chain of CNAMEs longer than this cannot be resolved.
@@ -42,6 +42,7 @@ pub const RECURSION_LIMIT: usize = 32;
 /// Resolve a question using the standard DNS algorithms.
 pub async fn resolve(
     is_recursive: bool,
+    protocol_mode: ProtocolMode,
     forward_address: Option<SocketAddr>,
     zones: &Zones,
     cache: &SharedCache,
@@ -63,9 +64,16 @@ pub async fn resolve(
             .instrument(tracing::error_span!("resolve_forwarding", %address, %question))
             .await
         } else {
-            resolve_recursive(&mut question_stack, &mut metrics, zones, cache, question)
-                .instrument(tracing::error_span!("resolve_recursive", %question))
-                .await
+            resolve_recursive(
+                protocol_mode,
+                &mut question_stack,
+                &mut metrics,
+                zones,
+                cache,
+                question,
+            )
+            .instrument(tracing::error_span!("resolve_recursive", %question))
+            .await
         }
     } else {
         resolve_local(&mut question_stack, &mut metrics, zones, cache, question)
