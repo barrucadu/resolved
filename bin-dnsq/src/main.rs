@@ -57,6 +57,11 @@ struct Args {
     #[clap(short, long, default_value_t = ProtocolMode::OnlyV4, value_parser)]
     protocol_mode: ProtocolMode,
 
+    /// Which port to query upstream nameservers over when acting as a recursive
+    /// resolver
+    #[clap(long, default_value_t = 53, value_parser)]
+    upstream_dns_port: u16,
+
     /// Act as a forwarding resolver, not a recursive resolver: forward queries
     /// which can't be answered from local state to this nameserver (in
     /// `ip:port` form)
@@ -114,6 +119,7 @@ async fn main() {
     let (_, response) = resolve(
         !args.authoritative_only,
         args.protocol_mode,
+        args.upstream_dns_port,
         args.forward_address,
         &zones,
         &SharedCache::new(),

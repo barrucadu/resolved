@@ -15,8 +15,6 @@ use crate::metrics::Metrics;
 use crate::util::nameserver::*;
 use crate::util::types::*;
 
-pub const UPSTREAM_DNS_PORT: u16 = 53;
-
 /// Recursive DNS resolution.
 ///
 /// This corresponds to the standard resolver algorithm.  If
@@ -33,6 +31,7 @@ pub const UPSTREAM_DNS_PORT: u16 = 53;
 /// See `ResolutionError`.
 pub async fn resolve_recursive(
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -43,6 +42,7 @@ pub async fn resolve_recursive(
         Duration::from_secs(60),
         resolve_recursive_notimeout(
             protocol_mode,
+            upstream_dns_port,
             question_stack,
             metrics,
             zones,
@@ -63,6 +63,7 @@ pub async fn resolve_recursive(
 #[async_recursion]
 async fn resolve_recursive_notimeout(
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -95,6 +96,7 @@ async fn resolve_recursive_notimeout(
             question_stack.push(question.clone());
             let answer = resolve_combined_recursive(
                 protocol_mode,
+                upstream_dns_port,
                 question_stack,
                 metrics,
                 zones,
@@ -125,6 +127,7 @@ async fn resolve_recursive_notimeout(
             tracing::trace!(?candidate, "got candidate nameserver");
             if let Some(ip) = resolve_hostname_to_ip(
                 protocol_mode,
+                upstream_dns_port,
                 question_stack,
                 metrics,
                 zones,
@@ -135,7 +138,7 @@ async fn resolve_recursive_notimeout(
             .await
             {
                 if let Some(nameserver_response) =
-                    query_nameserver((ip, UPSTREAM_DNS_PORT).into(), question, false)
+                    query_nameserver((ip, upstream_dns_port).into(), question, false)
                         .instrument(
                             tracing::error_span!("query_nameserver", address = %ip, %match_count),
                         )
@@ -150,6 +153,7 @@ async fn resolve_recursive_notimeout(
                     metrics.nameserver_hit();
                     match resolve_with_nameserver_response(
                         protocol_mode,
+                        upstream_dns_port,
                         question_stack,
                         metrics,
                         zones,
@@ -212,6 +216,7 @@ async fn resolve_recursive_notimeout(
 #[async_recursion]
 async fn resolve_with_nameserver_response(
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -267,6 +272,7 @@ async fn resolve_with_nameserver_response(
             };
             let cname_answer = resolve_combined_recursive(
                 protocol_mode,
+                upstream_dns_port,
                 question_stack,
                 metrics,
                 zones,
@@ -282,8 +288,10 @@ async fn resolve_with_nameserver_response(
 
 /// Helper function for resolving CNAMEs: resolve, and add some existing RRs to
 /// the ANSWER section of the result.
+#[allow(clippy::too_many_arguments)]
 async fn resolve_combined_recursive(
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -293,6 +301,7 @@ async fn resolve_combined_recursive(
 ) -> Result<ResolvedRecord, ResolutionError> {
     match resolve_recursive_notimeout(
         protocol_mode,
+        upstream_dns_port,
         question_stack,
         metrics,
         zones,
@@ -313,8 +322,10 @@ async fn resolve_combined_recursive(
 
 /// Resolve a hostname into an IP address, optionally only doing local
 /// resolution.
+#[allow(clippy::too_many_arguments)]
 async fn resolve_hostname_to_ip(
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
     zones: &Zones,
@@ -347,6 +358,7 @@ async fn resolve_hostname_to_ip(
             }
         } else if let Ok(result) = resolve_recursive_notimeout(
             protocol_mode,
+            upstream_dns_port,
             question_stack,
             metrics,
             zones,

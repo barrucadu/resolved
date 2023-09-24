@@ -43,6 +43,7 @@ pub const RECURSION_LIMIT: usize = 32;
 pub async fn resolve(
     is_recursive: bool,
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     forward_address: Option<SocketAddr>,
     zones: &Zones,
     cache: &SharedCache,
@@ -66,6 +67,7 @@ pub async fn resolve(
         } else {
             resolve_recursive(
                 protocol_mode,
+                upstream_dns_port,
                 &mut question_stack,
                 &mut metrics,
                 zones,

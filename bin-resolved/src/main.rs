@@ -87,6 +87,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
             let (metrics, answer) = resolve(
                 query.header.recursion_desired && response.header.recursion_available,
                 args.protocol_mode,
+                args.upstream_dns_port,
                 args.forward_address,
                 &zones,
                 &args.cache,
@@ -307,6 +308,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
 struct ListenArgs {
     authoritative_only: bool,
     protocol_mode: ProtocolMode,
+    upstream_dns_port: u16,
     forward_address: Option<SocketAddr>,
     zones_lock: Arc<RwLock<Zones>>,
     cache: SharedCache,
@@ -448,6 +450,16 @@ struct Args {
     #[clap(short, long, default_value_t = ProtocolMode::OnlyV4, value_parser, env = "RESOLVED_PROTOCOL_MODE")]
     protocol_mode: ProtocolMode,
 
+    /// Which port to query upstream nameservers over when acting as a recursive
+    /// resolver
+    #[clap(
+        long,
+        default_value_t = 53,
+        value_parser,
+        env = "RESOLVED_UPSTREAM_DNS_PORT"
+    )]
+    upstream_dns_port: u16,
+
     /// Act as a forwarding resolver, not a recursive resolver:
     /// forward queries which can't be answered from local state to
     /// this nameserver (in `ip:port` form) and cache the result
@@ -523,6 +535,7 @@ async fn main() {
     let listen_args = ListenArgs {
         authoritative_only: args.authoritative_only,
         protocol_mode: args.protocol_mode,
+        upstream_dns_port: args.upstream_dns_port,
         forward_address: args.forward_address,
         zones_lock: Arc::new(RwLock::new(zones)),
         cache: SharedCache::with_desired_size(std::cmp::max(1, args.cache_size)),
