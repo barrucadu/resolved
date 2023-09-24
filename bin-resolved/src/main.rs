@@ -24,8 +24,6 @@ use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 use resolved::metrics::*;
 
-const DNS_PORT: u16 = 53;
-
 fn prune_cache_and_update_metrics(cache: &SharedCache) {
     let (overflow, current_size, expired, pruned) = cache.prune();
 
@@ -422,25 +420,16 @@ fn begin_logging() {
 /// hostnames working in your LAN.
 ///
 /// Prometheus metrics are served at
-/// "http://{metrics_interface}:{metrics_port}/metrics"
+/// "http://{metrics_address}/metrics"
 #[derive(Clone)]
 struct Args {
-    /// Interface to listen on
-    #[clap(short, long, value_parser, default_value_t = Ipv4Addr::UNSPECIFIED, env = "RESOLVED_INTERFACE")]
-    interface: Ipv4Addr,
+    /// Address to listen on (in `ip:port` form)
+    #[clap(short = 'i', long, value_parser, default_value_t = SocketAddr::from((Ipv4Addr::UNSPECIFIED, 53)), env = "RESOLVED_ADDRESS")]
+    address: SocketAddr,
 
-    /// Interface to listen on to serve Prometheus metrics
-    #[clap(long, value_parser, default_value_t = Ipv4Addr::LOCALHOST, env = "RESOLVED_METRICS_INTERFACE")]
-    metrics_interface: Ipv4Addr,
-
-    /// Port to listen on to serve Prometheus metrics
-    #[clap(
-        long,
-        value_parser,
-        default_value_t = 9420,
-        env = "RESOLVED_METRICS_PORT"
-    )]
-    metrics_port: u16,
+    /// Address to listen on (in `ip:port` form) to serve Prometheus metrics
+    #[clap(long, value_parser, default_value_t = SocketAddr::from((Ipv4Addr::LOCALHOST, 9420)), env = "RESOLVED_METRICS_ADDRESS")]
+    metrics_address: SocketAddr,
 
     /// Only answer queries for which this server is authoritative: do
     /// not perform recursive or forwarding resolution
@@ -505,8 +494,8 @@ async fn main() {
         }
     };
 
-    tracing::info!(interface = %args.interface, port = %DNS_PORT, "binding DNS UDP socket");
-    let udp = match UdpSocket::bind((args.interface, DNS_PORT)).await {
+    tracing::info!(address = %args.address, "binding DNS UDP socket");
+    let udp = match UdpSocket::bind(args.address).await {
         Ok(s) => s,
         Err(error) => {
             tracing::error!(?error, "could not bind DNS UDP socket");
@@ -514,8 +503,8 @@ async fn main() {
         }
     };
 
-    tracing::info!(interface = %args.interface, port = %DNS_PORT, "binding DNS TCP socket");
-    let tcp = match TcpListener::bind((args.interface, DNS_PORT)).await {
+    tracing::info!(address = %args.address, "binding DNS TCP socket");
+    let tcp = match TcpListener::bind(args.address).await {
         Ok(s) => s,
         Err(error) => {
             tracing::error!(?error, "could not bind DNS TCP socket");
@@ -535,10 +524,8 @@ async fn main() {
     tokio::spawn(reload_task(listen_args.zones_lock.clone(), args.clone()));
     tokio::spawn(prune_cache_task(listen_args.cache));
 
-    tracing::info!(interface = %args.metrics_interface, port = %args.metrics_port, "binding HTTP TCP socket");
-    if let Err(error) =
-        serve_prometheus_endpoint_task(args.metrics_interface, args.metrics_port).await
-    {
+    tracing::info!(address = %args.metrics_address, "binding HTTP TCP socket");
+    if let Err(error) = serve_prometheus_endpoint_task(args.metrics_address).await {
         tracing::error!(?error, "could not bind HTTP TCP socket");
         process::exit(1);
     }

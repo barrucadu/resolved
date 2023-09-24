@@ -4,7 +4,7 @@ use prometheus::{
     opts, register_histogram_vec, register_int_counter, register_int_counter_vec,
     register_int_gauge, HistogramVec, IntCounter, IntCounterVec, IntGauge, TextEncoder,
 };
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 
 pub const RESPONSE_TIME_BUCKETS: &[f64] = &[
     0.0001, // 0.1 ms
@@ -141,9 +141,9 @@ async fn get_metrics() -> impl Responder {
     }
 }
 
-pub async fn serve_prometheus_endpoint_task(address: Ipv4Addr, port: u16) -> std::io::Result<()> {
+pub async fn serve_prometheus_endpoint_task(address: SocketAddr) -> std::io::Result<()> {
     HttpServer::new(|| App::new().service(get_metrics))
-        .bind((address, port))?
+        .bind(address)?
         .run()
         .await
 }
