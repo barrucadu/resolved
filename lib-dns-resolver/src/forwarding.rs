@@ -1,5 +1,5 @@
 use async_recursion::async_recursion;
-use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::Instrument;
@@ -28,7 +28,7 @@ use crate::util::types::*;
 pub async fn resolve_forwarding(
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
-    forward_address: Ipv4Addr,
+    forward_address: SocketAddr,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,
@@ -58,7 +58,7 @@ pub async fn resolve_forwarding(
 async fn resolve_forwarding_notimeout(
     question_stack: &mut Vec<Question>,
     metrics: &mut Metrics,
-    forward_address: Ipv4Addr,
+    forward_address: SocketAddr,
     zones: &Zones,
     cache: &SharedCache,
     question: &Question,

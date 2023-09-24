@@ -15,6 +15,8 @@ use crate::metrics::Metrics;
 use crate::util::nameserver::*;
 use crate::util::types::*;
 
+pub const UPSTREAM_DNS_PORT: u16 = 53;
+
 /// Recursive DNS resolution.
 ///
 /// This corresponds to the standard resolver algorithm.  If
@@ -121,12 +123,13 @@ async fn resolve_recursive_notimeout(
             )
             .await
             {
-                if let Some(nameserver_response) = query_nameserver(ip, question, false)
-                    .instrument(
-                        tracing::error_span!("query_nameserver", address = %ip, %match_count),
-                    )
-                    .await
-                    .and_then(|res| validate_nameserver_response(question, &res, match_count))
+                if let Some(nameserver_response) =
+                    query_nameserver((ip, UPSTREAM_DNS_PORT).into(), question, false)
+                        .instrument(
+                            tracing::error_span!("query_nameserver", address = %ip, %match_count),
+                        )
+                        .await
+                        .and_then(|res| validate_nameserver_response(question, &res, match_count))
                 {
                     if resolve_candidates_locally {
                         tracing::trace!(?candidate, "resolved fast candidate");
