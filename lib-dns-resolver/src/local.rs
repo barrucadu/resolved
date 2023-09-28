@@ -3,8 +3,7 @@ use tracing;
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
-use crate::cache::SharedCache;
-use crate::metrics::Metrics;
+use crate::context::Context;
 use crate::util::types::*;
 
 /// Query type for CNAMEs - used for cache lookups.
@@ -31,20 +30,17 @@ const CNAME_QTYPE: QueryType = QueryType::Record(RecordType::CNAME);
 /// # Errors
 ///
 /// See `ResolutionError`.
-pub fn resolve_local(
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
+pub fn resolve_local<CT>(
+    context: &mut Context<'_, CT>,
     question: &Question,
 ) -> Result<LocalResolutionResult, ResolutionError> {
     let _span = tracing::error_span!("resolve_local", %question).entered();
 
-    if question_stack.len() == question_stack.capacity() {
+    if context.at_recursion_limit() {
         tracing::debug!("hit recursion limit");
         return Err(ResolutionError::RecursionLimit);
     }
-    if question_stack.contains(question) {
+    if context.is_duplicate_question(question) {
         tracing::debug!("hit duplicate question");
         return Err(ResolutionError::DuplicateQuestion {
             question: question.clone(),
@@ -56,7 +52,7 @@ pub fn resolve_local(
     // `zones.resolve` implements the non-recursive part of step 3 of the
     // standard resolver algorithm: matching down through the zone and returning
     // what sort of end state is reached.
-    if let Some((zone, zone_result)) = zones.resolve(&question.name, question.qtype) {
+    if let Some((zone, zone_result)) = context.zones.resolve(&question.name, question.qtype) {
         let _zone_span = tracing::error_span!("zone", apex = %zone.get_apex().to_dotted_string(), is_authoritative = %zone.is_authoritative()).entered();
 
         match zone_result {
@@ -75,7 +71,7 @@ pub fn resolve_local(
             //    to the cache (handled below), and use a prioritising merge to
             //    combine the RR sets, preserving the override behaviour.
             ZoneResult::Answer { rrs } => {
-                metrics.zoneresult_answer(&rrs, zone, question);
+                context.metrics().zoneresult_answer(&rrs, zone, question);
 
                 if let Some(soa_rr) = zone.soa_rr() {
                     tracing::trace!("got authoritative answer");
@@ -105,7 +101,7 @@ pub fn resolve_local(
             // - if resolving it fails: return the response, which is
             // authoritative if and only if this starting zone is authoritative.
             ZoneResult::CNAME { cname, rr } => {
-                metrics.zoneresult_cname(zone);
+                context.metrics().zoneresult_cname(zone);
 
                 let mut rrs = vec![rr];
                 let cname_question = Question {
@@ -114,62 +110,61 @@ pub fn resolve_local(
                     qclass: question.qclass,
                 };
 
-                question_stack.push(question.clone());
-                let answer =
-                    match resolve_local(question_stack, metrics, zones, cache, &cname_question) {
-                        Ok(LocalResolutionResult::Done { resolved }) => match resolved {
-                            ResolvedRecord::Authoritative {
-                                rrs: mut cname_rrs,
-                                soa_rr,
-                            } => {
-                                rrs.append(&mut cname_rrs);
-                                tracing::trace!("got authoritative cname answer");
-                                LocalResolutionResult::Done {
-                                    resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
-                                }
-                            }
-                            ResolvedRecord::AuthoritativeNameError { soa_rr } => {
-                                tracing::trace!("got authoritative cname answer");
-                                LocalResolutionResult::Done {
-                                    resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
-                                }
-                            }
-                            ResolvedRecord::NonAuthoritative {
-                                rrs: mut cname_rrs,
-                                soa_rr,
-                            } => {
-                                tracing::trace!("got non-authoritative cname answer");
-                                rrs.append(&mut cname_rrs);
-                                LocalResolutionResult::Done {
-                                    resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr },
-                                }
-                            }
-                        },
-                        Ok(LocalResolutionResult::Partial { rrs: mut cname_rrs }) => {
-                            tracing::trace!("got partial cname answer");
-                            rrs.append(&mut cname_rrs);
-                            LocalResolutionResult::Partial { rrs }
-                        }
-                        Ok(LocalResolutionResult::CNAME {
+                context.push_question(question);
+                let answer = match resolve_local(context, &cname_question) {
+                    Ok(LocalResolutionResult::Done { resolved }) => match resolved {
+                        ResolvedRecord::Authoritative {
                             rrs: mut cname_rrs,
-                            cname_question,
-                        }) => {
-                            tracing::trace!("got incomplete cname answer");
+                            soa_rr,
+                        } => {
                             rrs.append(&mut cname_rrs);
-                            LocalResolutionResult::CNAME {
-                                rrs,
-                                cname_question,
+                            tracing::trace!("got authoritative cname answer");
+                            LocalResolutionResult::Done {
+                                resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
                             }
                         }
-                        _ => {
-                            tracing::trace!("got incomplete cname answer");
-                            LocalResolutionResult::CNAME {
-                                rrs,
-                                cname_question,
+                        ResolvedRecord::AuthoritativeNameError { soa_rr } => {
+                            tracing::trace!("got authoritative cname answer");
+                            LocalResolutionResult::Done {
+                                resolved: ResolvedRecord::Authoritative { rrs, soa_rr },
                             }
                         }
-                    };
-                question_stack.pop();
+                        ResolvedRecord::NonAuthoritative {
+                            rrs: mut cname_rrs,
+                            soa_rr,
+                        } => {
+                            tracing::trace!("got non-authoritative cname answer");
+                            rrs.append(&mut cname_rrs);
+                            LocalResolutionResult::Done {
+                                resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr },
+                            }
+                        }
+                    },
+                    Ok(LocalResolutionResult::Partial { rrs: mut cname_rrs }) => {
+                        tracing::trace!("got partial cname answer");
+                        rrs.append(&mut cname_rrs);
+                        LocalResolutionResult::Partial { rrs }
+                    }
+                    Ok(LocalResolutionResult::CNAME {
+                        rrs: mut cname_rrs,
+                        cname_question,
+                    }) => {
+                        tracing::trace!("got incomplete cname answer");
+                        rrs.append(&mut cname_rrs);
+                        LocalResolutionResult::CNAME {
+                            rrs,
+                            cname_question,
+                        }
+                    }
+                    _ => {
+                        tracing::trace!("got incomplete cname answer");
+                        LocalResolutionResult::CNAME {
+                            rrs,
+                            cname_question,
+                        }
+                    }
+                };
+                context.pop_question();
                 return Ok(answer);
             }
             // If the name is delegated:
@@ -180,7 +175,7 @@ pub fn resolve_local(
             // - otherwise ignore and proceed to cache.
             ZoneResult::Delegation { ns_rrs } => {
                 tracing::trace!("got delegation");
-                metrics.zoneresult_delegation(zone);
+                context.metrics().zoneresult_delegation(zone);
 
                 if let Some(soa_rr) = zone.soa_rr() {
                     if ns_rrs.is_empty() {
@@ -216,7 +211,7 @@ pub fn resolve_local(
             // - otherwise ignore and proceed to cache.
             ZoneResult::NameError => {
                 tracing::trace!("got name error");
-                metrics.zoneresult_nameerror(zone);
+                context.metrics().zoneresult_nameerror(zone);
 
                 if let Some(soa_rr) = zone.soa_rr() {
                     return Ok(LocalResolutionResult::Done {
@@ -244,24 +239,24 @@ pub fn resolve_local(
     // In all cases, consult the cache for an answer to the question, and
     // combine with the RRs we already have.
 
-    let mut rrs_from_cache = cache.get(&question.name, question.qtype);
+    let mut rrs_from_cache = context.cache.get(&question.name, question.qtype);
     if rrs_from_cache.is_empty() {
         tracing::trace!(qtype = %question.qtype, "cache MISS");
-        metrics.cache_miss();
+        context.metrics().cache_miss();
     } else {
         tracing::trace!(qtype = %question.qtype, "cache HIT");
-        metrics.cache_hit();
+        context.metrics().cache_hit();
     }
 
     let mut final_cname = None;
     if rrs_from_cache.is_empty() && question.qtype != CNAME_QTYPE {
-        let cache_cname_rrs = cache.get(&question.name, CNAME_QTYPE);
+        let cache_cname_rrs = context.cache.get(&question.name, CNAME_QTYPE);
         if cache_cname_rrs.is_empty() {
             tracing::trace!(qtype = %CNAME_QTYPE, "cache MISS");
-            metrics.cache_miss();
+            context.metrics().cache_miss();
         } else {
             tracing::trace!(qtype = %CNAME_QTYPE, "cache HIT");
-            metrics.cache_hit();
+            context.metrics().cache_hit();
         }
 
         if !cache_cname_rrs.is_empty() {
@@ -269,19 +264,16 @@ pub fn resolve_local(
             rrs_from_cache = vec![cname_rr.clone()];
 
             if let RecordTypeWithData::CNAME { cname } = cname_rr.rtype_with_data {
-                question_stack.push(question.clone());
+                context.push_question(question);
                 let resolved_cname = resolve_local(
-                    question_stack,
-                    metrics,
-                    zones,
-                    cache,
+                    context,
                     &Question {
                         name: cname.clone(),
                         qtype: question.qtype,
                         qclass: question.qclass,
                     },
                 );
-                question_stack.pop();
+                context.pop_question();
                 match resolved_cname {
                     Ok(LocalResolutionResult::Done { resolved }) => {
                         rrs_from_cache.append(&mut resolved.rrs());
@@ -391,6 +383,7 @@ mod tests {
 
     use super::*;
     use crate::cache::test_util::*;
+    use crate::cache::SharedCache;
 
     #[test]
     fn resolve_local_is_authoritative_for_zones_with_soa() {
@@ -691,10 +684,7 @@ mod tests {
 
         assert_eq!(
             resolve_local(
-                &mut Vec::with_capacity(10),
-                &mut Metrics::new(),
-                &zones(),
-                &SharedCache::new(),
+                &mut Context::new((), &zones(), &SharedCache::new(), 10),
                 &question
             ),
             Err(ResolutionError::DeadEnd {
@@ -726,10 +716,7 @@ mod tests {
 
         assert_eq!(
             resolve_local(
-                &mut Vec::with_capacity(10),
-                &mut Metrics::new(),
-                &zones(),
-                &SharedCache::new(),
+                &mut Context::new((), &zones(), &SharedCache::new(), 10),
                 &question,
             ),
             Err(ResolutionError::DeadEnd {
@@ -751,10 +738,7 @@ mod tests {
         qtype: QueryType,
     ) -> Result<LocalResolutionResult, ResolutionError> {
         resolve_local(
-            &mut Vec::with_capacity(10),
-            &mut Metrics::new(),
-            &zones(),
-            cache,
+            &mut Context::new((), &zones(), cache, 10),
             &Question {
                 name: domain(name),
                 qclass: QueryClass::Wildcard,

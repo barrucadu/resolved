@@ -5,13 +5,17 @@ use tokio::time::timeout;
 use tracing::Instrument;
 
 use dns_types::protocol::types::*;
-use dns_types::zones::types::*;
 
-use crate::cache::SharedCache;
-use crate::local::*;
-use crate::metrics::Metrics;
+use crate::context::Context;
+use crate::local::{resolve_local, LocalResolutionResult};
 use crate::util::nameserver::*;
 use crate::util::types::*;
+
+pub struct ForwardingContextInner {
+    pub forward_address: SocketAddr,
+}
+
+pub type ForwardingContext<'a> = Context<'a, ForwardingContextInner>;
 
 /// Forwarding DNS resolution.
 ///
@@ -25,24 +29,13 @@ use crate::util::types::*;
 /// # Errors
 ///
 /// See `ResolutionError`.
-pub async fn resolve_forwarding(
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    forward_address: SocketAddr,
-    zones: &Zones,
-    cache: &SharedCache,
+pub async fn resolve_forwarding<'a>(
+    context: &mut ForwardingContext<'a>,
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
         Duration::from_secs(60),
-        resolve_forwarding_notimeout(
-            question_stack,
-            metrics,
-            forward_address,
-            zones,
-            cache,
-            question,
-        ),
+        resolve_forwarding_notimeout(context, question),
     )
     .await
     {
@@ -55,19 +48,15 @@ pub async fn resolve_forwarding(
 
 /// Timeout-less version of `resolve_forwarding`.
 #[async_recursion]
-async fn resolve_forwarding_notimeout(
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    forward_address: SocketAddr,
-    zones: &Zones,
-    cache: &SharedCache,
+async fn resolve_forwarding_notimeout<'a>(
+    context: &mut ForwardingContext<'a>,
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
-    if question_stack.len() == question_stack.capacity() {
+    if context.at_recursion_limit() {
         tracing::debug!("hit recursion limit");
         return Err(ResolutionError::RecursionLimit);
     }
-    if question_stack.contains(question) {
+    if context.is_duplicate_question(question) {
         tracing::debug!("hit duplicate question");
         return Err(ResolutionError::DuplicateQuestion {
             question: question.clone(),
@@ -80,7 +69,7 @@ async fn resolve_forwarding_notimeout(
     //
     // - delegations are ignored (we just forward to the upstream nameserver)
     // - CNAMEs are resolved by calling the forwarding resolver recursively
-    match resolve_local(question_stack, metrics, zones, cache, question) {
+    match resolve_local(context, question) {
         Ok(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
         Ok(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
         Ok(LocalResolutionResult::Delegation { .. }) => (),
@@ -89,17 +78,10 @@ async fn resolve_forwarding_notimeout(
             cname_question,
             ..
         }) => {
-            question_stack.push(question.clone());
-            let answer = match resolve_forwarding_notimeout(
-                question_stack,
-                metrics,
-                forward_address,
-                zones,
-                cache,
-                &cname_question,
-            )
-            .instrument(tracing::error_span!("resolve_forwarding", %cname_question))
-            .await
+            context.push_question(question);
+            let answer = match resolve_forwarding_notimeout(context, &cname_question)
+                .instrument(tracing::error_span!("resolve_forwarding", %cname_question))
+                .await
             {
                 Ok(resolved) => {
                     let soa_rr = resolved.soa_rr();
@@ -116,29 +98,29 @@ async fn resolve_forwarding_notimeout(
                     question: cname_question,
                 }),
             };
-            question_stack.pop();
+            context.pop_question();
             return answer;
         }
         Err(_) => (),
     }
 
-    if let Some(response) = query_nameserver(forward_address, question, true)
+    if let Some(response) = query_nameserver(context.r.forward_address, question, true)
         .instrument(tracing::error_span!("query_nameserver"))
         .await
     {
-        metrics.nameserver_hit();
+        context.metrics().nameserver_hit();
         tracing::trace!("nameserver HIT");
         // Propagate SOA RR for NXDOMAIN / NODATA responses
         let soa_rr = get_nxdomain_nodata_soa(question, &response, 0);
         let rrs = response.answers;
-        cache.insert_all(&rrs);
+        context.cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);
         Ok(ResolvedRecord::NonAuthoritative {
             rrs: combined_rrs,
             soa_rr,
         })
     } else {
-        metrics.nameserver_miss();
+        context.metrics().nameserver_miss();
         tracing::trace!("nameserver MISS");
         Err(ResolutionError::DeadEnd {
             question: question.clone(),
