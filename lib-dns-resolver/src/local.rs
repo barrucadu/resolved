@@ -763,7 +763,7 @@ mod tests {
 
         zones.insert(
             Zone::deserialise(
-                r#"
+                r"
 $ORIGIN example.com.
 
 a              300 IN A     1.1.1.1
@@ -772,14 +772,14 @@ cname-cycle-a  300 IN CNAME cname-cycle-b
 cname-cycle-b  300 IN CNAME cname-cycle-a
 delegated      300 IN NS    ns.delegated
 trailing-cname 300 IN CNAME somewhere-else
-"#,
+",
             )
             .unwrap(),
         );
 
         zones.insert(
             Zone::deserialise(
-                r#"
+                r"
 $ORIGIN authoritative.example.com.
 
 @ IN SOA mname rname 1 30 30 30 30
@@ -790,20 +790,20 @@ cname-and-a            300 IN CNAME www
 cname-authoritative    300 IN CNAME www
 cname-nonauthoritative 300 IN CNAME a.example.com.
 delegated              300 IN NS    ns.delegated
-"#,
+",
             )
             .unwrap(),
         );
 
         zones.insert(
             Zone::deserialise(
-                r#"
+                r"
 $ORIGIN authoritative-2.example.com.
 
 @ IN SOA mname rname 1 30 30 30 30
 
 cname 300 IN CNAME www.authoritative.example.com.
-"#,
+",
             )
             .unwrap(),
         );
