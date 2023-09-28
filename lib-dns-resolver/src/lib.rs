@@ -12,6 +12,7 @@
 #![allow(clippy::wildcard_imports)]
 
 pub mod cache;
+pub mod context;
 pub mod forwarding;
 pub mod local;
 pub mod metrics;
@@ -25,10 +26,11 @@ use dns_types::protocol::types::Question;
 use dns_types::zones::types::Zones;
 
 use self::cache::SharedCache;
-use self::forwarding::resolve_forwarding;
+use self::context::Context;
+use self::forwarding::{resolve_forwarding, ForwardingContextInner};
 use self::local::resolve_local;
 use self::metrics::Metrics;
-use self::recursive::resolve_recursive;
+use self::recursive::{resolve_recursive, RecursiveContextInner};
 use self::util::types::{ProtocolMode, ResolutionError, ResolvedRecord};
 
 /// Maximum recursion depth.  Recursion is used to resolve CNAMEs, so
@@ -49,38 +51,40 @@ pub async fn resolve(
     cache: &SharedCache,
     question: &Question,
 ) -> (Metrics, Result<ResolvedRecord, ResolutionError>) {
-    let mut question_stack = Vec::with_capacity(RECURSION_LIMIT);
-    let mut metrics = Metrics::new();
-
-    let rr = if is_recursive {
-        if let Some(address) = forward_address {
-            resolve_forwarding(
-                &mut question_stack,
-                &mut metrics,
-                address,
+    match (is_recursive, forward_address) {
+        (true, Some(address)) => {
+            let mut context = Context::new(
+                ForwardingContextInner {
+                    forward_address: address,
+                },
                 zones,
                 cache,
-                question,
-            )
-            .instrument(tracing::error_span!("resolve_forwarding", %address, %question))
-            .await
-        } else {
-            resolve_recursive(
-                protocol_mode,
-                upstream_dns_port,
-                &mut question_stack,
-                &mut metrics,
-                zones,
-                cache,
-                question,
-            )
-            .instrument(tracing::error_span!("resolve_recursive", %question))
-            .await
+                RECURSION_LIMIT,
+            );
+            let result = resolve_forwarding(&mut context, question)
+                .instrument(tracing::error_span!("resolve_forwarding", %address, %question))
+                .await;
+            (context.done(), result)
         }
-    } else {
-        resolve_local(&mut question_stack, &mut metrics, zones, cache, question)
-            .map(ResolvedRecord::from)
-    };
-
-    (metrics, rr)
+        (true, None) => {
+            let mut context = Context::new(
+                RecursiveContextInner {
+                    protocol_mode,
+                    upstream_dns_port,
+                },
+                zones,
+                cache,
+                RECURSION_LIMIT,
+            );
+            let result = resolve_recursive(&mut context, question)
+                .instrument(tracing::error_span!("resolve_recursive", %question))
+                .await;
+            (context.done(), result)
+        }
+        (false, _) => {
+            let mut context = Context::new((), zones, cache, RECURSION_LIMIT);
+            let result = resolve_local(&mut context, question).map(ResolvedRecord::from);
+            (context.done(), result)
+        }
+    }
 }

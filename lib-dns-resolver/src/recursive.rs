@@ -7,13 +7,18 @@ use tokio::time::timeout;
 use tracing::Instrument;
 
 use dns_types::protocol::types::*;
-use dns_types::zones::types::*;
 
-use crate::cache::SharedCache;
-use crate::local::*;
-use crate::metrics::Metrics;
+use crate::context::Context;
+use crate::local::{resolve_local, LocalResolutionResult};
 use crate::util::nameserver::*;
 use crate::util::types::*;
+
+pub struct RecursiveContextInner {
+    pub protocol_mode: ProtocolMode,
+    pub upstream_dns_port: u16,
+}
+
+pub type RecursiveContext<'a> = Context<'a, RecursiveContextInner>;
 
 /// Recursive DNS resolution.
 ///
@@ -29,26 +34,13 @@ use crate::util::types::*;
 /// # Errors
 ///
 /// See `ResolutionError`.
-pub async fn resolve_recursive(
-    protocol_mode: ProtocolMode,
-    upstream_dns_port: u16,
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
+pub async fn resolve_recursive<'a>(
+    context: &mut RecursiveContext<'a>,
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
         Duration::from_secs(60),
-        resolve_recursive_notimeout(
-            protocol_mode,
-            upstream_dns_port,
-            question_stack,
-            metrics,
-            zones,
-            cache,
-            question,
-        ),
+        resolve_recursive_notimeout(context, question),
     )
     .await
     {
@@ -61,20 +53,15 @@ pub async fn resolve_recursive(
 
 /// Timeout-less version of `resolve_recursive`.
 #[async_recursion]
-async fn resolve_recursive_notimeout(
-    protocol_mode: ProtocolMode,
-    upstream_dns_port: u16,
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
+async fn resolve_recursive_notimeout<'a>(
+    context: &mut RecursiveContext<'a>,
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
-    if question_stack.len() == question_stack.capacity() {
+    if context.at_recursion_limit() {
         tracing::debug!("hit recursion limit");
         return Err(ResolutionError::RecursionLimit);
     }
-    if question_stack.contains(question) {
+    if context.is_duplicate_question(question) {
         tracing::debug!("hit duplicate question");
         return Err(ResolutionError::DuplicateQuestion {
             question: question.clone(),
@@ -84,7 +71,7 @@ async fn resolve_recursive_notimeout(
     let mut candidates = None;
     let mut combined_rrs = Vec::new();
 
-    match resolve_local(question_stack, metrics, zones, cache, question) {
+    match resolve_local(context, question) {
         Ok(LocalResolutionResult::Done { resolved }) => return Ok(resolved),
         Ok(LocalResolutionResult::Partial { rrs }) => combined_rrs = rrs,
         Ok(LocalResolutionResult::Delegation { delegation, .. }) => candidates = Some(delegation),
@@ -93,28 +80,18 @@ async fn resolve_recursive_notimeout(
             cname_question,
             ..
         }) => {
-            question_stack.push(question.clone());
-            let answer = resolve_combined_recursive(
-                protocol_mode,
-                upstream_dns_port,
-                question_stack,
-                metrics,
-                zones,
-                cache,
-                rrs,
-                cname_question,
-            )
-            .await;
-            question_stack.pop();
+            context.push_question(question);
+            let answer = resolve_combined_recursive(context, rrs, cname_question).await;
+            context.pop_question();
             return answer;
         }
         Err(_) => (),
     }
 
-    question_stack.push(question.clone());
+    context.push_question(question);
 
     if candidates.is_none() {
-        candidates = candidate_nameservers(question_stack, metrics, zones, cache, &question.name);
+        candidates = candidate_nameservers(context, &question.name);
     }
 
     if let Some(candidates) = candidates {
@@ -125,20 +102,11 @@ async fn resolve_recursive_notimeout(
 
         while let Some(candidate) = candidate_hostnames.pop() {
             tracing::trace!(?candidate, "got candidate nameserver");
-            if let Some(ip) = resolve_hostname_to_ip(
-                protocol_mode,
-                upstream_dns_port,
-                question_stack,
-                metrics,
-                zones,
-                cache,
-                resolve_candidates_locally,
-                candidate.clone(),
-            )
-            .await
+            if let Some(ip) =
+                resolve_hostname_to_ip(context, resolve_candidates_locally, candidate.clone()).await
             {
                 if let Some(nameserver_response) =
-                    query_nameserver((ip, upstream_dns_port).into(), question, false)
+                    query_nameserver((ip, context.r.upstream_dns_port).into(), question, false)
                         .instrument(
                             tracing::error_span!("query_nameserver", address = %ip, %match_count),
                         )
@@ -150,22 +118,17 @@ async fn resolve_recursive_notimeout(
                     } else {
                         tracing::trace!(?candidate, "resolved slow candidate");
                     }
-                    metrics.nameserver_hit();
+                    context.metrics().nameserver_hit();
                     match resolve_with_nameserver_response(
-                        protocol_mode,
-                        upstream_dns_port,
-                        question_stack,
-                        metrics,
-                        zones,
-                        cache,
-                        question,
+                        context,
                         combined_rrs.clone(),
                         nameserver_response,
+                        question,
                     )
                     .await
                     {
                         Ok(result) => {
-                            question_stack.pop();
+                            context.pop_question();
                             return result;
                         }
                         Err(delegation) => {
@@ -177,11 +140,11 @@ async fn resolve_recursive_notimeout(
                         }
                     }
                 } else {
-                    metrics.nameserver_miss();
+                    context.metrics().nameserver_miss();
                     // TODO: should distinguish between timeouts and other
                     // failures here, and try the next nameserver after a
                     // timeout.
-                    question_stack.pop();
+                    context.pop_question();
                     return Err(ResolutionError::DeadEnd {
                         question: question.clone(),
                     });
@@ -204,7 +167,7 @@ async fn resolve_recursive_notimeout(
     }
 
     tracing::trace!("out of candidates");
-    question_stack.pop();
+    context.pop_question();
     Err(ResolutionError::DeadEnd {
         question: question.clone(),
     })
@@ -212,23 +175,17 @@ async fn resolve_recursive_notimeout(
 
 /// Helper function for answering a question given a response from an upstream
 /// nameserver: this will only do further querying if the response is a CNAME.
-#[allow(clippy::too_many_arguments)]
 #[async_recursion]
-async fn resolve_with_nameserver_response(
-    protocol_mode: ProtocolMode,
-    upstream_dns_port: u16,
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
-    question: &Question,
+async fn resolve_with_nameserver_response<'a>(
+    context: &mut RecursiveContext<'a>,
     mut combined_rrs: Vec<ResourceRecord>,
     nameserver_response: NameserverResponse,
+    question: &Question,
 ) -> Result<Result<ResolvedRecord, ResolutionError>, Nameservers> {
     match nameserver_response {
         NameserverResponse::Answer { rrs, soa_rr, .. } => {
             tracing::trace!("got recursive answer");
-            cache.insert_all(&rrs);
+            context.cache.insert_all(&rrs);
             prioritising_merge(&mut combined_rrs, rrs);
             Ok(Ok(ResolvedRecord::NonAuthoritative {
                 rrs: combined_rrs,
@@ -238,7 +195,7 @@ async fn resolve_with_nameserver_response(
         NameserverResponse::Delegation {
             rrs, delegation, ..
         } => {
-            cache.insert_all(&rrs);
+            context.cache.insert_all(&rrs);
             if question.qtype == QueryType::Record(RecordType::A) {
                 if let Some(rr) = get_record(&rrs, &question.name, RecordType::A) {
                     tracing::trace!("got recursive delegation - using glue A record");
@@ -263,24 +220,15 @@ async fn resolve_with_nameserver_response(
         }
         NameserverResponse::CNAME { rrs, cname, .. } => {
             tracing::trace!("got recursive CNAME");
-            cache.insert_all(&rrs);
+            context.cache.insert_all(&rrs);
             prioritising_merge(&mut combined_rrs, rrs);
             let cname_question = Question {
                 name: cname,
                 qclass: question.qclass,
                 qtype: question.qtype,
             };
-            let cname_answer = resolve_combined_recursive(
-                protocol_mode,
-                upstream_dns_port,
-                question_stack,
-                metrics,
-                zones,
-                cache,
-                combined_rrs,
-                cname_question,
-            )
-            .await;
+            let cname_answer =
+                resolve_combined_recursive(context, combined_rrs, cname_question).await;
             Ok(cname_answer)
         }
     }
@@ -288,28 +236,14 @@ async fn resolve_with_nameserver_response(
 
 /// Helper function for resolving CNAMEs: resolve, and add some existing RRs to
 /// the ANSWER section of the result.
-#[allow(clippy::too_many_arguments)]
-async fn resolve_combined_recursive(
-    protocol_mode: ProtocolMode,
-    upstream_dns_port: u16,
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
+async fn resolve_combined_recursive<'a>(
+    context: &mut RecursiveContext<'a>,
     mut rrs: Vec<ResourceRecord>,
     question: Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
-    match resolve_recursive_notimeout(
-        protocol_mode,
-        upstream_dns_port,
-        question_stack,
-        metrics,
-        zones,
-        cache,
-        &question,
-    )
-    .instrument(tracing::error_span!("resolve_combined_recursive", %question))
-    .await
+    match resolve_recursive_notimeout(context, &question)
+        .instrument(tracing::error_span!("resolve_combined_recursive", %question))
+        .await
     {
         Ok(resolved) => {
             let soa_rr = resolved.soa_rr();
@@ -322,18 +256,12 @@ async fn resolve_combined_recursive(
 
 /// Resolve a hostname into an IP address, optionally only doing local
 /// resolution.
-#[allow(clippy::too_many_arguments)]
-async fn resolve_hostname_to_ip(
-    protocol_mode: ProtocolMode,
-    upstream_dns_port: u16,
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
+async fn resolve_hostname_to_ip<'a>(
+    context: &mut RecursiveContext<'a>,
     resolve_locally: bool,
     hostname: DomainName,
 ) -> Option<IpAddr> {
-    let rtypes = match protocol_mode {
+    let rtypes = match context.r.protocol_mode {
         ProtocolMode::OnlyV4 => vec![RecordType::A],
         ProtocolMode::PreferV4 => vec![RecordType::A, RecordType::AAAA],
         ProtocolMode::PreferV6 => vec![RecordType::AAAA, RecordType::A],
@@ -348,25 +276,14 @@ async fn resolve_hostname_to_ip(
         };
 
         if resolve_locally {
-            if let Ok(LocalResolutionResult::Done { resolved }) =
-                resolve_local(question_stack, metrics, zones, cache, &question)
+            if let Ok(LocalResolutionResult::Done { resolved }) = resolve_local(context, &question)
             {
                 let address = get_ip(&resolved.rrs(), &hostname, rtype);
                 if address.is_some() {
                     return address;
                 }
             }
-        } else if let Ok(result) = resolve_recursive_notimeout(
-            protocol_mode,
-            upstream_dns_port,
-            question_stack,
-            metrics,
-            zones,
-            cache,
-            &question,
-        )
-        .await
-        {
+        } else if let Ok(result) = resolve_recursive_notimeout(context, &question).await {
             let address = get_ip(&result.rrs(), &hostname, rtype);
             if address.is_some() {
                 return address;
@@ -383,10 +300,7 @@ async fn resolve_hostname_to_ip(
 ///
 /// This corresponds to step 2 of the standard resolver algorithm.
 fn candidate_nameservers(
-    question_stack: &mut Vec<Question>,
-    metrics: &mut Metrics,
-    zones: &Zones,
-    cache: &SharedCache,
+    context: &mut RecursiveContext<'_>,
     question: &DomainName,
 ) -> Option<Nameservers> {
     for i in 0..question.labels.len() {
@@ -400,9 +314,7 @@ fn candidate_nameservers(
 
             let mut hostnames = Vec::new();
 
-            if let Ok(LocalResolutionResult::Done { resolved }) =
-                resolve_local(question_stack, metrics, zones, cache, &ns_q)
-            {
+            if let Ok(LocalResolutionResult::Done { resolved }) = resolve_local(context, &ns_q) {
                 for ns_rr in resolved.rrs() {
                     if let RecordTypeWithData::NS { nsdname } = &ns_rr.rtype_with_data {
                         hostnames.push(nsdname.clone());
@@ -708,6 +620,7 @@ mod tests {
     use dns_types::zones::types::*;
 
     use super::*;
+    use crate::cache::SharedCache;
     use crate::util::nameserver::test_util::*;
 
     #[test]
@@ -719,10 +632,15 @@ mod tests {
                 name: qdomain.clone(),
             }),
             candidate_nameservers(
-                &mut question_stack(),
-                &mut Metrics::new(),
-                &Zones::new(),
-                &cache_with_nameservers(&["com."]),
+                &mut Context::new(
+                    RecursiveContextInner {
+                        protocol_mode: ProtocolMode::PreferV4,
+                        upstream_dns_port: 53,
+                    },
+                    &Zones::new(),
+                    &cache_with_nameservers(&["com."]),
+                    10,
+                ),
                 &qdomain
             )
         );
@@ -736,10 +654,15 @@ mod tests {
                 name: domain("example.com."),
             }),
             candidate_nameservers(
-                &mut question_stack(),
-                &mut Metrics::new(),
-                &Zones::new(),
-                &cache_with_nameservers(&["example.com.", "com."]),
+                &mut Context::new(
+                    RecursiveContextInner {
+                        protocol_mode: ProtocolMode::PreferV4,
+                        upstream_dns_port: 53,
+                    },
+                    &Zones::new(),
+                    &cache_with_nameservers(&["example.com.", "com."]),
+                    10,
+                ),
                 &domain("www.example.com.")
             )
         );
@@ -750,10 +673,15 @@ mod tests {
         assert_eq!(
             None,
             candidate_nameservers(
-                &mut question_stack(),
-                &mut Metrics::new(),
-                &Zones::new(),
-                &cache_with_nameservers(&["com."]),
+                &mut Context::new(
+                    RecursiveContextInner {
+                        protocol_mode: ProtocolMode::PreferV4,
+                        upstream_dns_port: 53,
+                    },
+                    &Zones::new(),
+                    &cache_with_nameservers(&["com."]),
+                    10,
+                ),
                 &domain("net.")
             )
         );
@@ -1275,10 +1203,6 @@ mod tests {
                 RecordType::A,
             )
         );
-    }
-
-    fn question_stack() -> Vec<Question> {
-        Vec::with_capacity(10)
     }
 
     fn cache_with_nameservers(names: &[&str]) -> SharedCache {
