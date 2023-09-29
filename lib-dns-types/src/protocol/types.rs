@@ -144,6 +144,10 @@ impl Message {
 /// ```
 ///
 /// See section 4.1.1 of RFC 1035.
+///
+/// The QECOUNT, ANCOUNT, NSCOUNT, and ARCOUNT fields are omitted from this
+/// type, as they are only used during serialisation and deserialisation and can
+/// be inferred from the other `Message` fields.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
 pub struct Header {
@@ -223,34 +227,6 @@ pub struct Header {
     ///
     /// - `6-15` Reserved for future use.
     pub rcode: Rcode,
-}
-
-/// A `Header` as it appears on the network.  This type is used for
-/// serialisation and deserialisation only: including the count fields
-/// in the normal `Header` type would require ensuring those values
-/// are correct.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
-pub struct WireHeader {
-    /// The header that will be persisted to / is taken from the
-    /// `Message`.
-    pub header: Header,
-
-    /// an unsigned 16 bit integer specifying the number of entries in
-    /// the question section.
-    pub qdcount: u16,
-
-    /// an unsigned 16 bit integer specifying the number of resource
-    /// records in the answer section.
-    pub ancount: u16,
-
-    /// an unsigned 16 bit integer specifying the number of name
-    /// server resource records in the authority records section.
-    pub nscount: u16,
-
-    /// an unsigned 16 bit integer specifying the number of
-    /// resource records in the additional records section.
-    pub arcount: u16,
 }
 
 /// The question section has a list of questions (usually 1 but

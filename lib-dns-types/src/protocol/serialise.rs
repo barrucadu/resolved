@@ -24,14 +24,11 @@ impl Message {
         let nscount = usize_to_u16(self.authority.len())?;
         let arcount = usize_to_u16(self.additional.len())?;
 
-        WireHeader {
-            header: self.header,
-            qdcount,
-            ancount,
-            nscount,
-            arcount,
-        }
-        .serialise(buffer);
+        self.header.serialise(buffer);
+        buffer.write_u16(qdcount);
+        buffer.write_u16(ancount);
+        buffer.write_u16(nscount);
+        buffer.write_u16(arcount);
 
         for question in self.questions {
             question.serialise(buffer);
@@ -50,46 +47,33 @@ impl Message {
     }
 }
 
-impl WireHeader {
+impl Header {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
         // octet 1
-        let flag_qr = if self.header.is_response {
-            HEADER_MASK_QR
-        } else {
-            0
-        };
-        let field_opcode =
-            HEADER_MASK_OPCODE & (u8::from(self.header.opcode) << HEADER_OFFSET_OPCODE);
-        let flag_aa = if self.header.is_authoritative {
+        let flag_qr = if self.is_response { HEADER_MASK_QR } else { 0 };
+        let field_opcode = HEADER_MASK_OPCODE & (u8::from(self.opcode) << HEADER_OFFSET_OPCODE);
+        let flag_aa = if self.is_authoritative {
             HEADER_MASK_AA
         } else {
             0
         };
-        let flag_tc = if self.header.is_truncated {
-            HEADER_MASK_TC
-        } else {
-            0
-        };
-        let flag_rd = if self.header.recursion_desired {
+        let flag_tc = if self.is_truncated { HEADER_MASK_TC } else { 0 };
+        let flag_rd = if self.recursion_desired {
             HEADER_MASK_RD
         } else {
             0
         };
         // octet 2
-        let flag_ra = if self.header.recursion_available {
+        let flag_ra = if self.recursion_available {
             HEADER_MASK_RA
         } else {
             0
         };
-        let field_rcode = HEADER_MASK_RCODE & (u8::from(self.header.rcode) << HEADER_OFFSET_RCODE);
+        let field_rcode = HEADER_MASK_RCODE & (u8::from(self.rcode) << HEADER_OFFSET_RCODE);
 
-        buffer.write_u16(self.header.id);
+        buffer.write_u16(self.id);
         buffer.write_u8(flag_qr | field_opcode | flag_aa | flag_tc | flag_rd);
         buffer.write_u8(flag_ra | field_rcode);
-        buffer.write_u16(self.qdcount);
-        buffer.write_u16(self.ancount);
-        buffer.write_u16(self.nscount);
-        buffer.write_u16(self.arcount);
     }
 }
 
