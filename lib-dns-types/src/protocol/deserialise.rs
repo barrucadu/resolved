@@ -18,27 +18,32 @@ impl Message {
     ///
     /// If the message cannot be parsed.
     pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
-        let wire_header = WireHeader::deserialise(buffer)?;
-        let mut questions = Vec::with_capacity(wire_header.qdcount.into());
-        let mut answers = Vec::with_capacity(wire_header.ancount.into());
-        let mut authority = Vec::with_capacity(wire_header.nscount.into());
-        let mut additional = Vec::with_capacity(wire_header.arcount.into());
+        let header = Header::deserialise(buffer)?;
+        let qdcount = buffer.next_u16().ok_or(Error::HeaderTooShort(header.id))?;
+        let ancount = buffer.next_u16().ok_or(Error::HeaderTooShort(header.id))?;
+        let nscount = buffer.next_u16().ok_or(Error::HeaderTooShort(header.id))?;
+        let arcount = buffer.next_u16().ok_or(Error::HeaderTooShort(header.id))?;
 
-        for _ in 0..wire_header.qdcount {
-            questions.push(Question::deserialise(wire_header.header.id, buffer)?);
+        let mut questions = Vec::with_capacity(qdcount.into());
+        let mut answers = Vec::with_capacity(ancount.into());
+        let mut authority = Vec::with_capacity(nscount.into());
+        let mut additional = Vec::with_capacity(arcount.into());
+
+        for _ in 0..qdcount {
+            questions.push(Question::deserialise(header.id, buffer)?);
         }
-        for _ in 0..wire_header.ancount {
-            answers.push(ResourceRecord::deserialise(wire_header.header.id, buffer)?);
+        for _ in 0..ancount {
+            answers.push(ResourceRecord::deserialise(header.id, buffer)?);
         }
-        for _ in 0..wire_header.nscount {
-            authority.push(ResourceRecord::deserialise(wire_header.header.id, buffer)?);
+        for _ in 0..nscount {
+            authority.push(ResourceRecord::deserialise(header.id, buffer)?);
         }
-        for _ in 0..wire_header.arcount {
-            additional.push(ResourceRecord::deserialise(wire_header.header.id, buffer)?);
+        for _ in 0..arcount {
+            additional.push(ResourceRecord::deserialise(header.id, buffer)?);
         }
 
         Ok(Self {
-            header: wire_header.header,
+            header,
             questions,
             answers,
             authority,
@@ -47,7 +52,7 @@ impl Message {
     }
 }
 
-impl WireHeader {
+impl Header {
     /// # Errors
     ///
     /// If the header is too short.
@@ -55,26 +60,16 @@ impl WireHeader {
         let id = buffer.next_u16().ok_or(Error::CompletelyBusted)?;
         let flags1 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
         let flags2 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
-        let qdcount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
-        let ancount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
-        let nscount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
-        let arcount = buffer.next_u16().ok_or(Error::HeaderTooShort(id))?;
 
         Ok(Self {
-            header: Header {
-                id,
-                is_response: flags1 & HEADER_MASK_QR != 0,
-                opcode: Opcode::from((flags1 & HEADER_MASK_OPCODE) >> HEADER_OFFSET_OPCODE),
-                is_authoritative: flags1 & HEADER_MASK_AA != 0,
-                is_truncated: flags1 & HEADER_MASK_TC != 0,
-                recursion_desired: flags1 & HEADER_MASK_RD != 0,
-                recursion_available: flags2 & HEADER_MASK_RA != 0,
-                rcode: Rcode::from((flags2 & HEADER_MASK_RCODE) >> HEADER_OFFSET_RCODE),
-            },
-            qdcount,
-            ancount,
-            nscount,
-            arcount,
+            id,
+            is_response: flags1 & HEADER_MASK_QR != 0,
+            opcode: Opcode::from((flags1 & HEADER_MASK_OPCODE) >> HEADER_OFFSET_OPCODE),
+            is_authoritative: flags1 & HEADER_MASK_AA != 0,
+            is_truncated: flags1 & HEADER_MASK_TC != 0,
+            recursion_desired: flags1 & HEADER_MASK_RD != 0,
+            recursion_available: flags2 & HEADER_MASK_RA != 0,
+            rcode: Rcode::from((flags2 & HEADER_MASK_RCODE) >> HEADER_OFFSET_RCODE),
         })
     }
 }
