@@ -1,6 +1,8 @@
 //! Serialisation of DNS messages to the wire format.  See the `types`
 //! module for details of the format.
 
+use std::collections::HashMap;
+
 use crate::protocol::types::*;
 
 impl Message {
@@ -79,7 +81,7 @@ impl Header {
 
 impl Question {
     pub fn serialise(self, buffer: &mut WritableBuffer) {
-        self.name.serialise(buffer);
+        self.name.serialise(buffer, true);
         self.qtype.serialise(buffer);
         self.qclass.serialise(buffer);
     }
@@ -90,7 +92,7 @@ impl ResourceRecord {
     ///
     /// If the RDATA is too long.
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
-        self.name.serialise(buffer);
+        self.name.serialise(buffer, true);
         self.rtype_with_data.rtype().serialise(buffer);
         self.rclass.serialise(buffer);
         buffer.write_u32(self.ttl);
@@ -101,10 +103,10 @@ impl ResourceRecord {
 
         match self.rtype_with_data {
             RecordTypeWithData::A { address } => buffer.write_octets(&address.octets()),
-            RecordTypeWithData::NS { nsdname } => buffer.write_octets(&nsdname.octets),
-            RecordTypeWithData::MD { madname } => buffer.write_octets(&madname.octets),
-            RecordTypeWithData::MF { madname } => buffer.write_octets(&madname.octets),
-            RecordTypeWithData::CNAME { cname } => buffer.write_octets(&cname.octets),
+            RecordTypeWithData::NS { nsdname } => nsdname.serialise(buffer, false),
+            RecordTypeWithData::MD { madname } => madname.serialise(buffer, false),
+            RecordTypeWithData::MF { madname } => madname.serialise(buffer, false),
+            RecordTypeWithData::CNAME { cname } => cname.serialise(buffer, false),
             RecordTypeWithData::SOA {
                 mname,
                 rname,
@@ -114,31 +116,31 @@ impl ResourceRecord {
                 expire,
                 minimum,
             } => {
-                buffer.write_octets(&mname.octets);
-                buffer.write_octets(&rname.octets);
+                mname.serialise(buffer, false);
+                rname.serialise(buffer, false);
                 buffer.write_u32(serial);
                 buffer.write_u32(refresh);
                 buffer.write_u32(retry);
                 buffer.write_u32(expire);
                 buffer.write_u32(minimum);
             }
-            RecordTypeWithData::MB { madname } => buffer.write_octets(&madname.octets),
-            RecordTypeWithData::MG { mdmname } => buffer.write_octets(&mdmname.octets),
-            RecordTypeWithData::MR { newname } => buffer.write_octets(&newname.octets),
+            RecordTypeWithData::MB { madname } => madname.serialise(buffer, false),
+            RecordTypeWithData::MG { mdmname } => mdmname.serialise(buffer, false),
+            RecordTypeWithData::MR { newname } => newname.serialise(buffer, false),
             RecordTypeWithData::NULL { octets } => buffer.write_octets(&octets),
             RecordTypeWithData::WKS { octets } => buffer.write_octets(&octets),
-            RecordTypeWithData::PTR { ptrdname } => buffer.write_octets(&ptrdname.octets),
+            RecordTypeWithData::PTR { ptrdname } => ptrdname.serialise(buffer, false),
             RecordTypeWithData::HINFO { octets } => buffer.write_octets(&octets),
             RecordTypeWithData::MINFO { rmailbx, emailbx } => {
-                buffer.write_octets(&rmailbx.octets);
-                buffer.write_octets(&emailbx.octets);
+                rmailbx.serialise(buffer, false);
+                emailbx.serialise(buffer, false);
             }
             RecordTypeWithData::MX {
                 preference,
                 exchange,
             } => {
                 buffer.write_u16(preference);
-                buffer.write_octets(&exchange.octets);
+                exchange.serialise(buffer, false);
             }
             RecordTypeWithData::TXT { octets } => buffer.write_octets(&octets),
             RecordTypeWithData::AAAA { address } => buffer.write_octets(&address.octets()),
@@ -151,7 +153,7 @@ impl ResourceRecord {
                 buffer.write_u16(priority);
                 buffer.write_u16(weight);
                 buffer.write_u16(port);
-                buffer.write_octets(&target.octets);
+                target.serialise(buffer, false);
             }
             RecordTypeWithData::Unknown { octets, .. } => buffer.write_octets(&octets),
         };
@@ -167,11 +169,16 @@ impl ResourceRecord {
 }
 
 impl DomainName {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
-        // TODO: implement compression - this'll need some extra state
-        // in the WritableBuffer to keep track of previously-written
-        // domains and labels.
-        buffer.write_octets(&self.octets);
+    pub fn serialise(self, buffer: &mut WritableBuffer, compress: bool) {
+        if !compress {
+            buffer.memoise_name(&self);
+            buffer.write_octets(&self.octets);
+        } else if let Some(ptr) = buffer.name_pointer(&self) {
+            buffer.write_u16(ptr);
+        } else {
+            buffer.memoise_name(&self);
+            buffer.write_octets(&self.octets);
+        }
     }
 }
 
@@ -225,12 +232,14 @@ impl std::error::Error for Error {
 /// A buffer which can be written to, for serialisation purposes.
 pub struct WritableBuffer {
     pub octets: Vec<u8>,
+    name_pointers: HashMap<DomainName, u16>,
 }
 
 impl Default for WritableBuffer {
     fn default() -> Self {
         Self {
             octets: Vec::with_capacity(512),
+            name_pointers: HashMap::new(),
         }
     }
 }
@@ -238,6 +247,20 @@ impl Default for WritableBuffer {
 impl WritableBuffer {
     pub fn index(&self) -> usize {
         self.octets.len()
+    }
+
+    pub fn memoise_name(&mut self, name: &DomainName) {
+        if !name.is_root() && !self.name_pointers.contains_key(name) {
+            if let Ok(index) = u16::try_from(self.index()) {
+                let [hi, lo] = index.to_be_bytes();
+                self.name_pointers
+                    .insert(name.clone(), u16::from_be_bytes([hi | 0b1100_0000, lo]));
+            }
+        }
+    }
+
+    pub fn name_pointer(&self, name: &DomainName) -> Option<u16> {
+        self.name_pointers.get(name).copied()
     }
 
     pub fn write_u8(&mut self, octet: u8) {
@@ -283,6 +306,137 @@ fn usize_to_u16(counter: usize) -> Result<u16, Error> {
 mod tests {
     use super::*;
     use crate::protocol::types::test_util::*;
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_name_compression_opt_in() {
+        let mut buf = WritableBuffer::default();
+        buf.write_u8(1);
+        buf.write_u8(2);
+        buf.write_u8(3);
+        buf.write_u8(4);
+        domain("www.example.com.").serialise(&mut buf, true);
+        domain("www.example.com.").serialise(&mut buf, true);
+
+        assert_eq!(
+            vec![
+                1, 2, 3, 4,
+                // domain 1
+                3, 119, 119, 119, // "www"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+                // domain 2
+                0b1100_0000, 0b0000_0100 // pointer
+            ],
+            buf.octets,
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_name_compression_opt_out() {
+        let mut buf = WritableBuffer::default();
+        buf.write_u8(1);
+        buf.write_u8(2);
+        buf.write_u8(3);
+        buf.write_u8(4);
+        domain("www.example.com.").serialise(&mut buf, true);
+        domain("www.example.com.").serialise(&mut buf, false);
+
+        assert_eq!(
+            vec![
+                1, 2, 3, 4,
+                // domain 1
+                3, 119, 119, 119, // "www"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+                // domain 2
+                3, 119, 119, 119, // "www"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+            ],
+            buf.octets,
+        );
+    }
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_name_compression_records() {
+        let mut buf = WritableBuffer::default();
+        buf.write_u8(1);
+        buf.write_u8(2);
+        buf.write_u8(3);
+        buf.write_u8(4);
+
+        Question {
+            name: domain("www.example.com."),
+            qtype: QueryType::Wildcard,
+            qclass: QueryClass::Wildcard,
+        }.serialise(&mut buf);
+
+        let _ = ResourceRecord {
+            name: domain("www.example.com."),
+            rtype_with_data: RecordTypeWithData::MX {
+                preference: 32,
+                exchange: domain("mx.example.com."),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }.serialise(&mut buf);
+
+        let _ = ResourceRecord {
+            name: domain("mx.example.com."),
+            rtype_with_data: RecordTypeWithData::CNAME {
+                cname: domain("www.example.com."),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        }.serialise(&mut buf);
+
+        assert_eq!(
+            vec![
+                1, 2, 3, 4,
+                // QNAME
+                3, 119, 119, 119, // "www"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+                // QTYPE
+                0, 255,
+                // QCLASS
+                0, 255,
+                // NAME
+                0b1100_0000, 0b0000_0100, // pointer to "www.example.com"
+                // TYPE
+                0b0000_0000, 0b0000_1111, // MX
+                // CLASS
+                0b0000_0000, 0b0000_0001, // IN
+                // TTL
+                0b0000_0000, 0b0000_0000, 0b0000_0001, 0b0010_1100, // 300
+                // RDLENGTH
+                0b0000_0000, 0b0001_0010, // 18 octets
+                // RDATA
+                0, 32, // preference
+                2, 109, 120, // "mx"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+                // NAME
+                0b1100_0000, 0b0010_0111, // pointer to "mx.example.com"
+                // TYPE
+                0b0000_0000, 0b0000_0101, // CNAME
+                // CLASS
+                0b0000_0000, 0b0000_0001, // IN
+                // TTL
+                0b0000_0000, 0b0000_0000, 0b0000_0001, 0b0010_1100, // 300
+                // RDLENGTH
+                0b0000_0000, 0b0001_0001, // 17 octets
+                // RDATA
+                3, 119, 119, 119, // "www"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+            ],
+            buf.octets,
+        );
+    }
 
     #[test]
     #[rustfmt::skip]
