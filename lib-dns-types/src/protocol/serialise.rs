@@ -90,12 +90,21 @@ impl ResourceRecord {
     ///
     /// If the RDATA is too long.
     pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
-        let (rtype, rdata) = match self.rtype_with_data {
-            RecordTypeWithData::A { address } => (RecordType::A, Vec::from(address.octets())),
-            RecordTypeWithData::NS { nsdname } => (RecordType::NS, nsdname.octets),
-            RecordTypeWithData::MD { madname } => (RecordType::MD, madname.octets),
-            RecordTypeWithData::MF { madname } => (RecordType::MF, madname.octets),
-            RecordTypeWithData::CNAME { cname } => (RecordType::CNAME, cname.octets),
+        self.name.serialise(buffer);
+        self.rtype_with_data.rtype().serialise(buffer);
+        self.rclass.serialise(buffer);
+        buffer.write_u32(self.ttl);
+
+        // filled in below
+        let rdlength_index = buffer.index();
+        buffer.write_u16(0);
+
+        match self.rtype_with_data {
+            RecordTypeWithData::A { address } => buffer.write_octets(&address.octets()),
+            RecordTypeWithData::NS { nsdname } => buffer.write_octets(&nsdname.octets),
+            RecordTypeWithData::MD { madname } => buffer.write_octets(&madname.octets),
+            RecordTypeWithData::MF { madname } => buffer.write_octets(&madname.octets),
+            RecordTypeWithData::CNAME { cname } => buffer.write_octets(&cname.octets),
             RecordTypeWithData::SOA {
                 mname,
                 rname,
@@ -105,95 +114,53 @@ impl ResourceRecord {
                 expire,
                 minimum,
             } => {
-                let mut octets =
-                    Vec::with_capacity(mname.octets.len() + rname.octets.len() + 4 + 4 + 4 + 4 + 4);
-                for octet in mname.octets {
-                    octets.push(octet);
-                }
-                for octet in rname.octets {
-                    octets.push(octet);
-                }
-                for octet in serial.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in refresh.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in retry.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in expire.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in minimum.to_be_bytes() {
-                    octets.push(octet);
-                }
-                (RecordType::SOA, octets)
+                buffer.write_octets(&mname.octets);
+                buffer.write_octets(&rname.octets);
+                buffer.write_u32(serial);
+                buffer.write_u32(refresh);
+                buffer.write_u32(retry);
+                buffer.write_u32(expire);
+                buffer.write_u32(minimum);
             }
-            RecordTypeWithData::MB { madname } => (RecordType::MB, madname.octets),
-            RecordTypeWithData::MG { mdmname } => (RecordType::MG, mdmname.octets),
-            RecordTypeWithData::MR { newname } => (RecordType::MR, newname.octets),
-            RecordTypeWithData::NULL { octets } => (RecordType::NULL, octets),
-            RecordTypeWithData::WKS { octets } => (RecordType::WKS, octets),
-            RecordTypeWithData::PTR { ptrdname } => (RecordType::PTR, ptrdname.octets),
-            RecordTypeWithData::HINFO { octets } => (RecordType::HINFO, octets),
+            RecordTypeWithData::MB { madname } => buffer.write_octets(&madname.octets),
+            RecordTypeWithData::MG { mdmname } => buffer.write_octets(&mdmname.octets),
+            RecordTypeWithData::MR { newname } => buffer.write_octets(&newname.octets),
+            RecordTypeWithData::NULL { octets } => buffer.write_octets(&octets),
+            RecordTypeWithData::WKS { octets } => buffer.write_octets(&octets),
+            RecordTypeWithData::PTR { ptrdname } => buffer.write_octets(&ptrdname.octets),
+            RecordTypeWithData::HINFO { octets } => buffer.write_octets(&octets),
             RecordTypeWithData::MINFO { rmailbx, emailbx } => {
-                let mut octets = Vec::with_capacity(rmailbx.octets.len() + emailbx.octets.len());
-                for octet in rmailbx.octets {
-                    octets.push(octet);
-                }
-                for octet in emailbx.octets {
-                    octets.push(octet);
-                }
-                (RecordType::MINFO, octets)
+                buffer.write_octets(&rmailbx.octets);
+                buffer.write_octets(&emailbx.octets);
             }
             RecordTypeWithData::MX {
                 preference,
                 exchange,
             } => {
-                let mut octets = Vec::with_capacity(2 + exchange.octets.len());
-                for octet in preference.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in exchange.octets {
-                    octets.push(octet);
-                }
-                (RecordType::MX, octets)
+                buffer.write_u16(preference);
+                buffer.write_octets(&exchange.octets);
             }
-            RecordTypeWithData::TXT { octets } => (RecordType::TXT, octets),
-            RecordTypeWithData::AAAA { address } => (RecordType::AAAA, Vec::from(address.octets())),
+            RecordTypeWithData::TXT { octets } => buffer.write_octets(&octets),
+            RecordTypeWithData::AAAA { address } => buffer.write_octets(&address.octets()),
             RecordTypeWithData::SRV {
                 priority,
                 weight,
                 port,
                 target,
             } => {
-                let mut octets = Vec::with_capacity(2 + 2 + 2 + target.octets.len());
-                for octet in priority.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in weight.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in port.to_be_bytes() {
-                    octets.push(octet);
-                }
-                for octet in target.octets {
-                    octets.push(octet);
-                }
-                (RecordType::SRV, octets)
+                buffer.write_u16(priority);
+                buffer.write_u16(weight);
+                buffer.write_u16(port);
+                buffer.write_octets(&target.octets);
             }
-            RecordTypeWithData::Unknown { tag, octets } => (RecordType::Unknown(tag), octets),
+            RecordTypeWithData::Unknown { octets, .. } => buffer.write_octets(&octets),
         };
 
-        let rdlength = usize_to_u16(rdata.len())?;
-
-        self.name.serialise(buffer);
-        rtype.serialise(buffer);
-        self.rclass.serialise(buffer);
-        buffer.write_u32(self.ttl);
-        buffer.write_u16(rdlength);
-        buffer.write_octets(rdata);
+        // -2 so we don't also include the 2 octets for the rdlength
+        let rdlength = usize_to_u16(buffer.index() - rdlength_index - 2)?;
+        let [hi, lo] = rdlength.to_be_bytes();
+        buffer.octets[rdlength_index] = hi;
+        buffer.octets[rdlength_index + 1] = lo;
 
         Ok(())
     }
@@ -204,7 +171,7 @@ impl DomainName {
         // TODO: implement compression - this'll need some extra state
         // in the WritableBuffer to keep track of previously-written
         // domains and labels.
-        buffer.write_octets(self.octets);
+        buffer.write_octets(&self.octets);
     }
 }
 
@@ -269,6 +236,10 @@ impl Default for WritableBuffer {
 }
 
 impl WritableBuffer {
+    pub fn index(&self) -> usize {
+        self.octets.len()
+    }
+
     pub fn write_u8(&mut self, octet: u8) {
         self.octets.push(octet);
     }
@@ -285,9 +256,9 @@ impl WritableBuffer {
         }
     }
 
-    pub fn write_octets(&mut self, octets: Vec<u8>) {
+    pub fn write_octets(&mut self, octets: &[u8]) {
         for octet in octets {
-            self.octets.push(octet);
+            self.octets.push(*octet);
         }
     }
 }
@@ -305,5 +276,56 @@ fn usize_to_u16(counter: usize) -> Result<u16, Error> {
             counter,
             bits: u16::BITS,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::types::test_util::*;
+
+    #[test]
+    #[rustfmt::skip]
+    fn test_sets_rdlength() {
+        let mut buf = WritableBuffer::default();
+        buf.write_u8(1);
+        buf.write_u8(2);
+        buf.write_u8(3);
+        buf.write_u8(4);
+
+        let rr = ResourceRecord {
+            name: domain("www.example.com."),
+            rtype_with_data: RecordTypeWithData::MX {
+                preference: 32,
+                exchange: domain("mx.example.com."),
+            },
+            rclass: RecordClass::IN,
+            ttl: 300,
+        };
+        let _ = rr.serialise(&mut buf);
+
+        assert_eq!(
+            vec![
+                1, 2, 3, 4,
+                // NAME
+                3, 119, 119, 119, // "www"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+                // TYPE
+                0b0000_0000, 0b0000_1111, // MX
+                // CLASS
+                0b0000_0000, 0b0000_0001, // IN
+                // TTL
+                0b0000_0000, 0b0000_0000, 0b0000_0001, 0b0010_1100, // 300
+                // RDLENGTH
+                0b0000_0000, 0b0001_0010, // 18 octets
+                // RDATA
+                0, 32, // preference
+                2, 109, 120, // "mx"
+                7, 101, 120, 97, 109, 112, 108, 101, // "example"
+                3, 99, 111, 109, 0, // "com"
+            ],
+            buf.octets,
+        );
     }
 }
