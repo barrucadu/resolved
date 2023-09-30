@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
@@ -15,7 +16,7 @@ impl Zone {
                     .get_apex()
                     .to_dotted_string()
                     .bytes()
-                    .collect::<Vec<u8>>(),
+                    .collect::<Bytes>(),
                 false,
             );
 
@@ -100,18 +101,17 @@ impl Zone {
             } else if name == apex {
                 "@".to_string()
             } else {
-                let mut stripped = name.clone();
-                for _ in 0..apex.labels.len() {
-                    stripped.labels.pop();
+                let octets_to_keep = name.octets.len() - apex.octets.len();
+                let labels_to_keep = name.labels.len() - apex.labels.len();
+                DomainName {
+                    octets: Bytes::copy_from_slice(&name.octets[..octets_to_keep]),
+                    labels: Vec::from(&name.labels[..labels_to_keep]),
                 }
-                for _ in 0..apex.octets.len() {
-                    stripped.octets.pop();
-                }
-                stripped.to_dotted_string()
+                .to_dotted_string()
             }
         };
 
-        serialise_octets(&domain_str.bytes().collect::<Vec<u8>>(), false)
+        serialise_octets(&domain_str.bytes().collect::<Bytes>(), false)
     }
 
     /// Serialise the RDATA, with domains displayed relative to the apex (if

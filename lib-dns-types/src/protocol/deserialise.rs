@@ -2,6 +2,7 @@
 //!
 //! module for details of the format.
 
+use bytes::{BufMut, Bytes, BytesMut};
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use crate::protocol::types::*;
@@ -106,7 +107,7 @@ impl ResourceRecord {
 
         let mut raw_rdata = || {
             if let Some(octets) = buffer.take(rdlength as usize) {
-                Ok(octets.to_vec())
+                Ok(Bytes::copy_from_slice(octets))
             } else {
                 Err(Error::ResourceRecordTooShort(id))
             }
@@ -218,7 +219,7 @@ impl DomainName {
     /// If the domain cannot be parsed.
     #[allow(clippy::missing_panics_doc)]
     pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
-        let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
+        let mut octets = BytesMut::with_capacity(DOMAINNAME_MAX_LEN);
         let mut labels = Vec::<Label>::with_capacity(5);
         let start = buffer.position;
 
@@ -226,7 +227,7 @@ impl DomainName {
             let size = buffer.next_u8().ok_or(Error::DomainTooShort(id))?;
 
             if usize::from(size) <= LABEL_MAX_LEN {
-                octets.push(size);
+                octets.put_u8(size);
 
                 if size == 0 {
                     labels.push(Label::new());
@@ -236,9 +237,7 @@ impl DomainName {
                 if let Some(os) = buffer.take(size as usize) {
                     // safe because of the bounds check above
                     let label = Label::try_from(os).unwrap();
-                    for o in label.iter() {
-                        octets.push(*o);
-                    }
+                    octets.put_slice(&label.octets);
                     labels.push(label);
                 } else {
                     return Err(Error::DomainTooShort(id));
@@ -262,7 +261,7 @@ impl DomainName {
                 }
 
                 let mut other = DomainName::deserialise(id, &mut buffer.at_offset(ptr))?;
-                octets.append(&mut other.octets);
+                octets.put_slice(&other.octets);
                 labels.append(&mut other.labels);
                 break 'outer;
             } else {
@@ -271,7 +270,10 @@ impl DomainName {
         }
 
         if octets.len() <= DOMAINNAME_MAX_LEN {
-            Ok(DomainName { octets, labels })
+            Ok(DomainName {
+                octets: octets.freeze(),
+                labels,
+            })
         } else {
             Err(Error::DomainTooLong(id))
         }

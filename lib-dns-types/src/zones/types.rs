@@ -816,7 +816,7 @@ mod tests {
             let mut zone = Zone::new(domain("example.com."), None);
             let mut rr = arbitrary_resourcerecord();
             rr.rclass = RecordClass::IN;
-            make_subdomain(&zone.apex, &mut rr.name);
+            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
 
             zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
 
@@ -838,13 +838,11 @@ mod tests {
             let mut zone = Zone::new(domain("example.com."), None);
             let mut rr = arbitrary_resourcerecord();
             rr.rclass = RecordClass::IN;
-            make_subdomain(&zone.apex, &mut rr.name);
+            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
 
             zone.insert_wildcard(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
 
-            let mut subdomain = domain("foo.");
-            make_subdomain(&rr.name, &mut subdomain);
-            rr.name = subdomain;
+            rr.name = domain("foo.").make_subdomain_of(&rr.name).unwrap();
 
             let expected = Some(ZoneResult::Answer {
                 rrs: vec![rr.clone()],
@@ -865,7 +863,7 @@ mod tests {
         for _ in 0..expected.capacity() {
             let mut rr = arbitrary_resourcerecord();
             rr.rclass = RecordClass::IN;
-            make_subdomain(&zone.apex, &mut rr.name);
+            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
             expected.push(rr.clone());
             zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
         }
@@ -890,7 +888,7 @@ mod tests {
         for _ in 0..expected.capacity() {
             let mut rr = arbitrary_resourcerecord();
             rr.rclass = RecordClass::IN;
-            make_subdomain(&zone.apex, &mut rr.name);
+            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
             expected.push(rr.clone());
             zone.insert_wildcard(&rr.name, rr.rtype_with_data, rr.ttl);
         }
@@ -1089,12 +1087,5 @@ mod tests {
             Some(ZoneResult::Answer { rrs: Vec::new() }),
             zone.resolve(&domain("example.com."), QueryType::Wildcard)
         );
-    }
-
-    fn make_subdomain(apex: &DomainName, domain: &mut DomainName) {
-        domain.labels.pop();
-        domain.octets.pop();
-        domain.labels.append(&mut apex.labels.clone());
-        domain.octets.append(&mut apex.octets.clone());
     }
 }

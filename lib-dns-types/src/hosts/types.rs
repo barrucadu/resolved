@@ -159,20 +159,10 @@ mod tests {
 
         let mut out = Hosts::new();
         for (k, v) in arbitrary.v4 {
-            let mut k2 = k.clone();
-            k2.labels.pop();
-            k2.octets.pop();
-            k2.labels.append(&mut apex.labels.clone());
-            k2.octets.append(&mut apex.octets.clone());
-            out.v4.insert(k2, v);
+            out.v4.insert(k.make_subdomain_of(apex).unwrap(), v);
         }
         for (k, v) in arbitrary.v6 {
-            let mut k2 = k.clone();
-            k2.labels.pop();
-            k2.octets.pop();
-            k2.labels.append(&mut apex.labels.clone());
-            k2.octets.append(&mut apex.octets.clone());
-            out.v6.insert(k2, v);
+            out.v6.insert(k.make_subdomain_of(apex).unwrap(), v);
         }
         out
     }

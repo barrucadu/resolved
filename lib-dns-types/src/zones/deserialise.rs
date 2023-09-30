@@ -1,3 +1,4 @@
+use bytes::{BufMut, Bytes, BytesMut};
 use std::iter::Peekable;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -194,10 +195,7 @@ fn parse_entry<I: Iterator<Item = char>>(
 /// # Errors
 ///
 /// If the string cannot be parsed.
-fn parse_origin(
-    origin: &Option<DomainName>,
-    tokens: Vec<(String, Vec<u8>)>,
-) -> Result<Entry, Error> {
+fn parse_origin(origin: &Option<DomainName>, tokens: Vec<(String, Bytes)>) -> Result<Entry, Error> {
     if tokens.len() != 2 {
         return Err(Error::WrongLen { tokens });
     }
@@ -222,7 +220,7 @@ fn parse_origin(
 /// If the string cannot be parsed.
 fn parse_include(
     origin: &Option<DomainName>,
-    tokens: Vec<(String, Vec<u8>)>,
+    tokens: Vec<(String, Bytes)>,
 ) -> Result<Entry, Error> {
     if tokens.len() != 2 && tokens.len() != 3 {
         return Err(Error::WrongLen { tokens });
@@ -264,7 +262,7 @@ fn parse_rr(
     origin: &Option<DomainName>,
     previous_domain: &Option<MaybeWildcard>,
     previous_ttl: Option<u32>,
-    tokens: Vec<(String, Vec<u8>)>,
+    tokens: Vec<(String, Bytes)>,
 ) -> Result<Entry, Error> {
     if tokens.is_empty() {
         return Err(Error::WrongLen { tokens });
@@ -390,7 +388,7 @@ fn parse_rr(
 /// no parse, since this does not necessarily indicate a fatal error.
 fn try_parse_rtype_with_data(
     origin: &Option<DomainName>,
-    tokens: &[(String, Vec<u8>)],
+    tokens: &[(String, Bytes)],
 ) -> Option<RecordTypeWithData> {
     if tokens.is_empty() {
         return None;
@@ -646,10 +644,10 @@ fn to_rr(wname: MaybeWildcard, rtype_with_data: RecordTypeWithData, ttl: u32) ->
 /// If the string cannot be parsed.
 fn tokenise_entry<I: Iterator<Item = char>>(
     stream: &mut Peekable<I>,
-) -> Result<Vec<(String, Vec<u8>)>, Error> {
+) -> Result<Vec<(String, Bytes)>, Error> {
     let mut tokens = Vec::new();
     let mut token_string = String::new();
-    let mut token_octets = Vec::new();
+    let mut token_octets = BytesMut::new();
     let mut state = State::Initial;
     let mut line_continuation = false;
 
@@ -682,7 +680,7 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             (State::Initial, '\\') => {
                 let octet = tokenise_escape(stream)?;
                 token_string.push(octet as char);
-                token_octets.push(octet);
+                token_octets.put_u8(octet);
                 State::UnquotedString
             }
             (State::Initial, c) => {
@@ -690,7 +688,7 @@ fn tokenise_entry<I: Iterator<Item = char>>(
                     State::Initial
                 } else if c.is_ascii() {
                     token_string.push(c);
-                    token_octets.push(c as u8);
+                    token_octets.put_u8(c as u8);
                     State::UnquotedString
                 } else {
                     return Err(Error::TokeniserUnexpected { unexpected: c });
@@ -699,9 +697,9 @@ fn tokenise_entry<I: Iterator<Item = char>>(
 
             (State::UnquotedString, '\n') => {
                 if !token_string.is_empty() {
-                    tokens.push((token_string, token_octets));
+                    tokens.push((token_string, token_octets.freeze()));
                     token_string = String::new();
-                    token_octets = Vec::new();
+                    token_octets = BytesMut::new();
                 }
                 if line_continuation {
                     State::Initial
@@ -711,29 +709,29 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             }
             (State::UnquotedString, ';') => {
                 if !token_string.is_empty() {
-                    tokens.push((token_string, token_octets));
+                    tokens.push((token_string, token_octets.freeze()));
                     token_string = String::new();
-                    token_octets = Vec::new();
+                    token_octets = BytesMut::new();
                 }
                 State::SkipToEndOfComment
             }
             (State::UnquotedString, '\\') => {
                 let octet = tokenise_escape(stream)?;
                 token_string.push(octet as char);
-                token_octets.push(octet);
+                token_octets.put_u8(octet);
                 State::UnquotedString
             }
             (State::UnquotedString, c) => {
                 if c.is_whitespace() {
                     if !token_string.is_empty() {
-                        tokens.push((token_string, token_octets));
+                        tokens.push((token_string, token_octets.freeze()));
                         token_string = String::new();
-                        token_octets = Vec::new();
+                        token_octets = BytesMut::new();
                     }
                     State::Initial
                 } else if c.is_ascii() {
                     token_string.push(c);
-                    token_octets.push(c as u8);
+                    token_octets.put_u8(c as u8);
                     State::UnquotedString
                 } else {
                     return Err(Error::TokeniserUnexpected { unexpected: c });
@@ -750,21 +748,21 @@ fn tokenise_entry<I: Iterator<Item = char>>(
             (State::SkipToEndOfComment, _) => State::SkipToEndOfComment,
 
             (State::QuotedString, '"') => {
-                tokens.push((token_string, token_octets));
+                tokens.push((token_string, token_octets.freeze()));
                 token_string = String::new();
-                token_octets = Vec::new();
+                token_octets = BytesMut::new();
                 State::Initial
             }
             (State::QuotedString, '\\') => {
                 let octet = tokenise_escape(stream)?;
                 token_string.push(octet as char);
-                token_octets.push(octet);
+                token_octets.put_u8(octet);
                 State::QuotedString
             }
             (State::QuotedString, c) => {
                 if c.is_ascii() {
                     token_string.push(c);
-                    token_octets.push(c as u8);
+                    token_octets.put_u8(c as u8);
                 } else {
                     return Err(Error::TokeniserUnexpected { unexpected: c });
                 }
@@ -774,7 +772,7 @@ fn tokenise_entry<I: Iterator<Item = char>>(
     }
 
     if !token_string.is_empty() {
-        tokens.push((token_string, token_octets));
+        tokens.push((token_string, token_octets.freeze()));
     }
 
     Ok(tokens)
@@ -889,7 +887,7 @@ pub enum Error {
     },
     Unexpected {
         expected: String,
-        tokens: Vec<(String, Vec<u8>)>,
+        tokens: Vec<(String, Bytes)>,
     },
     ExpectedU32 {
         digits: String,
@@ -899,16 +897,16 @@ pub enum Error {
         dotted_string: String,
     },
     WrongLen {
-        tokens: Vec<(String, Vec<u8>)>,
+        tokens: Vec<(String, Bytes)>,
     },
     MissingType {
-        tokens: Vec<(String, Vec<u8>)>,
+        tokens: Vec<(String, Bytes)>,
     },
     MissingTTL {
-        tokens: Vec<(String, Vec<u8>)>,
+        tokens: Vec<(String, Bytes)>,
     },
     MissingDomainName {
-        tokens: Vec<(String, Vec<u8>)>,
+        tokens: Vec<(String, Bytes)>,
     },
 }
 
@@ -1316,7 +1314,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::NULL {
-                            octets: vec![b'1', b'2', b'3'],
+                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1338,7 +1336,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::WKS {
-                            octets: vec![b'1', b'2', b'3'],
+                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1382,7 +1380,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::HINFO {
-                            octets: vec![b'1', b'2', b'3'],
+                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1450,7 +1448,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::TXT {
-                            octets: vec![b'1', b'2', b'3'],
+                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1790,7 +1788,7 @@ mod tests {
         }
     }
 
-    fn tokenise_str(s: &str) -> Vec<(String, Vec<u8>)> {
+    fn tokenise_str(s: &str) -> Vec<(String, Bytes)> {
         tokenise_entry(&mut s.chars().peekable()).unwrap()
     }
 }
