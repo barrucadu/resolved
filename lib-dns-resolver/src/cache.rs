@@ -70,7 +70,7 @@ impl SharedCache {
 
     /// Insert an entry into the cache.
     ///
-    /// It is not inserted if its TTL is zero.
+    /// It is not inserted if its TTL is zero or negative.
     ///
     /// This may make the cache grow beyond the desired size.
     ///
@@ -86,14 +86,22 @@ impl SharedCache {
 
     /// Insert multiple entries into the cache.
     ///
-    /// This just calls `insert` for each element, nothing more clever.
+    /// This is more efficient than calling `insert` multiple times, as it locks
+    /// the cache just once.
+    ///
+    /// Records with a TTL of zero or negative are skipped.
+    ///
+    /// This may make the cache grow beyond the desired size.
     ///
     /// # Panics
     ///
     /// If the mutex has been poisoned.
     pub fn insert_all(&self, records: &[ResourceRecord]) {
+        let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
         for record in records {
-            self.insert(record);
+            if record.ttl > 0 {
+                cache.insert(record);
+            }
         }
     }
 
