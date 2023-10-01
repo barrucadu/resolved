@@ -246,7 +246,7 @@ async fn resolve_combined_recursive<'a>(
         .await
     {
         Ok(resolved) => {
-            let soa_rr = resolved.soa_rr();
+            let soa_rr = resolved.soa_rr().cloned();
             rrs.append(&mut resolved.rrs());
             Ok(ResolvedRecord::NonAuthoritative { rrs, soa_rr })
         }
