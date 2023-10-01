@@ -104,7 +104,7 @@ async fn resolve_forwarding_notimeout<'a>(
         Err(_) => (),
     }
 
-    if let Some(response) = query_nameserver(context.r.forward_address, question, true)
+    if let Some(response) = query_nameserver(context.r.forward_address, question.clone(), true)
         .instrument(tracing::error_span!("query_nameserver"))
         .await
     {

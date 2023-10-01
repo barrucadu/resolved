@@ -105,13 +105,14 @@ async fn resolve_recursive_notimeout<'a>(
             if let Some(ip) =
                 resolve_hostname_to_ip(context, resolve_candidates_locally, candidate.clone()).await
             {
-                if let Some(nameserver_response) =
-                    query_nameserver((ip, context.r.upstream_dns_port).into(), question, false)
-                        .instrument(
-                            tracing::error_span!("query_nameserver", address = %ip, %match_count),
-                        )
-                        .await
-                        .and_then(|res| validate_nameserver_response(question, &res, match_count))
+                if let Some(nameserver_response) = query_nameserver(
+                    (ip, context.r.upstream_dns_port).into(),
+                    question.clone(),
+                    false,
+                )
+                .instrument(tracing::error_span!("query_nameserver", address = %ip, %match_count))
+                .await
+                .and_then(|res| validate_nameserver_response(question, &res, match_count))
                 {
                     if resolve_candidates_locally {
                         tracing::trace!(?candidate, "resolved fast candidate");
