@@ -268,23 +268,24 @@ async fn resolve_hostname_to_ip<'a>(
         ProtocolMode::OnlyV6 => vec![RecordType::AAAA],
     };
 
+    let mut question = Question {
+        name: hostname,
+        qclass: QueryClass::Record(RecordClass::IN),
+        // immediately replaced in the loop
+        qtype: QueryType::AXFR,
+    };
     for rtype in rtypes {
-        let question = Question {
-            name: hostname.clone(),
-            qclass: QueryClass::Record(RecordClass::IN),
-            qtype: QueryType::Record(rtype),
-        };
-
+        question.qtype = QueryType::Record(rtype);
         if resolve_locally {
             if let Ok(LocalResolutionResult::Done { resolved }) = resolve_local(context, &question)
             {
-                let address = get_ip(&resolved.rrs(), &hostname, rtype);
+                let address = get_ip(&resolved.rrs(), &question.name, rtype);
                 if address.is_some() {
                     return address;
                 }
             }
         } else if let Ok(result) = resolve_recursive_notimeout(context, &question).await {
-            let address = get_ip(&result.rrs(), &hostname, rtype);
+            let address = get_ip(&result.rrs(), &question.name, rtype);
             if address.is_some() {
                 return address;
             }
