@@ -111,7 +111,7 @@ async fn resolve_forwarding_notimeout<'a>(
         context.metrics().nameserver_hit();
         tracing::trace!("nameserver HIT");
         // Propagate SOA RR for NXDOMAIN / NODATA responses
-        let soa_rr = get_nxdomain_nodata_soa(question, &response, 0);
+        let soa_rr = get_nxdomain_nodata_soa(question, &response, 0).cloned();
         let rrs = response.answers;
         context.cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);

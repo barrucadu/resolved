@@ -435,7 +435,7 @@ fn validate_nameserver_response(
                     return get_nxdomain_nodata_soa(question, response, current_match_count).map(
                         |soa_rr| NameserverResponse::Answer {
                             rrs: Vec::new(),
-                            soa_rr: Some(soa_rr),
+                            soa_rr: Some(soa_rr).cloned(),
                         },
                     );
                 }

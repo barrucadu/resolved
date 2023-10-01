@@ -160,11 +160,11 @@ pub fn response_matches_request(request: &Message, response: &Message) -> bool {
 /// Also sanity checks that the SOA record could be authoritative for the query
 /// domain: the domain has to be a subdomain of the SOA, and the SOA has to have
 /// at least the current match count.
-pub fn get_nxdomain_nodata_soa(
+pub fn get_nxdomain_nodata_soa<'a>(
     question: &Question,
-    response: &Message,
+    response: &'a Message,
     current_match_count: usize,
-) -> Option<ResourceRecord> {
+) -> Option<&'a ResourceRecord> {
     if !response.answers.is_empty() {
         return None;
     }
@@ -193,7 +193,7 @@ pub fn get_nxdomain_nodata_soa(
             return None;
         }
 
-        return Some(rr.clone());
+        return Some(rr);
     }
 
     None
