@@ -80,11 +80,11 @@ impl ResolvedRecord {
         }
     }
 
-    pub fn soa_rr(&self) -> Option<ResourceRecord> {
+    pub fn soa_rr(&self) -> Option<&ResourceRecord> {
         match self {
-            ResolvedRecord::Authoritative { soa_rr, .. } => Some(soa_rr.clone()),
-            ResolvedRecord::AuthoritativeNameError { soa_rr } => Some(soa_rr.clone()),
-            ResolvedRecord::NonAuthoritative { soa_rr, .. } => soa_rr.clone(),
+            ResolvedRecord::Authoritative { soa_rr, .. } => Some(soa_rr),
+            ResolvedRecord::AuthoritativeNameError { soa_rr } => Some(soa_rr),
+            ResolvedRecord::NonAuthoritative { soa_rr, .. } => soa_rr.into(),
         }
     }
 }

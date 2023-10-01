@@ -105,13 +105,14 @@ async fn resolve_recursive_notimeout<'a>(
             if let Some(ip) =
                 resolve_hostname_to_ip(context, resolve_candidates_locally, candidate.clone()).await
             {
-                if let Some(nameserver_response) =
-                    query_nameserver((ip, context.r.upstream_dns_port).into(), question, false)
-                        .instrument(
-                            tracing::error_span!("query_nameserver", address = %ip, %match_count),
-                        )
-                        .await
-                        .and_then(|res| validate_nameserver_response(question, &res, match_count))
+                if let Some(nameserver_response) = query_nameserver(
+                    (ip, context.r.upstream_dns_port).into(),
+                    question.clone(),
+                    false,
+                )
+                .instrument(tracing::error_span!("query_nameserver", address = %ip, %match_count))
+                .await
+                .and_then(|res| validate_nameserver_response(question, &res, match_count))
                 {
                     if resolve_candidates_locally {
                         tracing::trace!(?candidate, "resolved fast candidate");
@@ -246,7 +247,7 @@ async fn resolve_combined_recursive<'a>(
         .await
     {
         Ok(resolved) => {
-            let soa_rr = resolved.soa_rr();
+            let soa_rr = resolved.soa_rr().cloned();
             rrs.append(&mut resolved.rrs());
             Ok(ResolvedRecord::NonAuthoritative { rrs, soa_rr })
         }
@@ -268,23 +269,24 @@ async fn resolve_hostname_to_ip<'a>(
         ProtocolMode::OnlyV6 => vec![RecordType::AAAA],
     };
 
+    let mut question = Question {
+        name: hostname,
+        qclass: QueryClass::Record(RecordClass::IN),
+        // immediately replaced in the loop
+        qtype: QueryType::AXFR,
+    };
     for rtype in rtypes {
-        let question = Question {
-            name: hostname.clone(),
-            qclass: QueryClass::Record(RecordClass::IN),
-            qtype: QueryType::Record(rtype),
-        };
-
+        question.qtype = QueryType::Record(rtype);
         if resolve_locally {
             if let Ok(LocalResolutionResult::Done { resolved }) = resolve_local(context, &question)
             {
-                let address = get_ip(&resolved.rrs(), &hostname, rtype);
+                let address = get_ip(&resolved.rrs(), &question.name, rtype);
                 if address.is_some() {
                     return address;
                 }
             }
         } else if let Ok(result) = resolve_recursive_notimeout(context, &question).await {
-            let address = get_ip(&result.rrs(), &hostname, rtype);
+            let address = get_ip(&result.rrs(), &question.name, rtype);
             if address.is_some() {
                 return address;
             }
@@ -434,7 +436,7 @@ fn validate_nameserver_response(
                     return get_nxdomain_nodata_soa(question, response, current_match_count).map(
                         |soa_rr| NameserverResponse::Answer {
                             rrs: Vec::new(),
-                            soa_rr: Some(soa_rr),
+                            soa_rr: Some(soa_rr).cloned(),
                         },
                     );
                 }

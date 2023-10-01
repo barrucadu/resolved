@@ -11,7 +11,7 @@ impl Message {
     ///
     /// If the message is invalid (the `Message` type permits more
     /// states than strictly allowed).
-    pub fn into_octets(self) -> Result<BytesMut, Error> {
+    pub fn to_octets(&self) -> Result<BytesMut, Error> {
         let mut buffer = WritableBuffer::default();
         self.serialise(&mut buffer)?;
         Ok(buffer.octets)
@@ -21,7 +21,7 @@ impl Message {
     ///
     /// If the message is invalid (the `Message` type permits more
     /// states than strictly allowed).
-    pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
+    pub fn serialise(&self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let qdcount = usize_to_u16(self.questions.len())?;
         let ancount = usize_to_u16(self.answers.len())?;
         let nscount = usize_to_u16(self.authority.len())?;
@@ -33,16 +33,16 @@ impl Message {
         buffer.write_u16(nscount);
         buffer.write_u16(arcount);
 
-        for question in self.questions {
+        for question in &self.questions {
             question.serialise(buffer);
         }
-        for rr in self.answers {
+        for rr in &self.answers {
             rr.serialise(buffer)?;
         }
-        for rr in self.authority {
+        for rr in &self.authority {
             rr.serialise(buffer)?;
         }
-        for rr in self.additional {
+        for rr in &self.additional {
             rr.serialise(buffer)?;
         }
 
@@ -51,7 +51,7 @@ impl Message {
 }
 
 impl Header {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    pub fn serialise(&self, buffer: &mut WritableBuffer) {
         // octet 1
         let flag_qr = if self.is_response { HEADER_MASK_QR } else { 0 };
         let field_opcode = HEADER_MASK_OPCODE & (u8::from(self.opcode) << HEADER_OFFSET_OPCODE);
@@ -81,7 +81,7 @@ impl Header {
 }
 
 impl Question {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    pub fn serialise(&self, buffer: &mut WritableBuffer) {
         self.name.serialise(buffer, true);
         self.qtype.serialise(buffer);
         self.qclass.serialise(buffer);
@@ -92,7 +92,7 @@ impl ResourceRecord {
     /// # Errors
     ///
     /// If the RDATA is too long.
-    pub fn serialise(self, buffer: &mut WritableBuffer) -> Result<(), Error> {
+    pub fn serialise(&self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         self.name.serialise(buffer, true);
         self.rtype_with_data.rtype().serialise(buffer);
         self.rclass.serialise(buffer);
@@ -102,7 +102,7 @@ impl ResourceRecord {
         let rdlength_index = buffer.index();
         buffer.write_u16(0);
 
-        match self.rtype_with_data {
+        match &self.rtype_with_data {
             RecordTypeWithData::A { address } => buffer.write_octets(&address.octets()),
             RecordTypeWithData::NS { nsdname } => nsdname.serialise(buffer, false),
             RecordTypeWithData::MD { madname } => madname.serialise(buffer, false),
@@ -119,19 +119,19 @@ impl ResourceRecord {
             } => {
                 mname.serialise(buffer, false);
                 rname.serialise(buffer, false);
-                buffer.write_u32(serial);
-                buffer.write_u32(refresh);
-                buffer.write_u32(retry);
-                buffer.write_u32(expire);
-                buffer.write_u32(minimum);
+                buffer.write_u32(*serial);
+                buffer.write_u32(*refresh);
+                buffer.write_u32(*retry);
+                buffer.write_u32(*expire);
+                buffer.write_u32(*minimum);
             }
             RecordTypeWithData::MB { madname } => madname.serialise(buffer, false),
             RecordTypeWithData::MG { mdmname } => mdmname.serialise(buffer, false),
             RecordTypeWithData::MR { newname } => newname.serialise(buffer, false),
-            RecordTypeWithData::NULL { octets } => buffer.write_octets(&octets),
-            RecordTypeWithData::WKS { octets } => buffer.write_octets(&octets),
+            RecordTypeWithData::NULL { octets } => buffer.write_octets(octets),
+            RecordTypeWithData::WKS { octets } => buffer.write_octets(octets),
             RecordTypeWithData::PTR { ptrdname } => ptrdname.serialise(buffer, false),
-            RecordTypeWithData::HINFO { octets } => buffer.write_octets(&octets),
+            RecordTypeWithData::HINFO { octets } => buffer.write_octets(octets),
             RecordTypeWithData::MINFO { rmailbx, emailbx } => {
                 rmailbx.serialise(buffer, false);
                 emailbx.serialise(buffer, false);
@@ -140,10 +140,10 @@ impl ResourceRecord {
                 preference,
                 exchange,
             } => {
-                buffer.write_u16(preference);
+                buffer.write_u16(*preference);
                 exchange.serialise(buffer, false);
             }
-            RecordTypeWithData::TXT { octets } => buffer.write_octets(&octets),
+            RecordTypeWithData::TXT { octets } => buffer.write_octets(octets),
             RecordTypeWithData::AAAA { address } => buffer.write_octets(&address.octets()),
             RecordTypeWithData::SRV {
                 priority,
@@ -151,12 +151,12 @@ impl ResourceRecord {
                 port,
                 target,
             } => {
-                buffer.write_u16(priority);
-                buffer.write_u16(weight);
-                buffer.write_u16(port);
+                buffer.write_u16(*priority);
+                buffer.write_u16(*weight);
+                buffer.write_u16(*port);
                 target.serialise(buffer, false);
             }
-            RecordTypeWithData::Unknown { octets, .. } => buffer.write_octets(&octets),
+            RecordTypeWithData::Unknown { octets, .. } => buffer.write_octets(octets),
         };
 
         // -2 so we don't also include the 2 octets for the rdlength
@@ -170,16 +170,16 @@ impl ResourceRecord {
 }
 
 impl DomainName {
-    pub fn serialise(self, buffer: &mut WritableBuffer, compress: bool) {
+    pub fn serialise(&self, buffer: &mut WritableBuffer, compress: bool) {
         if compress {
-            if let Some(ptr) = buffer.name_pointer(&self) {
+            if let Some(ptr) = buffer.name_pointer(self) {
                 buffer.write_u16(ptr);
                 return;
             }
         }
 
-        buffer.memoise_name(&self);
-        for label in self.labels {
+        buffer.memoise_name(self);
+        for label in &self.labels {
             buffer.write_u8(label.len());
             buffer.write_octets(&label.octets);
         }

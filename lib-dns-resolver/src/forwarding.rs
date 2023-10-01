@@ -84,7 +84,7 @@ async fn resolve_forwarding_notimeout<'a>(
                 .await
             {
                 Ok(resolved) => {
-                    let soa_rr = resolved.soa_rr();
+                    let soa_rr = resolved.soa_rr().cloned();
                     let mut r_rrs = resolved.rrs();
                     let mut combined_rrs = Vec::with_capacity(rrs.len() + r_rrs.len());
                     combined_rrs.append(&mut rrs);
@@ -104,14 +104,14 @@ async fn resolve_forwarding_notimeout<'a>(
         Err(_) => (),
     }
 
-    if let Some(response) = query_nameserver(context.r.forward_address, question, true)
+    if let Some(response) = query_nameserver(context.r.forward_address, question.clone(), true)
         .instrument(tracing::error_span!("query_nameserver"))
         .await
     {
         context.metrics().nameserver_hit();
         tracing::trace!("nameserver HIT");
         // Propagate SOA RR for NXDOMAIN / NODATA responses
-        let soa_rr = get_nxdomain_nodata_soa(question, &response, 0);
+        let soa_rr = get_nxdomain_nodata_soa(question, &response, 0).cloned();
         let rrs = response.answers;
         context.cache.insert_all(&rrs);
         prioritising_merge(&mut combined_rrs, rrs);

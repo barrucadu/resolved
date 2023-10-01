@@ -212,7 +212,7 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                         }
                     };
                     if let Some(message) = response {
-                        match message.clone().into_octets() {
+                        match message.to_octets() {
                             Ok(mut serialised) => {
                                 DNS_RESPONSES_TOTAL
                                     .with_label_values(&[
@@ -274,7 +274,7 @@ async fn listen_udp_task(args: ListenArgs, socket: UdpSocket) {
             }
 
             Some((message, peer, response_timer)) = rx.recv() => {
-                match message.clone().into_octets() {
+                match message.to_octets() {
                     Ok(mut serialised) => {
                         DNS_RESPONSES_TOTAL.with_label_values(&[
                             &message.header.is_authoritative.to_string(),
