@@ -1,6 +1,7 @@
 //! Serialisation of DNS messages to the wire format.  See the `types`
 //! module for details of the format.
 
+use bytes::{BufMut, BytesMut};
 use std::collections::HashMap;
 
 use crate::protocol::types::*;
@@ -10,7 +11,7 @@ impl Message {
     ///
     /// If the message is invalid (the `Message` type permits more
     /// states than strictly allowed).
-    pub fn into_octets(self) -> Result<Vec<u8>, Error> {
+    pub fn into_octets(self) -> Result<BytesMut, Error> {
         let mut buffer = WritableBuffer::default();
         self.serialise(&mut buffer)?;
         Ok(buffer.octets)
@@ -170,14 +171,17 @@ impl ResourceRecord {
 
 impl DomainName {
     pub fn serialise(self, buffer: &mut WritableBuffer, compress: bool) {
-        if !compress {
-            buffer.memoise_name(&self);
-            buffer.write_octets(&self.octets);
-        } else if let Some(ptr) = buffer.name_pointer(&self) {
-            buffer.write_u16(ptr);
-        } else {
-            buffer.memoise_name(&self);
-            buffer.write_octets(&self.octets);
+        if compress {
+            if let Some(ptr) = buffer.name_pointer(&self) {
+                buffer.write_u16(ptr);
+                return;
+            }
+        }
+
+        buffer.memoise_name(&self);
+        for label in self.labels {
+            buffer.write_u8(label.len());
+            buffer.write_octets(&label.octets);
         }
     }
 }
@@ -231,14 +235,14 @@ impl std::error::Error for Error {
 
 /// A buffer which can be written to, for serialisation purposes.
 pub struct WritableBuffer {
-    pub octets: Vec<u8>,
+    pub octets: BytesMut,
     name_pointers: HashMap<DomainName, u16>,
 }
 
 impl Default for WritableBuffer {
     fn default() -> Self {
         Self {
-            octets: Vec::with_capacity(512),
+            octets: BytesMut::with_capacity(512),
             name_pointers: HashMap::new(),
         }
     }
@@ -264,25 +268,19 @@ impl WritableBuffer {
     }
 
     pub fn write_u8(&mut self, octet: u8) {
-        self.octets.push(octet);
+        self.octets.put_u8(octet);
     }
 
     pub fn write_u16(&mut self, value: u16) {
-        for octet in value.to_be_bytes() {
-            self.octets.push(octet);
-        }
+        self.write_octets(&value.to_be_bytes());
     }
 
     pub fn write_u32(&mut self, value: u32) {
-        for octet in value.to_be_bytes() {
-            self.octets.push(octet);
-        }
+        self.write_octets(&value.to_be_bytes());
     }
 
     pub fn write_octets(&mut self, octets: &[u8]) {
-        for octet in octets {
-            self.octets.push(*octet);
-        }
+        self.octets.put_slice(octets);
     }
 }
 

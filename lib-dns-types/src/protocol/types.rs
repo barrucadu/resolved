@@ -1,6 +1,6 @@
+use bytes::{BufMut, Bytes, BytesMut};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::slice::Iter;
 use std::str::FromStr;
 
 /// Maximum encoded length of a domain name.  The number of labels
@@ -506,10 +506,10 @@ pub enum RecordTypeWithData {
     ///
     /// Anything at all may be in the RDATA field so long as it is
     /// 65535 octets or less.
-    NULL { octets: Vec<u8> },
+    NULL { octets: Bytes },
 
     /// This application does not interpret `WKS` records.
-    WKS { octets: Vec<u8> },
+    WKS { octets: Bytes },
 
     /// ```text
     ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -522,7 +522,7 @@ pub enum RecordTypeWithData {
     PTR { ptrdname: DomainName },
 
     /// This application does not interpret `HINFO` records.
-    HINFO { octets: Vec<u8> },
+    HINFO { octets: Bytes },
 
     /// ```text
     ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -575,7 +575,7 @@ pub enum RecordTypeWithData {
     /// ```
     ///
     /// Where `TXT-DATA` is one or more character strings.
-    TXT { octets: Vec<u8> },
+    TXT { octets: Bytes },
 
     /// ```text
     ///     +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
@@ -623,7 +623,7 @@ pub enum RecordTypeWithData {
     /// Any other record.
     Unknown {
         tag: RecordTypeUnknown,
-        octets: Vec<u8>,
+        octets: Bytes,
     },
 }
 
@@ -663,12 +663,11 @@ impl RecordTypeWithData {
 
 #[cfg(any(feature = "test-util", test))]
 impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
-    // this is pretty verbose but it feels like a better way to
-    // guarantee the max size of the `Vec<u8>`s than adding a wrapper
-    // type
+    // this is pretty verbose but it feels like a better way to guarantee the
+    // max size of the `Bytes`s than adding a wrapper type
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let len = u.int_in_range(0..=128)?;
-        let octets = Vec::from(u.bytes(len)?);
+        let octets = Bytes::copy_from_slice(u.bytes(len)?);
 
         let rtype_with_data = match u.arbitrary::<RecordType>()? {
             RecordType::A => RecordTypeWithData::A {
@@ -865,32 +864,40 @@ impl<'a> arbitrary::Arbitrary<'a> for Rcode {
 /// or shorter in total, including both length and label octets.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DomainName {
-    pub octets: Vec<u8>,
     pub labels: Vec<Label>,
+    // INVARIANT: len == len(labels) + sum(map(len, labels))
+    pub len: usize,
 }
 
 impl DomainName {
     pub fn root_domain() -> Self {
         DomainName {
-            octets: vec![0],
             labels: vec![Label::new()],
+            len: 1,
         }
     }
 
     pub fn is_root(&self) -> bool {
-        self.octets.len() == 1 && self.labels.len() == 1
+        self.len == 1 && self.labels[0].is_empty()
     }
 
     pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
         self.labels.ends_with(&other.labels)
     }
 
+    pub fn make_subdomain_of(&self, origin: &Self) -> Option<Self> {
+        let mut labels = self.labels.clone();
+        labels.pop();
+        labels.append(&mut origin.labels.clone());
+        DomainName::from_labels(labels)
+    }
+
     pub fn to_dotted_string(&self) -> String {
-        if self.octets == vec![0] {
+        if self.is_root() {
             return ".".to_string();
         }
 
-        let mut out = String::with_capacity(self.octets.len());
+        let mut out = String::with_capacity(self.len);
         let mut first = true;
         for label in &self.labels {
             if first {
@@ -948,7 +955,7 @@ impl DomainName {
             return None;
         }
 
-        let mut octets = Vec::<u8>::with_capacity(DOMAINNAME_MAX_LEN);
+        let mut len = labels.len();
         let mut blank_label = false;
 
         for label in &labels {
@@ -957,13 +964,11 @@ impl DomainName {
             }
 
             blank_label |= label.is_empty();
-
-            octets.push(label.len());
-            octets.append(&mut label.iter().copied().collect());
+            len += label.len() as usize;
         }
 
-        if blank_label && octets.len() <= DOMAINNAME_MAX_LEN {
-            Some(Self { octets, labels })
+        if blank_label && len <= DOMAINNAME_MAX_LEN {
+            Some(Self { labels, len })
         } else {
             None
         }
@@ -1033,13 +1038,15 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
 pub struct Label {
     /// Private to this module so constructing an invalid `Label` is
     /// impossible.
-    octets: Vec<u8>,
+    pub octets: Bytes,
 }
 
 impl Label {
     /// Create a new, empty, label.
     pub fn new() -> Self {
-        Self { octets: Vec::new() }
+        Self {
+            octets: Bytes::new(),
+        }
     }
 
     #[allow(clippy::missing_panics_doc)]
@@ -1050,10 +1057,6 @@ impl Label {
 
     pub fn is_empty(&self) -> bool {
         self.octets.is_empty()
-    }
-
-    pub fn iter(&self) -> Iter<'_, u8> {
-        self.octets.iter()
     }
 }
 
@@ -1071,12 +1074,9 @@ impl TryFrom<&[u8]> for Label {
             return Err(LabelTryFromOctetsError::TooLong);
         }
 
-        let mut octets = Vec::with_capacity(mixed_case_octets.len());
-        for o in mixed_case_octets {
-            octets.push(o.to_ascii_lowercase());
-        }
-
-        Ok(Self { octets })
+        Ok(Self {
+            octets: Bytes::copy_from_slice(&mixed_case_octets.to_ascii_lowercase()),
+        })
     }
 }
 
@@ -1085,11 +1085,11 @@ impl<'a> arbitrary::Arbitrary<'a> for Label {
     // only generates non-empty labels
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Label> {
         let label_len = u.int_in_range::<u8>(1..=20)?;
-        let mut octets = Vec::with_capacity(label_len.into());
+        let mut octets = BytesMut::with_capacity(label_len.into());
         let bs = u.bytes(label_len.into())?;
         for b in bs {
             let ascii_byte = if b.is_ascii() { *b } else { *b % 128 };
-            octets.push(
+            octets.put_u8(
                 if ascii_byte == b'.'
                     || ascii_byte == b'*'
                     || ascii_byte == b'@'
@@ -1102,7 +1102,9 @@ impl<'a> arbitrary::Arbitrary<'a> for Label {
                 },
             );
         }
-        Ok(Self { octets })
+        Ok(Self {
+            octets: octets.freeze(),
+        })
     }
 }
 
@@ -1649,6 +1651,16 @@ mod tests {
     }
 
     #[test]
+    fn make_subdomain_is_subdomain() {
+        let sub = domain("foo.");
+        let apex = domain("bar.");
+        let combined = sub.make_subdomain_of(&apex);
+
+        assert_eq!(Some(domain("foo.bar.")), combined);
+        assert!(combined.unwrap().is_subdomain_of(&apex));
+    }
+
+    #[test]
     fn domainname_conversions() {
         let mut rng = rand::thread_rng();
         for _ in 0..100 {
@@ -1666,7 +1678,7 @@ mod tests {
                     output.push('.');
                 }
 
-                let mut octets = Vec::with_capacity(label_len);
+                let mut octets = BytesMut::with_capacity(label_len);
                 for _ in 0..label_len {
                     let mut chr = rng.gen_range(32..126);
 
@@ -1679,11 +1691,11 @@ mod tests {
                         chr = b'X';
                     }
 
-                    octets.push(chr);
+                    octets.put_u8(chr);
                     dotted_string_input.push(chr as char);
                     output.push(chr.to_ascii_lowercase() as char);
                 }
-                labels_input.push(octets.as_slice().try_into().unwrap());
+                labels_input.push(Label::try_from(&octets.freeze()[..]).unwrap());
             }
 
             labels_input.push(Label::new());
@@ -1719,12 +1731,12 @@ pub mod test_util {
     pub fn arbitrary_resourcerecord() -> ResourceRecord {
         let mut rng = rand::thread_rng();
         for size in [128, 256, 512, 1024, 2048, 4096] {
-            let mut buf = Vec::new();
+            let mut buf = BytesMut::with_capacity(size);
             for _ in 0..size {
-                buf.push(rng.gen());
+                buf.put_u8(rng.gen());
             }
 
-            if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf)) {
+            if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf.freeze())) {
                 return rr;
             }
         }
@@ -1781,7 +1793,7 @@ pub mod test_util {
             name: domain(name),
             rtype_with_data: RecordTypeWithData::Unknown {
                 tag: RecordTypeUnknown(100),
-                octets: octets.into(),
+                octets: Bytes::copy_from_slice(octets),
             },
             rclass: RecordClass::IN,
             ttl: 300,

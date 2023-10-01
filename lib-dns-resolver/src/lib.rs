@@ -1,6 +1,8 @@
 #![warn(clippy::pedantic)]
 // Sometimes a redundant else is clearer
 #![allow(clippy::redundant_else)]
+// False positives for `bytes::Bytes`
+#![allow(clippy::mutable_key_type)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]
