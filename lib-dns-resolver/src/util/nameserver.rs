@@ -25,7 +25,7 @@ pub async fn query_nameserver(
     let mut request = Message::from_question(rand::thread_rng().gen(), question.clone());
     request.header.recursion_desired = recursion_desired;
 
-    match request.clone().into_octets() {
+    match request.to_octets() {
         Ok(mut serialised_request) => {
             tracing::trace!(message = ?request, ?address, "forwarding query to nameserver");
 
