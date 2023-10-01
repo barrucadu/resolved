@@ -101,11 +101,10 @@ impl Zone {
             } else if name == apex {
                 "@".to_string()
             } else {
-                let octets_to_keep = name.octets.len() - apex.octets.len();
                 let labels_to_keep = name.labels.len() - apex.labels.len();
                 DomainName {
-                    octets: Bytes::copy_from_slice(&name.octets[..octets_to_keep]),
                     labels: Vec::from(&name.labels[..labels_to_keep]),
+                    len: name.len - apex.len,
                 }
                 .to_dotted_string()
             }

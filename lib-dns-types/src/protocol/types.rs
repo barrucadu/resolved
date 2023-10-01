@@ -1,7 +1,6 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
-use std::slice::Iter;
 use std::str::FromStr;
 
 /// Maximum encoded length of a domain name.  The number of labels
@@ -37,9 +36,6 @@ pub const HEADER_MASK_RCODE: u8 = 0b0000_1111;
 
 /// Offset for the rcode field.
 pub const HEADER_OFFSET_RCODE: usize = 0;
-
-/// Encoded representation of the root domain (`b"\0"`).
-pub const ROOT_DOMAIN_OCTETS: &[u8] = &[0];
 
 /// Basic DNS message format, used for both queries and responses.
 ///
@@ -868,20 +864,21 @@ impl<'a> arbitrary::Arbitrary<'a> for Rcode {
 /// or shorter in total, including both length and label octets.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct DomainName {
-    pub octets: Bytes,
     pub labels: Vec<Label>,
+    // INVARIANT: len == len(labels) + sum(map(len, labels))
+    pub len: usize,
 }
 
 impl DomainName {
     pub fn root_domain() -> Self {
         DomainName {
-            octets: Bytes::from_static(ROOT_DOMAIN_OCTETS),
             labels: vec![Label::new()],
+            len: 1,
         }
     }
 
     pub fn is_root(&self) -> bool {
-        self.octets.len() == 1 && self.labels.len() == 1
+        self.len == 1 && self.labels[0].is_empty()
     }
 
     pub fn is_subdomain_of(&self, other: &DomainName) -> bool {
@@ -896,11 +893,11 @@ impl DomainName {
     }
 
     pub fn to_dotted_string(&self) -> String {
-        if self.octets == ROOT_DOMAIN_OCTETS {
+        if self.is_root() {
             return ".".to_string();
         }
 
-        let mut out = String::with_capacity(self.octets.len());
+        let mut out = String::with_capacity(self.len);
         let mut first = true;
         for label in &self.labels {
             if first {
@@ -958,7 +955,7 @@ impl DomainName {
             return None;
         }
 
-        let mut octets = BytesMut::with_capacity(DOMAINNAME_MAX_LEN);
+        let mut len = labels.len();
         let mut blank_label = false;
 
         for label in &labels {
@@ -967,16 +964,11 @@ impl DomainName {
             }
 
             blank_label |= label.is_empty();
-
-            octets.put_u8(label.len());
-            octets.put_slice(&label.octets);
+            len += label.len() as usize;
         }
 
-        if blank_label && octets.len() <= DOMAINNAME_MAX_LEN {
-            Some(Self {
-                octets: octets.freeze(),
-                labels,
-            })
+        if blank_label && len <= DOMAINNAME_MAX_LEN {
+            Some(Self { labels, len })
         } else {
             None
         }
@@ -1065,10 +1057,6 @@ impl Label {
 
     pub fn is_empty(&self) -> bool {
         self.octets.is_empty()
-    }
-
-    pub fn iter(&self) -> Iter<'_, u8> {
-        self.octets.iter()
     }
 }
 

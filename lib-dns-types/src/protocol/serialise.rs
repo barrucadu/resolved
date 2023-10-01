@@ -171,14 +171,17 @@ impl ResourceRecord {
 
 impl DomainName {
     pub fn serialise(self, buffer: &mut WritableBuffer, compress: bool) {
-        if !compress {
-            buffer.memoise_name(&self);
-            buffer.write_octets(&self.octets);
-        } else if let Some(ptr) = buffer.name_pointer(&self) {
-            buffer.write_u16(ptr);
-        } else {
-            buffer.memoise_name(&self);
-            buffer.write_octets(&self.octets);
+        if compress {
+            if let Some(ptr) = buffer.name_pointer(&self) {
+                buffer.write_u16(ptr);
+                return;
+            }
+        }
+
+        buffer.memoise_name(&self);
+        for label in self.labels {
+            buffer.write_u8(label.len());
+            buffer.write_octets(&label.octets);
         }
     }
 }
