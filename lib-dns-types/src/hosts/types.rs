@@ -44,10 +44,10 @@ impl Hosts {
                 let rr = zr.to_rr(name);
                 match rr.rtype_with_data {
                     RecordTypeWithData::A { address } => {
-                        v4.insert(rr.name.clone(), address);
+                        v4.insert(rr.name, address);
                     }
                     RecordTypeWithData::AAAA { address } => {
-                        v6.insert(rr.name.clone(), address);
+                        v6.insert(rr.name, address);
                     }
                     _ => (),
                 }
@@ -96,10 +96,10 @@ impl TryFrom<Zone> for Hosts {
                 let rr = zr.to_rr(name);
                 match rr.rtype_with_data {
                     RecordTypeWithData::A { address } => {
-                        v4.insert(rr.name.clone(), address);
+                        v4.insert(rr.name, address);
                     }
                     RecordTypeWithData::AAAA { address } => {
-                        v6.insert(rr.name.clone(), address);
+                        v6.insert(rr.name, address);
                     }
                     _ => return Err(TryFromZoneError::HasRecordTypesOtherThanA),
                 }
