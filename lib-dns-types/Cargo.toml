@@ -17,7 +17,3 @@ rand = "0.8.5"
 
 [features]
 test-util = ["arbitrary", "rand"]
-
-[[bench]]
-name = "serialise_deserialise"
-harness = false

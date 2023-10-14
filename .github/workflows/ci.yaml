@@ -37,9 +37,6 @@ jobs:
       - name: Run tests
         run: cargo test
 
-      - name: Check benchmarks compile
-        run: cargo bench --no-run
-
   fuzz:
     runs-on: ubuntu-latest
     steps:
