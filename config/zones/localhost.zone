@@ -4,5 +4,7 @@ $ORIGIN localhost.
 
 @ IN SOA . . 1 3600 3600 3600 3600
 
-@ IN A 127.0.0.1
-* IN A 127.0.0.1
+@ IN A    127.0.0.1
+@ IN AAAA ::1
+* IN A    127.0.0.1
+* IN AAAA ::1
