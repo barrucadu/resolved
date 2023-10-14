@@ -34,9 +34,6 @@ fn print_section(heading: &str, rrs: &[ResourceRecord]) {
 // the doc comments for this struct turn into the CLI help text
 #[derive(Parser)]
 /// DNS recursive lookup utility
-///
-/// It does not support querying upstream nameservers over IPv6: I
-/// don't have IPv6 at home, so this code doesn't support it yet.
 struct Args {
     /// Domain name to resolve
     #[clap(value_parser)]
