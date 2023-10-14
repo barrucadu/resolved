@@ -42,7 +42,7 @@ sudo ./target/release/resolved -Z config/zones
 ```
 
 The `config/zones` directory contains standard configuration which you'll
-usually want to have (such as the [root hints file][]), so you would typically
+usually want to have (such as the ["root hints" file][]), so you would typically
 either put your zone files in `config/zones`, or put them somewhere else and
 pass a second `-Z` option like so:
 
@@ -52,7 +52,7 @@ sudo ./target/release/resolved -Z config/zones -Z /path/to/your/zone/files
 
 See the `--help` text for all options.
 
-[root hints file]: https://www.iana.org/domains/root/files
+["root hints" file]: https://www.iana.org/domains/root/files
 
 #### Signals
 
