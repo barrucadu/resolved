@@ -1,17 +1,17 @@
 resolved
 ========
 
-`resolved` (pronounced "resolved", not "resolved") is a simple DNS
-server for home networks.  To that end, it supports:
+`resolved` (pronounced "resolved", not "resolved") is a simple DNS server, and
+associated tools, for home networks.  To that end, it supports:
 
-- Recursive and non-recursive resolution
-- Caching
-- Hosts files
-- Zone files
+- Three modes of operation: as a recursive or forwarding nameserver (with
+  caching) or as an authoritative nameserver for your specified domains only.
+- Defining custom records in hosts files (to make existing DNS blacklists each
+  to use) and in zone files.
+- Listening on either IPv4 or IPv6, and communicating with upstream nameservers
+  over both.
 
-It supports querying upstream nameservers over IPv6 in principle (if
-`--protocol-mode` is not set to `only-v4`), but this isn't really tested since I
-don't have IPv6 at home.
+See [the documentation](https://resolved.docs.barrucadu.co.uk).
 
 
 Usage
@@ -20,61 +20,82 @@ Usage
 Install `rustup`, `clang`, and `binutils`, and then install the
 nightly toolchain:
 
-```
+```bash
 rustup toolchain install nightly
 ```
 
 Then, compile in release mode;
 
-```
+```bash
 cargo build --release
 ```
 
 ### The DNS Server
 
-**I use `resolved` for my home network with no problems, but it may
-not work for you.  You also probably don't want to expose this to the
-internet!**
+**`resolved` hasn't had any sort of security review, so be wary of exposing it on a public network.**
 
 Since `resolved` binds to port 53 (both UDP and TCP), it needs to be
 run as root or to have the `CAP_NET_BIND_SERVICE` capability.
 
+```bash
+sudo ./target/release/resolved -Z config/zones
 ```
-$ sudo ./target/release/resolved -Z config/zones
+
+The `config/zones` directory contains standard configuration which you'll
+usually want to have (such as the [root hints file][]), so you would typically
+either put your zone files in `config/zones`, or put them somewhere else and
+pass a second `-Z` option like so:
+
+``` bash
+sudo ./target/release/resolved -Z config/zones -Z /path/to/your/zone/files
 ```
 
-If run as a systemd unit, set the `AmbientCapabilities=CAP_NET_BIND_SERVICE`
-option and run as a non-root user.
+See the `--help` text for all options.
 
-See the `--help` text for options.
+[root hints file]: https://www.iana.org/domains/root/files
 
-**Signals:**
+```text
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+DynamicUser=true
+```
 
-- `SIGUSR1` - reload the configuration
+#### Signals
 
-**Monitoring:**
+`SIGUSR1` - reload the configuration
 
-- Prometheus metrics are exposed at `http://127.0.0.1:9420/metrics`
-- Log level can be controlled with the `RUST_LOG` environment variable:
-  - `RUST_LOG=trace` - verbose messages useful for development, like
-    "entered function X"
-  - `RUST_LOG=debug` - warns about strange but recoverable situations,
-    like "socket read error"
-  - `RUST_LOG=info` - gives top-level information, like "new
-    connection" or "reloading configuration"
-  - `RUST_LOG=warn` - warns about recoverable internal errors and
-    invalid configuration, like "could not serialise message" or
-    "invalid record in cache"
-  - `RUST_LOG=error` - warns about fatal errors and then terminates
-    the process, like "could not bind socket"
-- Log format can be controlled with the `RUST_LOG_FORMAT` environment
-  variable, which is a sequence of comma-separated values:
-  - One of `full` (default), `compact`, `pretty`, or `json` - see [the
-    tracing_subscriber crate][]
-  - One of `ansi` (default), `no-ansi`
-  - One of `time` (default), `no-time`
+#### Monitoring
+
+Prometheus metrics are exposed at `http://127.0.0.1:9420/metrics`.  Use the
+`--metrics-address` argument or `METRICS_ADDRESS` environment variable to change
+the host or port.
+
+Logs are emitted to stdout.  Control the log level with the `RUST_LOG`
+environment variable:
+
+- `RUST_LOG=trace` - verbose messages useful for development, like "entered
+  function X"
+- `RUST_LOG=debug` - warns about strange but recoverable situations, like
+  "socket read error"
+- `RUST_LOG=info` - gives top-level information, like "new connection" or
+  "reloading configuration"
+- `RUST_LOG=warn` - warns about recoverable internal errors and invalid
+  configuration, like "could not serialise message" or "invalid record in cache"
+- `RUST_LOG=error` - warns about fatal errors and then terminates the process,
+  like "could not bind socket"
+
+Set the log format with the `RUST_LOG_FORMAT` environment variable, which is a
+  sequence of comma-separated values:
+- One of `full` (default), `compact`, `pretty`, or `json` - see [the
+  tracing_subscriber crate][]
+- One of `ansi` (default), `no-ansi`
+- One of `time` (default), `no-time`
 
 [the tracing_subscriber crate]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/index.html#formatters
+
+#### Running under systemd
+
+Add the following lines to your systemd unit to grant the `CAP_NET_BIND_SERVICE`
+capability and avoid running as root:
 
 ### The DNS Client
 
@@ -82,7 +103,7 @@ There is also a `dnsq` utility to resolve names based on the server
 configuration directly.  The main purpose of it is to test configuration
 changes.
 
-```
+```text
 $ ./target/release/dnsq www.barrucadu.co.uk. AAAA -Z config/zones
 ;; QUESTION
 www.barrucadu.co.uk.    IN      AAAA
@@ -92,60 +113,44 @@ www.barrucadu.co.uk.    300     IN      CNAME   barrucadu.co.uk.
 barrucadu.co.uk.        300     IN      AAAA    2a01:4f8:c0c:bfc1::
 ```
 
-See the `--help` text for options, which are a subset of the `resolved` options.
+See the `--help` text for all options.
 
 ### Other Tools
 
-There are also four utility programs---`htoh`, `htoz`, `ztoh`, and
-`ztoz`---to convert between hosts files and zone files.  They accept
-any syntactically valid file as input, and output it in a consistent
-format regardless of how the input is structured.  So `htoh` and
-`ztoz` can be used to normalise existing files.
+There are also four utility programs (`htoh`, `htoz`, `ztoh`, and `ztoz`) to
+convert between hosts files and zone files.
+
+They accept any syntactically valid file as input, and output it in a consistent
+format regardless of how the input is structured, so `htoh` and `ztoz` can be
+used to normalise existing files.
 
 
 Development
 -----------
 
-The project structure should hopefully be fairly straightforward.  The
-modules are:
+There are two shared libraries and six binaries:
 
-- `lib-dns-types` - basic types used in other packages
-  - `hosts`       - hosts files
-  - `protocol`    - the DNS message types and serialisation / deserialisation logic
-  - `zones`       - authoritative and non-authoritative zones
-
-- `lib-dns-resolver` - the DNS resolvers
-  - `cache`        - the cache
-  - `forwarding`   - the forwarding resolver
-  - `metrics`      - resolver-specific metrics
-  - `local`        - the local resolver (using configuration & cache)
-  - `recursive`    - the recursive resolver
-  - `util`         - shared types and functions
-
-- `bin-dnsq` - utility to resolve DNS queries
-
-- `bin-resolved` - the DNS server
-
-- `bin-htoh` - utility to normalise hosts files
-
-- `bin-htoz` - utility to convert hosts files to zone files
-
-- `bin-ztoh` - utility to convert zone files to hosts files
-
-- `bin-ztoz` - utility to normalise zone files
+- `lib-dns-types` - basic types used in other packages ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_types/))
+- `lib-dns-resolver` - the DNS resolvers ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_resolver/))
+- `bin-dnsq` - utility to resolve DNS queries ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dnsq/))
+- `bin-resolved` - the DNS server ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/resolved/))
+- `bin-htoh` - utility to normalise hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoh/))
+- `bin-htoz` - utility to convert hosts files to zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoz/))
+- `bin-ztoh` - utility to convert zone files to hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoh/))
+- `bin-ztoz` - utility to normalise zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoz/))
 
 ### Testing
 
-Run the unit and integration tests with:
+Run the unit tests with:
 
-```
+```bash
 cargo test
 ```
 
 There are also fuzz tests in the `fuzz/` directory, using
 [`cargo-fuzz`][]:
 
-```
+```bash
 cargo install cargo-fuzz
 
 # list targets
