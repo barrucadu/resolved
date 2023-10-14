@@ -50,52 +50,9 @@ pass a second `-Z` option like so:
 sudo ./target/release/resolved -Z config/zones -Z /path/to/your/zone/files
 ```
 
-See the `--help` text for all options.
+See [the CLI documentation](https://resolved.docs.barrucadu.co.uk/cli/resolved.html) for more.
 
 ["root hints" file]: https://www.iana.org/domains/root/files
-
-#### Signals
-
-`SIGUSR1` - reload the configuration
-
-#### Monitoring
-
-Prometheus metrics are exposed at `http://127.0.0.1:9420/metrics`.  Use the
-`--metrics-address` argument or `METRICS_ADDRESS` environment variable to change
-the host or port.
-
-Logs are emitted to stdout.  Control the log level with the `RUST_LOG`
-environment variable:
-
-- `RUST_LOG=trace` - verbose messages useful for development, like "entered
-  function X"
-- `RUST_LOG=debug` - warns about strange but recoverable situations, like
-  "socket read error"
-- `RUST_LOG=info` - gives top-level information, like "new connection" or
-  "reloading configuration"
-- `RUST_LOG=warn` - warns about recoverable internal errors and invalid
-  configuration, like "could not serialise message" or "invalid record in cache"
-- `RUST_LOG=error` - warns about fatal errors and then terminates the process,
-  like "could not bind socket"
-
-Set the log format with the `RUST_LOG_FORMAT` environment variable, which is a
-  sequence of comma-separated values:
-- One of `full` (default), `compact`, `pretty`, or `json` - see [the
-  tracing_subscriber crate][]
-- One of `ansi` (default), `no-ansi`
-- One of `time` (default), `no-time`
-
-[the tracing_subscriber crate]: https://docs.rs/tracing-subscriber/latest/tracing_subscriber/fmt/format/index.html#formatters
-
-#### Running under systemd
-
-Add the following lines to your systemd unit to grant the `CAP_NET_BIND_SERVICE`
-capability and avoid running as root:
-
-```text
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-DynamicUser=true
-```
 
 ### The DNS Client
 

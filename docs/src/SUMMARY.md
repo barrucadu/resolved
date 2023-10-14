@@ -5,6 +5,11 @@
 
 # Usage
 
+- [Command line interface](./cli.md)
+  - [resolved - DNS server](./cli/resolved.md)
+  - [dnsq - DNS client](./cli/dnsq.md)
+  - [Conversion utilities](./cli/conversion-utilities.md)
+
 - [Configuration](./configuration.md)
   - [Hosts and zone files](./configuration/hosts-and-zone-files.md)
   - [Standard zones](./configuration/standard-zones.md)
