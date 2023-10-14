@@ -54,11 +54,6 @@ See the `--help` text for all options.
 
 [root hints file]: https://www.iana.org/domains/root/files
 
-```text
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-DynamicUser=true
-```
-
 #### Signals
 
 `SIGUSR1` - reload the configuration
@@ -96,6 +91,11 @@ Set the log format with the `RUST_LOG_FORMAT` environment variable, which is a
 
 Add the following lines to your systemd unit to grant the `CAP_NET_BIND_SERVICE`
 capability and avoid running as root:
+
+```text
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+DynamicUser=true
+```
 
 ### The DNS Client
 
