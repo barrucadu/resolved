@@ -1,0 +1,17 @@
+[book]
+title = "resolved"
+authors = ["Michael Walker (barrucadu)"]
+description = "A simple DNS server for home networks."
+language = "en"
+multilingual = false
+
+[build]
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/barrucadu/resolved"
+cname = "resolved.docs.barrucadu.co.uk"
+
+[preprocessor.admonish]
+on_failure = "bail"
+command = "mdbook-admonish"
