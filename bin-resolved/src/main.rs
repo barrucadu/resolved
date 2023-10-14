@@ -408,16 +408,15 @@ fn begin_logging() {
 ///
 /// resolved supports:
 ///
-/// - Recursive and non-recursive resolution
+/// - Three modes of operation: as a recursive or forwarding nameserver (with
+///   caching) or as an authoritative nameserver for your specified domains
+///   only.
 ///
-/// - Caching
+/// - Defining custom records in hosts files (to make existing DNS blacklists
+///   each to use) and in zone files.
 ///
-/// - Hosts files
-///
-/// - Zone files
-///
-/// It does not support querying upstream nameservers over IPv6: I
-/// don't have IPv6 at home, so this code doesn't support it yet.
+/// - Listening on either IPv4 or IPv6, and communicating with upstream
+///   nameservers over both.
 ///
 /// It is not intended to be a fully-featured internet-facing
 /// nameserver, but just enough to get DNS ad-blocking and nice
