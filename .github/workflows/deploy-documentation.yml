@@ -42,7 +42,7 @@ jobs:
       - name: Fix permissions
         run: bash ./.github/scripts/build-documentation.sh fix-permissions
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
+        uses: actions/upload-pages-artifact@v3
 
   # Deployment job
   deploy:
