@@ -8,13 +8,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
+      - name: Install rust
+        run: rustup show
+
+      - name: Install nix
+        uses: cachix/install-nix-action@v25
         with:
-          profile: minimal
-          toolchain: nightly
-          components: rustfmt, clippy
-          override: true
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Check flake.nix
+        run: |
+          set -ex
+          nix flake check
+          nix fmt
+          git diff --exit-code
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -34,12 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+      - name: Install rust
+        run: rustup show
 
       - name: Run tests
         run: cargo test
@@ -49,12 +52,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+      - name: Install rust
+        run: rustup show
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz

@@ -17,11 +17,10 @@ See [the documentation](https://resolved.docs.barrucadu.co.uk).
 Usage
 -----
 
-Install `rustup`, `clang`, and `binutils`, and then install the
-nightly toolchain:
+Install `rustup`, and then install the default toolchain:
 
 ```bash
-rustup toolchain install nightly
+rustup show
 ```
 
 Then, compile in release mode;
@@ -95,6 +94,16 @@ There are two shared libraries and six binaries:
 - `bin-htoz` - utility to convert hosts files to zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoz/))
 - `bin-ztoh` - utility to convert zone files to hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoh/))
 - `bin-ztoz` - utility to normalise zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoz/))
+
+### Developing with nix
+
+Open a development shell:
+
+```bash
+nix develop
+```
+
+And run cargo commands in there.
 
 ### Testing
 
