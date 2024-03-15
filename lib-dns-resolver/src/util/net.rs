@@ -3,7 +3,6 @@ use std::io;
 use std::net::SocketAddr;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
-use tracing;
 
 /// Read a DNS message from a TCP stream.
 ///
