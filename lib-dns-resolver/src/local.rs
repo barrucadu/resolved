@@ -1,5 +1,3 @@
-use tracing;
-
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
 
