@@ -23,12 +23,12 @@ other records you want), and have everything on your LAN use them.
 Installing `resolved`
 ---------------------
 
-First, install `rustup`, `clang`, and `binutils` through your package manager.
+First, install `rustup` through your package manager.
 
 Build `resolved` in release mode:
 
 ```bash
-rustup toolchain install nightly
+rustup show
 cargo build --release
 ```
 
