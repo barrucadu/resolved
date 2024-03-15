@@ -184,7 +184,7 @@ pub struct Header {
     /// the answer section.
     pub is_authoritative: bool,
 
-    /// TrunCation - specifies that this message was truncated due to
+    /// Truncation - specifies that this message was truncated due to
     /// length greater than that permitted on the transmission
     /// channel.
     pub is_truncated: bool,
