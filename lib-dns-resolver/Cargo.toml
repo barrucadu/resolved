@@ -9,7 +9,7 @@ edition = "2021"
 async-recursion = "1"
 bytes = "1"
 dns-types = { path = "../lib-dns-types" }
-priority-queue = "1"
+priority-queue = "2"
 rand = "0.8.5"
 tokio = { version = "1", features = ["io-util", "net", "time"] }
 tracing = "0.1.40"
