@@ -13,7 +13,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.dns-types]
-path = "../lib-dns-types"
+path = "../crates/dns-types"
 features = ["test-util"]
 
 # Prevent this from interfering with workspaces

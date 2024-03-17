@@ -1,5 +1,5 @@
 [package]
-name = "dnsq"
+name = "htoh"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,6 +7,4 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-dns-types = { path = "../lib-dns-types" }
-dns-resolver = { path = "../lib-dns-resolver" }
-tokio = { version = "1", features = ["macros", "rt"] }
+dns-types = { path = "../dns-types" }

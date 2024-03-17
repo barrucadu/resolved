@@ -8,7 +8,7 @@ edition = "2021"
 [dependencies]
 async-recursion = "1"
 bytes = "1"
-dns-types = { path = "../lib-dns-types" }
+dns-types = { path = "../dns-types" }
 priority-queue = "2"
 rand = "0.8.5"
 tokio = { version = "1", features = ["io-util", "net", "time"] }
@@ -16,4 +16,4 @@ tracing = "0.1.40"
 
 [dev-dependencies]
 criterion = "0.4.0"
-dns-types = { path = "../lib-dns-types", features = ["test-util"] }
+dns-types = { path = "../dns-types", features = ["test-util"] }

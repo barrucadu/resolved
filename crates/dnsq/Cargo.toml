@@ -1,5 +1,5 @@
 [package]
-name = "ztoh"
+name = "dnsq"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,4 +7,6 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-dns-types = { path = "../lib-dns-types" }
+dns-types = { path = "../dns-types" }
+dns-resolver = { path = "../dns-resolver" }
+tokio = { version = "1", features = ["macros", "rt"] }

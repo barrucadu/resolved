@@ -1,12 +1,7 @@
 [workspace]
 
 members = [
-        "bin-dnsq",
-        "bin-htoh",
-        "bin-htoz",
-        "bin-resolved",
-        "bin-ztoh",
-        "bin-ztoz",
-        "lib-dns-resolver",
-        "lib-dns-types",
+  "crates/*",
 ]
+
+resolver = "2"
