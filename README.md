@@ -84,16 +84,19 @@ used to normalise existing files.
 Development
 -----------
 
-There are two shared libraries and six binaries:
+Rust sources are in the `crates/` directory.  There are two shared libraries:
 
-- `lib-dns-types` - basic types used in other packages ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_types/))
-- `lib-dns-resolver` - the DNS resolvers ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_resolver/))
-- `bin-dnsq` - utility to resolve DNS queries ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dnsq/))
-- `bin-resolved` - the DNS server ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/resolved/))
-- `bin-htoh` - utility to normalise hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoh/))
-- `bin-htoz` - utility to convert hosts files to zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoz/))
-- `bin-ztoh` - utility to convert zone files to hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoh/))
-- `bin-ztoz` - utility to normalise zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoz/))
+- `dns-types` - basic types used in other packages ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_types/))
+- `dns-resolver` - the DNS resolvers ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_resolver/))
+
+And six binaries:
+
+- `dnsq` - utility to resolve DNS queries ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dnsq/))
+- `resolved` - the DNS server ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/resolved/))
+- `htoh` - utility to normalise hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoh/))
+- `htoz` - utility to convert hosts files to zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoz/))
+- `ztoh` - utility to convert zone files to hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoh/))
+- `ztoz` - utility to normalise zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoz/))
 
 ### Developing with nix
 
