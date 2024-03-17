@@ -17,11 +17,11 @@ use tracing_subscriber::EnvFilter;
 
 use dns_resolver::cache::SharedCache;
 use dns_resolver::resolve;
-use dns_resolver::util::fs::load_zone_configuration;
 use dns_resolver::util::net::*;
 use dns_resolver::util::types::{ProtocolMode, ResolvedRecord};
 use dns_types::protocol::types::*;
 use dns_types::zones::types::*;
+use resolved::fs::load_zone_configuration;
 use resolved::metrics::*;
 
 fn prune_cache_and_update_metrics(cache: &SharedCache) {

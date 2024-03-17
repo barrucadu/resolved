@@ -9,4 +9,5 @@ edition = "2021"
 clap = { version = "4", features = ["derive"] }
 dns-types = { path = "../dns-types" }
 dns-resolver = { path = "../dns-resolver" }
+resolved = { path = "../resolved" }
 tokio = { version = "1", features = ["macros", "rt"] }

@@ -5,12 +5,12 @@ use std::process;
 
 use dns_resolver::cache::SharedCache;
 use dns_resolver::resolve;
-use dns_resolver::util::fs::load_zone_configuration;
 use dns_resolver::util::types::{ProtocolMode, ResolvedRecord};
 use dns_types::protocol::types::{
     DomainName, QueryClass, QueryType, Question, RecordClass, RecordType, ResourceRecord,
 };
 use dns_types::zones::types::Zone;
+use resolved::fs::load_zone_configuration;
 
 fn print_section(heading: &str, rrs: &[ResourceRecord]) {
     if rrs.is_empty() {

@@ -664,6 +664,7 @@ dependencies = [
  "clap 4.1.11",
  "dns-resolver",
  "dns-types",
+ "resolved",
  "tokio",
 ]
 
