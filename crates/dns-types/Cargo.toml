@@ -12,7 +12,7 @@ rand = { version = "0.8.5", optional = true }
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }
-criterion = "0.4.0"
+criterion = "0.5.1"
 rand = "0.8.5"
 
 [features]
