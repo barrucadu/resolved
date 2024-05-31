@@ -135,15 +135,15 @@ impl Zone {
 /// This is annoyingly flexible:
 ///
 /// - If the `<domain-name>`, `<ttl>`, or `<class>` are missing, the
-/// previous is used (so it is an error to omit it in the first RR).
+///   previous is used (so it is an error to omit it in the first RR).
 ///
 /// - But since this implementation only supports `IN`-class records,
-/// if the class is missing in the first RR, `IN` is used.
+///   if the class is missing in the first RR, `IN` is used.
 ///
 /// - The `<domain-name>` can be an absolute domain, given as a dotted
-/// string ending in a `.`; or a relative domain, given as a dotted
-/// string not ending in a `.`, in which case the origin is prepended;
-/// or `@`, in which case it is the origin.
+///   string ending in a `.`; or a relative domain, given as a dotted
+///   string not ending in a `.`, in which case the origin is prepended;
+///   or `@`, in which case it is the origin.
 ///
 /// The `<rdata>` format depends on the record type.
 ///
