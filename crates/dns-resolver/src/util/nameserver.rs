@@ -61,15 +61,12 @@ pub async fn query_nameserver_udp(
     address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
-    match timeout(
+    timeout(
         Duration::from_secs(5),
         query_nameserver_udp_notimeout(address, serialised_request),
     )
     .await
-    {
-        Ok(res) => res,
-        Err(_) => None,
-    }
+    .unwrap_or_default()
 }
 
 /// Timeout-less version of `query_nameserver_udp`.
@@ -99,15 +96,12 @@ pub async fn query_nameserver_tcp(
     address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
-    match timeout(
+    timeout(
         Duration::from_secs(5),
         query_nameserver_tcp_notimeout(address, serialised_request),
     )
     .await
-    {
-        Ok(res) => res,
-        Err(_) => None,
-    }
+    .unwrap_or_default()
 }
 
 /// Timeout-less version of `query_nameserver_tcp`.
