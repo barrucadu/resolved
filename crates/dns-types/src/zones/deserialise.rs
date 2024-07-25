@@ -1314,7 +1314,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::NULL {
-                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
+                            octets: Bytes::copy_from_slice(b"123"),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1336,7 +1336,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::WKS {
-                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
+                            octets: Bytes::copy_from_slice(b"123"),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1380,7 +1380,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::HINFO {
-                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
+                            octets: Bytes::copy_from_slice(b"123"),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300
@@ -1448,7 +1448,7 @@ mod tests {
                     rr: ResourceRecord {
                         name: domain("nyarlathotep.lan."),
                         rtype_with_data: RecordTypeWithData::TXT {
-                            octets: Bytes::copy_from_slice(&[b'1', b'2', b'3']),
+                            octets: Bytes::copy_from_slice(b"123"),
                         },
                         rclass: RecordClass::IN,
                         ttl: 300

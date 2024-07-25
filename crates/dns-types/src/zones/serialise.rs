@@ -209,13 +209,13 @@ mod tests {
         assert_eq!("\\012", serialise_octets(&[12], false));
         assert_eq!("\\234", serialise_octets(&[234], false));
 
-        assert_eq!("\\\\", serialise_octets(&[b'\\'], false));
-        assert_eq!("\\\"", serialise_octets(&[b'"'], false));
+        assert_eq!("\\\\", serialise_octets(b"\\", false));
+        assert_eq!("\\\"", serialise_octets(b"\"", false));
     }
 
     #[test]
     fn serialise_octets_space() {
-        assert_eq!("\\032", serialise_octets(&[b' '], false));
-        assert_eq!("\" \"", serialise_octets(&[b' '], true));
+        assert_eq!("\\032", serialise_octets(b" ", false));
+        assert_eq!("\" \"", serialise_octets(b" ", true));
     }
 }
