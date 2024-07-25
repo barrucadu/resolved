@@ -1,4 +1,4 @@
-use actix_web::{get, http::header::ContentType, App, HttpResponse, HttpServer, Responder};
+use axum::{http::StatusCode, routing};
 use lazy_static::lazy_static;
 use prometheus::{
     opts, register_histogram_vec, register_int_counter, register_int_counter_vec,
@@ -129,21 +129,17 @@ lazy_static! {
     .unwrap();
 }
 
-#[get("/metrics")]
-async fn get_metrics() -> impl Responder {
+async fn get_metrics() -> (StatusCode, String) {
     match TextEncoder::new().encode_to_string(&prometheus::gather()) {
-        Ok(metrics_str) => HttpResponse::Ok()
-            .content_type(ContentType::plaintext())
-            .body(metrics_str),
-        Err(err) => HttpResponse::InternalServerError()
-            .content_type(ContentType::plaintext())
-            .body(err.to_string()),
+        Ok(metrics_str) => (StatusCode::OK, metrics_str),
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
     }
 }
 
 pub async fn serve_prometheus_endpoint_task(address: SocketAddr) -> std::io::Result<()> {
-    HttpServer::new(|| App::new().service(get_metrics))
-        .bind(address)?
-        .run()
-        .await
+    let app = axum::Router::new().route("/metrics", routing::get(get_metrics));
+    let listener = tokio::net::TcpListener::bind(address).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
 }
