@@ -57,7 +57,7 @@ pub async fn query_nameserver(
 /// consumers MUST validate the response before using it!
 ///
 /// This has a 5s timeout.
-pub async fn query_nameserver_udp(
+async fn query_nameserver_udp(
     address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
@@ -92,7 +92,7 @@ async fn query_nameserver_udp_notimeout(
 /// `query_nameserver_udp`.
 ///
 /// This has a 5s timeout.
-pub async fn query_nameserver_tcp(
+async fn query_nameserver_tcp(
     address: SocketAddr,
     serialised_request: &mut [u8],
 ) -> Option<Message> {
@@ -126,7 +126,7 @@ async fn query_nameserver_tcp_notimeout(
 /// - Check the response code is either `NoError` or `NameError`.
 ///
 /// - Check it is not truncated.
-pub fn response_matches_request(request: &Message, response: &Message) -> bool {
+fn response_matches_request(request: &Message, response: &Message) -> bool {
     if request.header.id != response.header.id {
         return false;
     }
