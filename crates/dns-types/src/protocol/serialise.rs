@@ -181,7 +181,7 @@ impl DomainName {
         buffer.memoise_name(self);
         for label in &self.labels {
             buffer.write_u8(label.len());
-            buffer.write_octets(&label.octets);
+            buffer.write_octets(&label.octets());
         }
     }
 }
