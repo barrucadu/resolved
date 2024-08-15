@@ -435,23 +435,20 @@ impl ZoneRecords {
                 rtype_with_data,
                 ttl,
             };
-            match &mut self.wildcards {
-                Some(wildcards) => {
-                    if let Some(entries) = wildcards.get_mut(&rtype) {
-                        if entries.iter().any(|e| e == &new) {
-                            return;
-                        }
-
-                        entries.push(new);
-                    } else {
-                        wildcards.insert(rtype, vec![new]);
+            if let Some(wildcards) = &mut self.wildcards {
+                if let Some(entries) = wildcards.get_mut(&rtype) {
+                    if entries.iter().any(|e| e == &new) {
+                        return;
                     }
-                }
-                None => {
-                    let mut wildcards = HashMap::new();
+
+                    entries.push(new);
+                } else {
                     wildcards.insert(rtype, vec![new]);
-                    self.wildcards = Some(wildcards);
                 }
+            } else {
+                let mut wildcards = HashMap::new();
+                wildcards.insert(rtype, vec![new]);
+                self.wildcards = Some(wildcards);
             }
         } else {
             let label = relative_domain[relative_domain.len() - 1].clone();
