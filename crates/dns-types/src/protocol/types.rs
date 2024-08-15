@@ -1038,7 +1038,7 @@ impl<'a> arbitrary::Arbitrary<'a> for DomainName {
 pub struct Label {
     /// Private to this module so constructing an invalid `Label` is
     /// impossible.
-    pub octets: Bytes,
+    octets: Bytes,
 }
 
 impl Label {
@@ -1057,6 +1057,10 @@ impl Label {
 
     pub fn is_empty(&self) -> bool {
         self.octets.is_empty()
+    }
+
+    pub fn octets(&self) -> &Bytes {
+        &self.octets
     }
 }
 

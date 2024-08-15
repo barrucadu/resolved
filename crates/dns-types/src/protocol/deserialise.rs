@@ -18,7 +18,7 @@ impl Message {
     /// # Errors
     ///
     /// If the message cannot be parsed.
-    pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let header = Header::deserialise(buffer)?;
         let qdcount = buffer.next_u16().ok_or(Error::HeaderTooShort(header.id))?;
         let ancount = buffer.next_u16().ok_or(Error::HeaderTooShort(header.id))?;
@@ -57,7 +57,7 @@ impl Header {
     /// # Errors
     ///
     /// If the header is too short.
-    pub fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let id = buffer.next_u16().ok_or(Error::CompletelyBusted)?;
         let flags1 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
         let flags2 = buffer.next_u8().ok_or(Error::HeaderTooShort(id))?;
@@ -79,7 +79,7 @@ impl Question {
     /// # Errors
     ///
     /// If the question cannot be parsed.
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let name = DomainName::deserialise(id, buffer)?;
         let qtype = QueryType::deserialise(id, buffer)?;
         let qclass = QueryClass::deserialise(id, buffer)?;
@@ -96,7 +96,7 @@ impl ResourceRecord {
     /// # Errors
     ///
     /// If the record cannot be parsed.
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let name = DomainName::deserialise(id, buffer)?;
         let rtype = RecordType::deserialise(id, buffer)?;
         let rclass = RecordClass::deserialise(id, buffer)?;
@@ -218,7 +218,7 @@ impl DomainName {
     ///
     /// If the domain cannot be parsed.
     #[allow(clippy::missing_panics_doc)]
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let mut len = 0;
         let mut labels = Vec::<Label>::with_capacity(5);
         let start = buffer.position;
@@ -281,7 +281,7 @@ impl QueryType {
     /// # Errors
     ///
     /// If the query type is too short.
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::QuestionTooShort(id))?;
         Ok(Self::from(value))
     }
@@ -291,7 +291,7 @@ impl QueryClass {
     /// # Errors
     ///
     /// If the query class is too short.
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::QuestionTooShort(id))?;
         Ok(Self::from(value))
     }
@@ -301,7 +301,7 @@ impl RecordType {
     /// # Errors
     ///
     /// If the record type is too short.
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
         Ok(Self::from(value))
     }
@@ -311,7 +311,7 @@ impl RecordClass {
     /// # Errors
     ///
     /// If the record class is too short.
-    pub fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
+    fn deserialise(id: u16, buffer: &mut ConsumableBuffer) -> Result<Self, Error> {
         let value = buffer.next_u16().ok_or(Error::ResourceRecordTooShort(id))?;
         Ok(Self::from(value))
     }
@@ -394,20 +394,20 @@ impl Error {
 }
 
 /// A buffer which will be consumed by the parsing process.
-pub struct ConsumableBuffer<'a> {
+struct ConsumableBuffer<'a> {
     octets: &'a [u8],
     position: usize,
 }
 
 impl<'a> ConsumableBuffer<'a> {
-    pub fn new(octets: &'a [u8]) -> Self {
+    fn new(octets: &'a [u8]) -> Self {
         Self {
             octets,
             position: 0,
         }
     }
 
-    pub fn next_u8(&mut self) -> Option<u8> {
+    fn next_u8(&mut self) -> Option<u8> {
         if self.octets.len() > self.position {
             let a = self.octets[self.position];
             self.position += 1;
@@ -417,7 +417,7 @@ impl<'a> ConsumableBuffer<'a> {
         }
     }
 
-    pub fn next_u16(&mut self) -> Option<u16> {
+    fn next_u16(&mut self) -> Option<u16> {
         if self.octets.len() > self.position + 1 {
             let a = self.octets[self.position];
             let b = self.octets[self.position + 1];
@@ -428,7 +428,7 @@ impl<'a> ConsumableBuffer<'a> {
         }
     }
 
-    pub fn next_u32(&mut self) -> Option<u32> {
+    fn next_u32(&mut self) -> Option<u32> {
         if self.octets.len() > self.position + 3 {
             let a = self.octets[self.position];
             let b = self.octets[self.position + 1];
@@ -441,7 +441,7 @@ impl<'a> ConsumableBuffer<'a> {
         }
     }
 
-    pub fn take(&mut self, size: usize) -> Option<&'a [u8]> {
+    fn take(&mut self, size: usize) -> Option<&'a [u8]> {
         if self.octets.len() >= self.position + size {
             let slice = &self.octets[self.position..self.position + size];
             self.position += size;
@@ -451,7 +451,7 @@ impl<'a> ConsumableBuffer<'a> {
         }
     }
 
-    pub fn at_offset(&self, position: usize) -> ConsumableBuffer<'a> {
+    fn at_offset(&self, position: usize) -> ConsumableBuffer<'a> {
         Self {
             octets: self.octets,
             position,
