@@ -21,7 +21,7 @@ impl Message {
     ///
     /// If the message is invalid (the `Message` type permits more
     /// states than strictly allowed).
-    pub fn serialise(&self, buffer: &mut WritableBuffer) -> Result<(), Error> {
+    fn serialise(&self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         let qdcount = usize_to_u16(self.questions.len())?;
         let ancount = usize_to_u16(self.answers.len())?;
         let nscount = usize_to_u16(self.authority.len())?;
@@ -51,7 +51,7 @@ impl Message {
 }
 
 impl Header {
-    pub fn serialise(&self, buffer: &mut WritableBuffer) {
+    fn serialise(&self, buffer: &mut WritableBuffer) {
         // octet 1
         let flag_qr = if self.is_response { HEADER_MASK_QR } else { 0 };
         let field_opcode = HEADER_MASK_OPCODE & (u8::from(self.opcode) << HEADER_OFFSET_OPCODE);
@@ -81,7 +81,7 @@ impl Header {
 }
 
 impl Question {
-    pub fn serialise(&self, buffer: &mut WritableBuffer) {
+    fn serialise(&self, buffer: &mut WritableBuffer) {
         self.name.serialise(buffer, true);
         self.qtype.serialise(buffer);
         self.qclass.serialise(buffer);
@@ -92,7 +92,7 @@ impl ResourceRecord {
     /// # Errors
     ///
     /// If the RDATA is too long.
-    pub fn serialise(&self, buffer: &mut WritableBuffer) -> Result<(), Error> {
+    fn serialise(&self, buffer: &mut WritableBuffer) -> Result<(), Error> {
         self.name.serialise(buffer, true);
         self.rtype_with_data.rtype().serialise(buffer);
         self.rclass.serialise(buffer);
@@ -170,7 +170,7 @@ impl ResourceRecord {
 }
 
 impl DomainName {
-    pub fn serialise(&self, buffer: &mut WritableBuffer, compress: bool) {
+    fn serialise(&self, buffer: &mut WritableBuffer, compress: bool) {
         if compress {
             if let Some(ptr) = buffer.name_pointer(self) {
                 buffer.write_u16(ptr);
@@ -181,31 +181,31 @@ impl DomainName {
         buffer.memoise_name(self);
         for label in &self.labels {
             buffer.write_u8(label.len());
-            buffer.write_octets(&label.octets());
+            buffer.write_octets(label.octets());
         }
     }
 }
 
 impl QueryType {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.into());
     }
 }
 
 impl QueryClass {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.into());
     }
 }
 
 impl RecordType {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.into());
     }
 }
 
 impl RecordClass {
-    pub fn serialise(self, buffer: &mut WritableBuffer) {
+    fn serialise(self, buffer: &mut WritableBuffer) {
         buffer.write_u16(self.into());
     }
 }
@@ -234,8 +234,8 @@ impl std::error::Error for Error {
 }
 
 /// A buffer which can be written to, for serialisation purposes.
-pub struct WritableBuffer {
-    pub octets: BytesMut,
+struct WritableBuffer {
+    octets: BytesMut,
     name_pointers: HashMap<DomainName, u16>,
 }
 
@@ -249,11 +249,11 @@ impl Default for WritableBuffer {
 }
 
 impl WritableBuffer {
-    pub fn index(&self) -> usize {
+    fn index(&self) -> usize {
         self.octets.len()
     }
 
-    pub fn memoise_name(&mut self, name: &DomainName) {
+    fn memoise_name(&mut self, name: &DomainName) {
         if !name.is_root() && !self.name_pointers.contains_key(name) {
             if let Ok(index) = u16::try_from(self.index()) {
                 let [hi, lo] = index.to_be_bytes();
@@ -263,23 +263,23 @@ impl WritableBuffer {
         }
     }
 
-    pub fn name_pointer(&self, name: &DomainName) -> Option<u16> {
+    fn name_pointer(&self, name: &DomainName) -> Option<u16> {
         self.name_pointers.get(name).copied()
     }
 
-    pub fn write_u8(&mut self, octet: u8) {
+    fn write_u8(&mut self, octet: u8) {
         self.octets.put_u8(octet);
     }
 
-    pub fn write_u16(&mut self, value: u16) {
+    fn write_u16(&mut self, value: u16) {
         self.write_octets(&value.to_be_bytes());
     }
 
-    pub fn write_u32(&mut self, value: u32) {
+    fn write_u32(&mut self, value: u32) {
         self.write_octets(&value.to_be_bytes());
     }
 
-    pub fn write_octets(&mut self, octets: &[u8]) {
+    fn write_octets(&mut self, octets: &[u8]) {
         self.octets.put_slice(octets);
     }
 }
