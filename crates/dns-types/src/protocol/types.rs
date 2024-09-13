@@ -855,10 +855,7 @@ impl<'a> arbitrary::Arbitrary<'a> for Rcode {
 }
 
 /// A domain name is a sequence of labels, where each label is a
-/// length octet followed by that number of octets.  Since there is no
-/// particular character encoding needed, and this application does
-/// not need to inspect domain names, they are left in this opaque
-/// format.
+/// length octet followed by that number of octets.
 ///
 /// A label must be 63 octets or shorter.  A name must be 255 octets
 /// or shorter in total, including both length and label octets.
