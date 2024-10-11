@@ -23,7 +23,12 @@ impl Zone {
         let mut previous_domain = None;
         let mut previous_ttl = None;
         let mut stream = data.chars().peekable();
-        while let Some(entry) = parse_entry(&origin, &previous_domain, previous_ttl, &mut stream)? {
+        while let Some(entry) = parse_entry(
+            origin.as_ref(),
+            previous_domain.as_ref(),
+            previous_ttl,
+            &mut stream,
+        )? {
             match entry {
                 Entry::Origin { name } => origin = Some(name),
                 Entry::Include { path, origin } => {
@@ -162,8 +167,8 @@ impl Zone {
 ///
 /// If the string cannot be parsed.
 fn parse_entry<I: Iterator<Item = char>>(
-    origin: &Option<DomainName>,
-    previous_domain: &Option<MaybeWildcard>,
+    origin: Option<&DomainName>,
+    previous_domain: Option<&MaybeWildcard>,
     previous_ttl: Option<u32>,
     stream: &mut Peekable<I>,
 ) -> Result<Option<Entry>, Error> {
@@ -195,7 +200,7 @@ fn parse_entry<I: Iterator<Item = char>>(
 /// # Errors
 ///
 /// If the string cannot be parsed.
-fn parse_origin(origin: &Option<DomainName>, tokens: Vec<(String, Bytes)>) -> Result<Entry, Error> {
+fn parse_origin(origin: Option<&DomainName>, tokens: Vec<(String, Bytes)>) -> Result<Entry, Error> {
     if tokens.len() != 2 {
         return Err(Error::WrongLen { tokens });
     }
@@ -219,7 +224,7 @@ fn parse_origin(origin: &Option<DomainName>, tokens: Vec<(String, Bytes)>) -> Re
 ///
 /// If the string cannot be parsed.
 fn parse_include(
-    origin: &Option<DomainName>,
+    origin: Option<&DomainName>,
     tokens: Vec<(String, Bytes)>,
 ) -> Result<Entry, Error> {
     if tokens.len() != 2 && tokens.len() != 3 {
@@ -259,8 +264,8 @@ fn parse_include(
 ///
 /// If the string cannot be parsed.
 fn parse_rr(
-    origin: &Option<DomainName>,
-    previous_domain: &Option<MaybeWildcard>,
+    origin: Option<&DomainName>,
+    previous_domain: Option<&MaybeWildcard>,
     previous_ttl: Option<u32>,
     tokens: Vec<(String, Bytes)>,
 ) -> Result<Entry, Error> {
@@ -387,7 +392,7 @@ fn parse_rr(
 /// Try to parse a record type with data.  Returns `None` if there is
 /// no parse, since this does not necessarily indicate a fatal error.
 fn try_parse_rtype_with_data(
-    origin: &Option<DomainName>,
+    origin: Option<&DomainName>,
     tokens: &[(String, Bytes)],
 ) -> Option<RecordTypeWithData> {
     if tokens.is_empty() {
@@ -512,7 +517,7 @@ fn try_parse_rtype_with_data(
 ///
 /// If the string cannot be parsed.
 fn parse_domain_or_wildcard(
-    origin: &Option<DomainName>,
+    origin: Option<&DomainName>,
     dotted_string: &str,
 ) -> Result<MaybeWildcard, Error> {
     let dotted_string_vec = dotted_string.chars().collect::<Vec<char>>();
@@ -550,7 +555,7 @@ fn parse_domain_or_wildcard(
 /// # Errors
 ///
 /// If the string cannot be parsed.
-fn parse_domain(origin: &Option<DomainName>, dotted_string: &str) -> Result<DomainName, Error> {
+fn parse_domain(origin: Option<&DomainName>, dotted_string: &str) -> Result<DomainName, Error> {
     let dotted_string_vec = dotted_string.chars().collect::<Vec<char>>();
 
     if dotted_string_vec.is_empty() {
@@ -1014,11 +1019,11 @@ mod tests {
         let tokens = tokenise_str("* IN 300 A 10.0.0.2");
 
         assert!(matches!(
-            parse_rr(&None, &None, None, tokens.clone()),
+            parse_rr(None, None, None, tokens.clone()),
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(parsed) = parse_rr(&Some(domain("example.com.")), &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(Some(&domain("example.com.")), None, None, tokens) {
             assert_eq!(
                 Entry::WildcardRR {
                     rr: ResourceRecord {
@@ -1042,13 +1047,13 @@ mod tests {
         let tokens = tokenise_str("IN 300 A 10.0.0.2");
 
         assert!(matches!(
-            parse_rr(&None, &None, None, tokens.clone()),
+            parse_rr(None, None, None, tokens.clone()),
             Err(Error::MissingDomainName { .. })
         ));
 
         if let Ok(parsed) = parse_rr(
-            &None,
-            &Some(MaybeWildcard::Normal {
+            None,
+            Some(&MaybeWildcard::Normal {
                 name: domain("example.com."),
             }),
             None,
@@ -1077,11 +1082,11 @@ mod tests {
         let tokens = tokenise_str("nyarlathotep.lan. IN A 10.0.0.2");
 
         assert!(matches!(
-            parse_rr(&None, &None, None, tokens.clone()),
+            parse_rr(None, None, None, tokens.clone()),
             Err(Error::MissingTTL { .. })
         ));
 
-        if let Ok(parsed) = parse_rr(&None, &None, Some(42), tokens) {
+        if let Ok(parsed) = parse_rr(None, None, Some(42), tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1103,7 +1108,7 @@ mod tests {
     #[test]
     fn parse_rr_a() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 A 10.0.0.2");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1125,7 +1130,7 @@ mod tests {
     #[test]
     fn parse_rr_ns() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 NS ns1.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1147,7 +1152,7 @@ mod tests {
     #[test]
     fn parse_rr_md() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MD madname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1169,7 +1174,7 @@ mod tests {
     #[test]
     fn parse_rr_mf() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MF madname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1191,7 +1196,7 @@ mod tests {
     #[test]
     fn parse_rr_cname() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 CNAME cname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1214,7 +1219,7 @@ mod tests {
     fn parse_rr_soa() {
         let tokens =
             tokenise_str("nyarlathotep.lan. IN 300 SOA mname.lan. rname.lan. 100 200 300 400 500");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1242,7 +1247,7 @@ mod tests {
     #[test]
     fn parse_rr_mb() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MB madname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1264,7 +1269,7 @@ mod tests {
     #[test]
     fn parse_rr_mg() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MG mdmname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1286,7 +1291,7 @@ mod tests {
     #[test]
     fn parse_rr_mr() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MR newname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1308,7 +1313,7 @@ mod tests {
     #[test]
     fn parse_rr_null() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 NULL 123");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1330,7 +1335,7 @@ mod tests {
     #[test]
     fn parse_rr_wks() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 WKS 123");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1352,7 +1357,7 @@ mod tests {
     #[test]
     fn parse_rr_ptr() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 PTR ptrdname.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1374,7 +1379,7 @@ mod tests {
     #[test]
     fn parse_rr_hinfo() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 HINFO 123");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1396,7 +1401,7 @@ mod tests {
     #[test]
     fn parse_rr_minfo() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MINFO rmailbx.lan. emailbx.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1419,7 +1424,7 @@ mod tests {
     #[test]
     fn parse_rr_mx() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 MX 42 exchange.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1442,7 +1447,7 @@ mod tests {
     #[test]
     fn parse_rr_txt() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 TXT 123");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1464,7 +1469,7 @@ mod tests {
     #[test]
     fn parse_rr_aaaa() {
         let tokens = tokenise_str("nyarlathotep.lan. IN 300 AAAA ::1:2:3");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1487,7 +1492,7 @@ mod tests {
     fn parse_rr_srv() {
         let tokens =
             tokenise_str("_service._tcp.nyarlathotep.lan. IN 300 SRV 0 0 8080 game-server.lan.");
-        if let Ok(parsed) = parse_rr(&None, &None, None, tokens) {
+        if let Ok(parsed) = parse_rr(None, None, None, tokens) {
             assert_eq!(
                 Entry::RR {
                     rr: ResourceRecord {
@@ -1512,11 +1517,11 @@ mod tests {
     #[test]
     fn parse_domain_or_wildcard_origin() {
         assert!(matches!(
-            parse_domain_or_wildcard(&None, "@"),
+            parse_domain_or_wildcard(None, "@"),
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "@") {
+        if let Ok(name) = parse_domain_or_wildcard(Some(&domain("example.com.")), "@") {
             assert_eq!(
                 MaybeWildcard::Normal {
                     name: domain("example.com.")
@@ -1531,11 +1536,11 @@ mod tests {
     #[test]
     fn parse_domain_or_wildcard_wildcard_origin() {
         assert!(matches!(
-            parse_domain_or_wildcard(&None, "*.@"),
+            parse_domain_or_wildcard(None, "*.@"),
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "*.@") {
+        if let Ok(name) = parse_domain_or_wildcard(Some(&domain("example.com.")), "*.@") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
                     name: domain("example.com.")
@@ -1550,11 +1555,11 @@ mod tests {
     #[test]
     fn parse_domain_or_wildcard_relative() {
         assert!(matches!(
-            parse_domain_or_wildcard(&None, "www"),
+            parse_domain_or_wildcard(None, "www"),
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "www") {
+        if let Ok(name) = parse_domain_or_wildcard(Some(&domain("example.com.")), "www") {
             assert_eq!(
                 MaybeWildcard::Normal {
                     name: domain("www.example.com.")
@@ -1569,11 +1574,11 @@ mod tests {
     #[test]
     fn parse_domain_or_wildcard_wildcard_relative() {
         assert!(matches!(
-            parse_domain_or_wildcard(&None, "*"),
+            parse_domain_or_wildcard(None, "*"),
             Err(Error::ExpectedOrigin)
         ));
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "*") {
+        if let Ok(name) = parse_domain_or_wildcard(Some(&domain("example.com.")), "*") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
                     name: domain("example.com.")
@@ -1587,7 +1592,7 @@ mod tests {
 
     #[test]
     fn parse_domain_or_wildcard_absolute() {
-        if let Ok(name) = parse_domain_or_wildcard(&None, "www.example.com.") {
+        if let Ok(name) = parse_domain_or_wildcard(None, "www.example.com.") {
             assert_eq!(
                 MaybeWildcard::Normal {
                     name: domain("www.example.com.")
@@ -1599,7 +1604,7 @@ mod tests {
         }
 
         if let Ok(name) =
-            parse_domain_or_wildcard(&Some(domain("example.com.")), "www.example.com.")
+            parse_domain_or_wildcard(Some(&domain("example.com.")), "www.example.com.")
         {
             assert_eq!(
                 MaybeWildcard::Normal {
@@ -1614,7 +1619,7 @@ mod tests {
 
     #[test]
     fn parse_domain_or_wildcard_wildcard_absolute() {
-        if let Ok(name) = parse_domain_or_wildcard(&None, "*.example.com.") {
+        if let Ok(name) = parse_domain_or_wildcard(None, "*.example.com.") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
                     name: domain("example.com.")
@@ -1625,7 +1630,7 @@ mod tests {
             panic!("expected parse");
         }
 
-        if let Ok(name) = parse_domain_or_wildcard(&Some(domain("example.com.")), "*.example.com.")
+        if let Ok(name) = parse_domain_or_wildcard(Some(&domain("example.com.")), "*.example.com.")
         {
             assert_eq!(
                 MaybeWildcard::Wildcard {
@@ -1640,7 +1645,7 @@ mod tests {
 
     #[test]
     fn parse_domain_or_wildcard_wildcard_root() {
-        if let Ok(name) = parse_domain_or_wildcard(&None, "*.") {
+        if let Ok(name) = parse_domain_or_wildcard(None, "*.") {
             assert_eq!(
                 MaybeWildcard::Wildcard {
                     name: DomainName::root_domain()
