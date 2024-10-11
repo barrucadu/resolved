@@ -176,8 +176,8 @@ impl Zone {
     }
 
     /// Return the SOA if the zone is authoritative.
-    pub fn get_soa(&self) -> &Option<SOA> {
-        &self.soa
+    pub fn get_soa(&self) -> Option<&SOA> {
+        self.soa.as_ref()
     }
 
     /// Returns true if the zone is authoritative.
