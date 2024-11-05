@@ -3,6 +3,8 @@
 #![allow(clippy::redundant_else)]
 // False positives for `bytes::Bytes`
 #![allow(clippy::mutable_key_type)]
+// I think explicit lifetimes make it easier to read in some cases
+#![allow(clippy::needless_lifetimes)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]

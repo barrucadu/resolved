@@ -158,7 +158,7 @@ async fn resolve_and_build_response(args: ListenArgs, query: Message) -> Message
     response
 }
 
-async fn handle_raw_message<'a>(args: ListenArgs, buf: &[u8]) -> Option<Message> {
+async fn handle_raw_message(args: ListenArgs, buf: &[u8]) -> Option<Message> {
     let res = Message::from_octets(buf);
     tracing::debug!(message = ?res, "got message");
 
