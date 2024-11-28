@@ -12,7 +12,7 @@ dns-types = { path = "../dns-types" }
 priority-queue = "2"
 rand = "0.8.5"
 tokio = { version = "1", features = ["io-util", "net", "time"] }
-tracing = "0.1.40"
+tracing = "0.1.41"
 
 [dev-dependencies]
 criterion = "0.5.1"
