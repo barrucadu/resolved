@@ -1663,7 +1663,7 @@ mod tests {
 
     #[test]
     fn domainname_conversions() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..100 {
             let labels_len = rng.gen_range(0..5);
 
@@ -1730,11 +1730,11 @@ pub mod test_util {
     use rand::Rng;
 
     pub fn arbitrary_resourcerecord() -> ResourceRecord {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for size in [128, 256, 512, 1024, 2048, 4096] {
             let mut buf = BytesMut::with_capacity(size);
             for _ in 0..size {
-                buf.put_u8(rng.gen());
+                buf.put_u8(rng.random());
             }
 
             if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf.freeze())) {
