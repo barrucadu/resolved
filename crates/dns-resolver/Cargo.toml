@@ -10,7 +10,7 @@ async-recursion = "1"
 bytes = "1"
 dns-types = { path = "../dns-types" }
 priority-queue = "2"
-rand = "0.8.5"
+rand = "0.9.0"
 tokio = { version = "1", features = ["io-util", "net", "time"] }
 tracing = "0.1.41"
 

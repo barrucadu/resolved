@@ -22,7 +22,7 @@ pub async fn query_nameserver(
     question: Question,
     recursion_desired: bool,
 ) -> Option<Message> {
-    let mut request = Message::from_question(rand::thread_rng().gen(), question);
+    let mut request = Message::from_question(rand::rng().random(), question);
     request.header.recursion_desired = recursion_desired;
 
     match request.to_octets() {

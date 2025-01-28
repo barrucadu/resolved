@@ -1663,16 +1663,16 @@ mod tests {
 
     #[test]
     fn domainname_conversions() {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..100 {
-            let labels_len = rng.gen_range(0..5);
+            let labels_len = rng.random_range(0..5);
 
             let mut dotted_string_input = String::new();
             let mut labels_input = Vec::with_capacity(labels_len);
             let mut output = String::new();
 
             for i in 0..labels_len {
-                let label_len = rng.gen_range(1..10);
+                let label_len = rng.random_range(1..10);
 
                 if i > 0 {
                     dotted_string_input.push('.');
@@ -1681,7 +1681,7 @@ mod tests {
 
                 let mut octets = BytesMut::with_capacity(label_len);
                 for _ in 0..label_len {
-                    let mut chr = rng.gen_range(32..126);
+                    let mut chr = rng.random_range(32..126);
 
                     if chr == b'.'
                         || chr == b'*'
@@ -1730,11 +1730,11 @@ pub mod test_util {
     use rand::Rng;
 
     pub fn arbitrary_resourcerecord() -> ResourceRecord {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for size in [128, 256, 512, 1024, 2048, 4096] {
             let mut buf = BytesMut::with_capacity(size);
             for _ in 0..size {
-                buf.put_u8(rng.gen());
+                buf.put_u8(rng.random());
             }
 
             if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf.freeze())) {
