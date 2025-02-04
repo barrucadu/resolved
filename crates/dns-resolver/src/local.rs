@@ -296,7 +296,7 @@ pub fn resolve_local<CT>(
                     query: CNAME_QTYPE,
                     result: cname_rr.rtype_with_data.rtype(),
                 });
-            };
+            }
         }
     }
 
