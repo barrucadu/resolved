@@ -165,7 +165,7 @@ impl Zone {
         if let Some(soa) = &soa {
             let rr = soa.to_rr(&apex);
             records.insert(&[], rr.rtype_with_data, rr.ttl);
-        };
+        }
 
         Self { apex, soa, records }
     }

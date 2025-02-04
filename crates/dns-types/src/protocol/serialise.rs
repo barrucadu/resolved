@@ -157,7 +157,7 @@ impl ResourceRecord {
                 target.serialise(buffer, false);
             }
             RecordTypeWithData::Unknown { octets, .. } => buffer.write_octets(octets),
-        };
+        }
 
         // -2 so we don't also include the 2 octets for the rdlength
         let rdlength = usize_to_u16(buffer.index() - rdlength_index - 2)?;
