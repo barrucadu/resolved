@@ -5,6 +5,7 @@
 #![allow(clippy::mutable_key_type)]
 // I think explicit lifetimes make it easier to read in some cases
 #![allow(clippy::needless_lifetimes)]
+#![allow(clippy::elidable_lifetime_names)]
 // Don't care enough to fix
 #![allow(clippy::match_same_arms)]
 #![allow(clippy::must_use_candidate)]
