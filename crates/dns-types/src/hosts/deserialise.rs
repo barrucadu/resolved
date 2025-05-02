@@ -42,7 +42,7 @@ fn parse_line(line: &str) -> Result<Option<(IpAddr, HashSet<DomainName>)>, Error
     let mut address = IpAddr::V4(Ipv4Addr::LOCALHOST);
     let mut new_names = HashSet::new();
 
-    for (i, octet) in line.chars().enumerate() {
+    for (i, octet) in line.char_indices() {
         if !octet.is_ascii() {
             return Err(Error::ExpectedAscii { octet });
         }
