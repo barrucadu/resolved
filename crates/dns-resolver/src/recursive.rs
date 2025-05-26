@@ -973,8 +973,12 @@ mod tests {
             ttl: 300,
         };
 
-        let (request, response) =
-            nameserver_response("www.example.com.", &[], &[soa_record.clone()], &[]);
+        let (request, response) = nameserver_response(
+            "www.example.com.",
+            &[],
+            std::slice::from_ref(&soa_record),
+            &[],
+        );
 
         assert_eq!(
             validate_nameserver_response(&request.questions[0], &response, 0),
