@@ -693,14 +693,14 @@ mod tests {
     fn validate_nameserver_response_returns_answer() {
         let (request, response) = nameserver_response(
             "www.example.com.",
-            &[a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
+            &[a_record("www.example.com.", Ipv4Addr::LOCALHOST)],
             &[],
             &[],
         );
 
         assert_eq!(
             Some(NameserverResponse::Answer {
-                rrs: vec![a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1))],
+                rrs: vec![a_record("www.example.com.", Ipv4Addr::LOCALHOST)],
                 soa_rr: None,
             }),
             validate_nameserver_response(&request.questions[0], &response, 0)
@@ -764,7 +764,7 @@ mod tests {
             "www.example.com.",
             &[
                 cname_record("www.example.com.", "cname-target.example.com."),
-                a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1)),
+                a_record("cname-target.example.com.", Ipv4Addr::LOCALHOST),
             ],
             &[],
             &[],
@@ -774,7 +774,7 @@ mod tests {
             Some(NameserverResponse::Answer {
                 rrs: vec![
                     cname_record("www.example.com.", "cname-target.example.com."),
-                    a_record("cname-target.example.com.", Ipv4Addr::new(127, 0, 0, 1))
+                    a_record("cname-target.example.com.", Ipv4Addr::LOCALHOST)
                 ],
                 soa_rr: None,
             }),
@@ -1076,7 +1076,7 @@ mod tests {
 
     #[test]
     fn follow_cnames_no_cname() {
-        let rr_a = a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1));
+        let rr_a = a_record("www.example.com.", Ipv4Addr::LOCALHOST);
         assert_eq!(
             Some((domain("www.example.com."), HashMap::new())),
             follow_cnames(&[rr_a], &domain("www.example.com."), QueryType::Wildcard)
@@ -1087,7 +1087,7 @@ mod tests {
     fn follow_cnames_chain() {
         let rr_cname1 = cname_record("www.example.com.", "www2.example.com.");
         let rr_cname2 = cname_record("www2.example.com.", "www3.example.com.");
-        let rr_a = a_record("www3.example.com.", Ipv4Addr::new(127, 0, 0, 1));
+        let rr_a = a_record("www3.example.com.", Ipv4Addr::LOCALHOST);
 
         let mut expected_map = HashMap::new();
         expected_map.insert(domain("www.example.com."), domain("www2.example.com."));
@@ -1166,7 +1166,7 @@ mod tests {
 
     #[test]
     fn get_ip_domain_mismatch() {
-        let a_rr = a_record("www.example.net.", Ipv4Addr::new(127, 0, 0, 1));
+        let a_rr = a_record("www.example.net.", Ipv4Addr::LOCALHOST);
         assert_eq!(
             None,
             get_ip(&[a_rr], &domain("www.example.com."), RecordType::A)
@@ -1175,7 +1175,7 @@ mod tests {
 
     #[test]
     fn get_ip_type_mismatch() {
-        let aaaa_rr = aaaa_record("www.example.com.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
+        let aaaa_rr = aaaa_record("www.example.com.", Ipv6Addr::LOCALHOST);
         assert_eq!(
             None,
             get_ip(&[aaaa_rr], &domain("www.example.com."), RecordType::A,)
@@ -1184,15 +1184,15 @@ mod tests {
 
     #[test]
     fn get_ip_domain_and_type_match() {
-        let a_rr = a_record("www.example.com.", Ipv4Addr::new(127, 0, 0, 1));
-        let aaaa_rr = aaaa_record("www.example.com.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1));
+        let a_rr = a_record("www.example.com.", Ipv4Addr::LOCALHOST);
+        let aaaa_rr = aaaa_record("www.example.com.", Ipv6Addr::LOCALHOST);
         let rrs = [a_rr, aaaa_rr];
         assert_eq!(
-            Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+            Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             get_ip(&rrs, &domain("www.example.com."), RecordType::A)
         );
         assert_eq!(
-            Some(IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))),
+            Some(IpAddr::V6(Ipv6Addr::LOCALHOST)),
             get_ip(&rrs, &domain("www.example.com."), RecordType::AAAA)
         );
     }
@@ -1200,9 +1200,9 @@ mod tests {
     #[test]
     fn get_ip_cname_match() {
         let cname_rr = cname_record("www.example.com.", "www.example.net.");
-        let a_rr = a_record("www.example.net.", Ipv4Addr::new(127, 0, 0, 1));
+        let a_rr = a_record("www.example.net.", Ipv4Addr::LOCALHOST);
         assert_eq!(
-            Some(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))),
+            Some(IpAddr::V4(Ipv4Addr::LOCALHOST)),
             get_ip(
                 &[cname_rr, a_rr],
                 &domain("www.example.com."),

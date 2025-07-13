@@ -174,11 +174,11 @@ mod tests {
             ("two.", Ipv4Addr::new(1, 2, 3, 4)),
             ("three.", Ipv4Addr::new(1, 2, 3, 4)),
             ("four.", Ipv4Addr::new(1, 2, 3, 4)),
-            ("blocked.", Ipv4Addr::new(0, 0, 0, 0)),
-            ("localhost.", Ipv4Addr::new(127, 0, 0, 1)),
+            ("blocked.", Ipv4Addr::UNSPECIFIED),
+            ("localhost.", Ipv4Addr::LOCALHOST),
         ];
 
-        let expected_aaaa_records = &[("localhost.", Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 1))];
+        let expected_aaaa_records = &[("localhost.", Ipv6Addr::LOCALHOST)];
 
         for (name, addr) in expected_a_records {
             let mut rr = a_record(name, *addr);
