@@ -229,17 +229,15 @@ fn to_rrs(
     rrs: &mut Vec<ResourceRecord>,
 ) {
     for (rtype, expires) in tuples {
-        let ttl = if let Ok(ttl) = expires.saturating_duration_since(now).as_secs().try_into() {
-            ttl
-        } else {
-            u32::MAX
-        };
-
         rrs.push(ResourceRecord {
             name: name.clone(),
             rtype_with_data: rtype.clone(),
             rclass: RecordClass::IN,
-            ttl,
+            ttl: expires
+                .saturating_duration_since(now)
+                .as_secs()
+                .try_into()
+                .unwrap_or(u32::MAX),
         });
     }
 }
