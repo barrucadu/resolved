@@ -13,5 +13,5 @@ dns-types = { path = "../dns-types" }
 dns-resolver = { path = "../dns-resolver" }
 prometheus = { version = "0.13.4", features = ["process"] }
 tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
-tracing = "0.1.41"
+tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "json"] }
