@@ -15,5 +15,5 @@ tokio = { version = "1", features = ["io-util", "net", "time"] }
 tracing = "0.1.43"
 
 [dev-dependencies]
-criterion = "0.8.0"
+criterion = "0.8.1"
 dns-types = { path = "../dns-types", features = ["test-util"] }
