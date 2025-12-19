@@ -216,11 +216,11 @@ async fn listen_tcp_task(args: ListenArgs, socket: TcpListener) {
                             Ok(mut serialised) => {
                                 DNS_RESPONSES_TOTAL
                                     .with_label_values(&[
-                                        &message.header.is_authoritative.to_string(),
-                                        "false",
-                                        &message.header.recursion_desired.to_string(),
-                                        &message.header.recursion_available.to_string(),
-                                        &message.header.rcode.to_string(),
+                                        message.header.is_authoritative.to_string(),
+                                        "false".to_string(),
+                                        message.header.recursion_desired.to_string(),
+                                        message.header.recursion_available.to_string(),
+                                        message.header.rcode.to_string(),
                                     ])
                                     .inc();
 
