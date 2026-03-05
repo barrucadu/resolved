@@ -34,7 +34,7 @@ pub async fn resolve_forwarding<'a>(
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         resolve_forwarding_notimeout(context, question),
     )
     .await

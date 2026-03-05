@@ -39,7 +39,7 @@ pub async fn resolve_recursive<'a>(
     question: &Question,
 ) -> Result<ResolvedRecord, ResolutionError> {
     if let Ok(res) = timeout(
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         resolve_recursive_notimeout(context, question),
     )
     .await
