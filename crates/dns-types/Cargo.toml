@@ -8,12 +8,12 @@ edition = "2021"
 [dependencies]
 arbitrary = { version = "1", features = ["derive"], optional = true }
 bytes = "1"
-rand = { version = "0.9.3", optional = true }
+rand = { version = "0.9.4", optional = true }
 
 [dev-dependencies]
 arbitrary = { version = "1", features = ["derive"] }
 criterion = "0.8.2"
-rand = "0.9.3"
+rand = "0.9.4"
 
 [features]
 test-util = ["arbitrary", "rand"]
