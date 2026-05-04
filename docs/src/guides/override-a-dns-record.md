@@ -39,9 +39,8 @@ and you can't define wildcard records.  For those, you need to use a zone file.
 Override any type of record
 ---------------------------
 
-```admonish info
-This is how the ["root hints" file][] works: it overrides the `NS` records for the root domain, which `resolved` would otherwise have no way to figure out.
-```
+> [!NOTE]
+> This is how the ["root hints" file][] works: it overrides the `NS` records for the root domain, which `resolved` would otherwise have no way to figure out.
 
 A [zone file][hz] allows you to override any type of record, including wildcard
 records.

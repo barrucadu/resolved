@@ -25,6 +25,22 @@
       };
     in
     {
+      apps.${system}.documentation = {
+        type = "app";
+        program = toString (pkgs.writeShellScript "script.sh" ''
+          PATH=${with pkgs; lib.makeBinPath [ clang coreutils gnused mdbook rustToolchain ]}
+
+          cat README.md | \
+            sed 's#See \[the documentation\].*##' | \
+            sed 's#^\*\*\(`resolved` hasn.*\)\*\*$#> [!CAUTION]\n> \1\n#' > docs/src/README.md
+          mdbook build docs
+          mv docs/book _site
+
+          cargo doc --no-deps --document-private-items --workspace
+          mv target/doc _site/packages
+        '');
+      };
+
       formatter.${system} = pkgs.nixpkgs-fmt;
 
       devShells.${system}.default = pkgs.mkShell {
