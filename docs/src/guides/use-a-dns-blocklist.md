@@ -1,9 +1,8 @@
 Use a DNS blocklist
 ===================
 
-```admonish tip
-This is a special case of [overriding DNS records][].
-```
+> [!TIP]
+> This is a special case of [overriding DNS records][].
 
 A DNS blocklist is a [hosts file][] mapping domains you want to block to
 `0.0.0.0` (to block it over IPv4), `::0` (to block it over IPv6), or both.

@@ -1,13 +1,11 @@
 Set up LAN DNS
 ==============
 
-```admonish tip
-If you use NixOS, you may find it useful to look at how I run `resolved` on my home server: [package][nixfiles-package], [module][nixfiles-module], [configuration][nixfiles-config].
-```
+> [!TIP]
+> If you use NixOS, you may find it useful to look at how I run `resolved` on my home server: [package][nixfiles-package], [module][nixfiles-module], [configuration][nixfiles-config].
 
-```admonish warning
-You will need to keep your computer switched on all the time, otherwise other machines on your network will no longer be able to resolve DNS.
-```
+> [!WARNING]
+> You will need to keep your computer switched on all the time, otherwise other machines on your network will no longer be able to resolve DNS.
 
 This guide will walk you through:
 

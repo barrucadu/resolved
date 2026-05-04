@@ -1,9 +1,8 @@
 resolved - DNS server
 =====================
 
-```admonish danger
-`resolved` hasn't had any sort of security review, so be wary of exposing it on a public network.
-```
+> [!CAUTION]
+> `resolved` hasn't had any sort of security review, so be wary of exposing it on a public network.
 
 A typical usage of `resolved` will look like:
 
