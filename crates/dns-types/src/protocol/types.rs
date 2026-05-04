@@ -981,7 +981,7 @@ impl fmt::Debug for DomainName {
 
 impl fmt::Display for DomainName {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.to_dotted_string())
+        write!(f, "{}", self.to_dotted_string())
     }
 }
 
