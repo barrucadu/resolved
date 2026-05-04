@@ -11,7 +11,7 @@ associated tools, for home networks.  To that end, it supports:
 - Listening on either IPv4 or IPv6, and communicating with upstream nameservers
   over both.
 
-See [the documentation](https://resolved.docs.barrucadu.co.uk).
+See [the documentation](https://resolved.docs.barrucadu.dev).
 
 
 Usage
@@ -49,7 +49,7 @@ pass a second `-Z` option like so:
 sudo ./target/release/resolved -Z config/zones -Z /path/to/your/zone/files
 ```
 
-See [the CLI documentation](https://resolved.docs.barrucadu.co.uk/cli/resolved.html) for more.
+See [the CLI documentation](https://resolved.docs.barrucadu.dev/cli/resolved.html) for more.
 
 ["root hints" file]: https://www.iana.org/domains/root/files
 
@@ -86,17 +86,17 @@ Development
 
 Rust sources are in the `crates/` directory.  There are two shared libraries:
 
-- `dns-types` - basic types used in other packages ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_types/))
-- `dns-resolver` - the DNS resolvers ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dns_resolver/))
+- `dns-types` - basic types used in other packages ([crate documentation](https://resolved.docs.barrucadu.dev/packages/dns_types/))
+- `dns-resolver` - the DNS resolvers ([crate documentation](https://resolved.docs.barrucadu.dev/packages/dns_resolver/))
 
 And six binaries:
 
-- `dnsq` - utility to resolve DNS queries ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/dnsq/))
-- `resolved` - the DNS server ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/resolved/))
-- `htoh` - utility to normalise hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoh/))
-- `htoz` - utility to convert hosts files to zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/htoz/))
-- `ztoh` - utility to convert zone files to hosts files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoh/))
-- `ztoz` - utility to normalise zone files ([crate documentation](https://resolved.docs.barrucadu.co.uk/packages/ztoz/))
+- `dnsq` - utility to resolve DNS queries ([crate documentation](https://resolved.docs.barrucadu.dev/packages/dnsq/))
+- `resolved` - the DNS server ([crate documentation](https://resolved.docs.barrucadu.dev/packages/resolved/))
+- `htoh` - utility to normalise hosts files ([crate documentation](https://resolved.docs.barrucadu.dev/packages/htoh/))
+- `htoz` - utility to convert hosts files to zone files ([crate documentation](https://resolved.docs.barrucadu.dev/packages/htoz/))
+- `ztoh` - utility to convert zone files to hosts files ([crate documentation](https://resolved.docs.barrucadu.dev/packages/ztoh/))
+- `ztoz` - utility to normalise zone files ([crate documentation](https://resolved.docs.barrucadu.dev/packages/ztoz/))
 
 ### Developing with nix
 
