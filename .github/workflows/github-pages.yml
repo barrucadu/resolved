@@ -31,7 +31,7 @@ jobs:
                 <link rel="canonical" href="https://resolved.docs.barrucadu.dev/">
               </head>
               <body>
-                <p>This website has moved to <a href=""https://resolved.docs.barrucadu.dev/">"https://resolved.docs.barrucadu.dev/</a></p>
+                <p>This website has moved to <a href="https://resolved.docs.barrucadu.dev/">"https://resolved.docs.barrucadu.dev/</a></p>
               </body>
             </html>
           EOF
