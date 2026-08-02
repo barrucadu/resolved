@@ -368,35 +368,21 @@ impl<K1: Clone + Eq + Hash, K2: Copy + Eq + Hash, V: PartialEq> PartitionedCache
         let expiry = now + ttl;
         let tuple = (value, expiry);
         if let Some(partition) = self.partitions.get_mut(&partition_key) {
+            let mut recalculate_next_expiry = false;
+
             if let Some(tuples) = partition.records.get_mut(&record_key) {
-                let mut duplicate_expires_at = None;
                 for i in 0..tuples.len() {
                     let t = &tuples[i];
                     if t.0 == tuple.0 {
-                        duplicate_expires_at = Some(t.1);
+                        partition.size -= 1;
+                        self.current_size -= 1;
+                        recalculate_next_expiry = t.1 == partition.next_expiry;
                         tuples.swap_remove(i);
                         break;
                     }
                 }
 
                 tuples.push(tuple);
-
-                if let Some(dup_expiry) = duplicate_expires_at {
-                    partition.size -= 1;
-                    self.current_size -= 1;
-
-                    if dup_expiry == partition.next_expiry {
-                        let mut new_next_expiry = expiry;
-                        for (_, e) in tuples {
-                            if *e < new_next_expiry {
-                                new_next_expiry = *e;
-                            }
-                        }
-                        partition.next_expiry = new_next_expiry;
-                        self.expiry_priority
-                            .change_priority(&partition_key, Reverse(partition.next_expiry));
-                    }
-                }
             } else {
                 partition.records.insert(record_key, vec![tuple]);
             }
@@ -406,6 +392,19 @@ impl<K1: Clone + Eq + Hash, K2: Copy + Eq + Hash, V: PartialEq> PartitionedCache
                 .change_priority(&partition_key, Reverse(partition.last_read));
             if expiry < partition.next_expiry {
                 partition.next_expiry = expiry;
+                self.expiry_priority
+                    .change_priority(&partition_key, Reverse(partition.next_expiry));
+            } else if recalculate_next_expiry {
+                // the next record to expire was popped so we need to examine
+                // all current records to determine the new next expiry
+                partition.next_expiry = expiry;
+                for tuples in partition.records.values() {
+                    for (_, expires) in tuples {
+                        if *expires < partition.next_expiry {
+                            partition.next_expiry = *expires;
+                        }
+                    }
+                }
                 self.expiry_priority
                     .change_priority(&partition_key, Reverse(partition.next_expiry));
             }
