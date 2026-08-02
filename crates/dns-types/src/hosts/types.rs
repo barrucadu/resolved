@@ -9,7 +9,7 @@ pub const TTL: u32 = 5;
 
 /// A collection of A records.
 #[derive(Debug, Clone, Eq, PartialEq)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 pub struct Hosts {
     pub v4: HashMap<DomainName, Ipv4Addr>,
     pub v6: HashMap<DomainName, Ipv6Addr>,
@@ -115,80 +115,4 @@ impl TryFrom<Zone> for Hosts {
 pub enum TryFromZoneError {
     HasWildcardRecords,
     HasRecordTypesOtherThanA,
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::protocol::types::test_util::*;
-
-    use super::test_util::*;
-    use super::*;
-
-    #[test]
-    fn hosts_zone_roundtrip() {
-        for _ in 0..100 {
-            let expected = arbitrary_hosts();
-            if let Ok(actual) = Hosts::try_from(Zone::from(expected.clone())) {
-                assert_eq!(expected, actual);
-            } else {
-                panic!("expected round-trip");
-            }
-        }
-    }
-
-    #[test]
-    fn hosts_merge_zone_merge_equiv_when_disjoint() {
-        for _ in 0..100 {
-            let hosts1 = arbitrary_hosts_with_apex(&domain("hosts1."));
-            let hosts2 = arbitrary_hosts_with_apex(&domain("hosts2."));
-
-            let mut combined_hosts = hosts1.clone();
-            combined_hosts.merge(hosts2.clone());
-
-            let combined_zone_direct = Zone::from(combined_hosts.clone());
-            let mut combined_zone_indirect = Zone::from(hosts1);
-            combined_zone_indirect.merge(hosts2.into()).unwrap();
-
-            assert_eq!(combined_zone_direct, combined_zone_indirect);
-            assert_eq!(Ok(combined_hosts), combined_zone_direct.try_into());
-        }
-    }
-
-    fn arbitrary_hosts_with_apex(apex: &DomainName) -> Hosts {
-        let arbitrary = arbitrary_hosts();
-
-        let mut out = Hosts::new();
-        for (k, v) in arbitrary.v4 {
-            out.v4.insert(k.make_subdomain_of(apex).unwrap(), v);
-        }
-        for (k, v) in arbitrary.v6 {
-            out.v6.insert(k.make_subdomain_of(apex).unwrap(), v);
-        }
-        out
-    }
-}
-
-#[cfg(any(feature = "test-util", test))]
-#[allow(clippy::missing_panics_doc)]
-pub mod test_util {
-    use super::*;
-
-    use arbitrary::{Arbitrary, Unstructured};
-    use rand::Rng;
-
-    pub fn arbitrary_hosts() -> Hosts {
-        let mut rng = rand::rng();
-        for size in [128, 256, 512, 1024, 2048, 4096] {
-            let mut buf = Vec::new();
-            for _ in 0..size {
-                buf.push(rng.random());
-            }
-
-            if let Ok(rr) = Hosts::arbitrary(&mut Unstructured::new(&buf)) {
-                return rr;
-            }
-        }
-
-        panic!("could not generate arbitrary value!");
-    }
 }

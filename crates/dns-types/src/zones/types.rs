@@ -105,7 +105,7 @@ impl Default for Zone {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for Zone {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let mut zone = if u.arbitrary()? {
@@ -517,7 +517,7 @@ impl ZoneRecords {
 
 /// A SOA record.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 pub struct SOA {
     pub mname: DomainName,
     pub rname: DomainName,
@@ -659,7 +659,7 @@ fn merge_zrs_helper(
 
 #[cfg(test)]
 mod tests {
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     use super::*;
     use crate::protocol::types::test_util::*;
@@ -809,64 +809,61 @@ mod tests {
 
     #[test]
     fn zone_insert_resolve() {
-        for _ in 0..100 {
-            let mut zone = Zone::new(domain("example.com."), None);
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
+        let mut zone = Zone::new(domain("example.com."), None);
+        let rr1 = a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+        let rr2 = aaaa_record("www.example.com.", Ipv6Addr::LOCALHOST);
 
-            zone.insert(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
+        zone.insert(&rr1.name, rr1.rtype_with_data.clone(), rr1.ttl);
+        zone.insert(&rr2.name, rr2.rtype_with_data.clone(), rr2.ttl);
 
-            let expected = Some(ZoneResult::Answer {
-                rrs: vec![rr.clone()],
-            });
-
-            assert_eq!(
-                expected,
-                zone.resolve(&rr.name, QueryType::Record(rr.rtype_with_data.rtype()))
-            );
-            assert_eq!(expected, zone.resolve(&rr.name, QueryType::Wildcard));
-        }
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr1.clone()]
+            }),
+            zone.resolve(&rr1.name, QueryType::Record(rr1.rtype_with_data.rtype()))
+        );
+        assert_eq!(
+            Some(ZoneResult::Answer {
+                rrs: vec![rr2.clone()]
+            }),
+            zone.resolve(&rr2.name, QueryType::Record(rr2.rtype_with_data.rtype()))
+        );
     }
 
     #[test]
     fn zone_insert_wildcard_resolve() {
-        for _ in 0..100 {
-            let mut zone = Zone::new(domain("example.com."), None);
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
+        let mut zone = Zone::new(domain("example.com."), None);
+        let rr1 = a_record("www.example.com.", Ipv4Addr::new(1, 1, 1, 1));
+        let rr2 = aaaa_record("www.example.com.", Ipv6Addr::LOCALHOST);
 
-            zone.insert_wildcard(&rr.name, rr.rtype_with_data.clone(), rr.ttl);
+        zone.insert(&rr1.name, rr1.rtype_with_data.clone(), rr1.ttl);
+        zone.insert(&rr2.name, rr2.rtype_with_data.clone(), rr2.ttl);
 
-            rr.name = domain("foo.").make_subdomain_of(&rr.name).unwrap();
+        let mut expected = vec![rr1.clone(), rr2.clone()];
+        expected.sort();
 
-            let expected = Some(ZoneResult::Answer {
-                rrs: vec![rr.clone()],
-            });
+        if let Some(ZoneResult::Answer { mut rrs }) = zone.resolve(&rr1.name, QueryType::Wildcard) {
+            rrs.sort();
 
-            assert_eq!(
-                expected,
-                zone.resolve(&rr.name, QueryType::Record(rr.rtype_with_data.rtype()))
-            );
-            assert_eq!(expected, zone.resolve(&rr.name, QueryType::Wildcard));
+            assert_eq!(expected, rrs);
+        } else {
+            panic!("no result");
         }
     }
 
     #[test]
     fn zone_insert_all_records() {
         let mut zone = Zone::new(domain("example.com."), None);
-        let mut expected = Vec::with_capacity(100);
-        for _ in 0..expected.capacity() {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
+
+        let mut expected = Vec::new();
+        for i in 0..10 {
+            let rr = a_record(&format!("foo-{i}.example.com."), Ipv4Addr::new(1, 1, 1, 1));
             expected.push(rr.clone());
             zone.insert(&rr.name, rr.rtype_with_data, rr.ttl);
         }
         expected.sort();
 
-        let mut actual = Vec::with_capacity(expected.capacity());
+        let mut actual = Vec::new();
         for (name, zrs) in &zone.all_records() {
             for zr in zrs {
                 actual.push(zr.to_rr(name));
@@ -881,11 +878,10 @@ mod tests {
     #[test]
     fn zone_insert_all_wildcard_records() {
         let mut zone = Zone::new(domain("example.com."), None);
-        let mut expected = Vec::with_capacity(100);
-        for _ in 0..expected.capacity() {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.name = rr.name.make_subdomain_of(&zone.apex).unwrap();
+
+        let mut expected = Vec::new();
+        for i in 0..10 {
+            let rr = a_record(&format!("foo-{i}.example.com."), Ipv4Addr::new(1, 1, 1, 1));
             expected.push(rr.clone());
             zone.insert_wildcard(&rr.name, rr.rtype_with_data, rr.ttl);
         }

@@ -1,7 +1,10 @@
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::Bytes;
 use std::fmt;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
+
+#[cfg(feature = "fuzz")]
+use bytes::{BufMut, BytesMut};
 
 /// Maximum encoded length of a domain name.  The number of labels
 /// plus sum of the lengths of the labels.
@@ -55,7 +58,7 @@ pub const HEADER_OFFSET_RCODE: usize = 0;
 ///
 /// See section 4.1 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 pub struct Message {
     pub header: Header,
     pub questions: Vec<Question>,
@@ -149,7 +152,7 @@ impl Message {
 /// type, as they are only used during serialisation and deserialisation and can
 /// be inferred from the other `Message` fields.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 pub struct Header {
     /// A 16 bit identifier assigned by the program that generates any
     /// kind of query.  This identifier is copied the corresponding
@@ -248,7 +251,7 @@ pub struct Header {
 ///
 /// See section 4.1.2 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 pub struct Question {
     /// a domain name represented as a sequence of labels, where each
     /// label consists of a length octet followed by that number of
@@ -315,7 +318,7 @@ impl fmt::Display for Question {
 ///
 /// See section 4.1.3 of RFC 1035.
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-#[cfg_attr(any(feature = "test-util", test), derive(arbitrary::Arbitrary))]
+#[cfg_attr(feature = "fuzz", derive(arbitrary::Arbitrary))]
 pub struct ResourceRecord {
     /// a domain name to which this resource record pertains.
     pub name: DomainName,
@@ -660,7 +663,7 @@ impl RecordTypeWithData {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for RecordTypeWithData {
     // this is pretty verbose but it feels like a better way to guarantee the
     // max size of the `Bytes`s than adding a wrapper type
@@ -774,7 +777,7 @@ impl From<Opcode> for u8 {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for Opcode {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u8>()?))
@@ -846,7 +849,7 @@ impl From<Rcode> for u8 {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for Rcode {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u8>()?))
@@ -1015,7 +1018,7 @@ impl std::error::Error for DomainNameFromStr {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for DomainName {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         let num_labels = u.int_in_range::<usize>(0..=10)?;
@@ -1080,7 +1083,7 @@ impl TryFrom<&[u8]> for Label {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for Label {
     // only generates non-empty labels
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Label> {
@@ -1183,7 +1186,7 @@ impl From<QueryType> for u16 {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for QueryType {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -1244,7 +1247,7 @@ impl From<QueryClass> for u16 {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for QueryClass {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -1432,7 +1435,7 @@ impl From<RecordType> for u16 {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for RecordType {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -1534,7 +1537,7 @@ impl From<RecordClass> for u16 {
     }
 }
 
-#[cfg(any(feature = "test-util", test))]
+#[cfg(feature = "fuzz")]
 impl<'a> arbitrary::Arbitrary<'a> for RecordClass {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
         Ok(Self::from(u.arbitrary::<u16>()?))
@@ -1543,8 +1546,6 @@ impl<'a> arbitrary::Arbitrary<'a> for RecordClass {
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-
     use super::test_util::*;
     use super::*;
 
@@ -1659,90 +1660,11 @@ mod tests {
         assert_eq!(Some(domain("foo.bar.")), combined);
         assert!(combined.unwrap().is_subdomain_of(&apex));
     }
-
-    #[test]
-    fn domainname_conversions() {
-        let mut rng = rand::rng();
-        for _ in 0..100 {
-            let labels_len = rng.random_range(0..5);
-
-            let mut dotted_string_input = String::new();
-            let mut labels_input = Vec::with_capacity(labels_len);
-            let mut output = String::new();
-
-            for i in 0..labels_len {
-                let label_len = rng.random_range(1..10);
-
-                if i > 0 {
-                    dotted_string_input.push('.');
-                    output.push('.');
-                }
-
-                let mut octets = BytesMut::with_capacity(label_len);
-                for _ in 0..label_len {
-                    let mut chr = rng.random_range(32..126);
-
-                    if chr == b'.'
-                        || chr == b'*'
-                        || chr == b'@'
-                        || chr == b'#'
-                        || (chr as char).is_whitespace()
-                    {
-                        chr = b'X';
-                    }
-
-                    octets.put_u8(chr);
-                    dotted_string_input.push(chr as char);
-                    output.push(chr.to_ascii_lowercase() as char);
-                }
-                labels_input.push(Label::try_from(&octets.freeze()[..]).unwrap());
-            }
-
-            labels_input.push(Label::new());
-            dotted_string_input.push('.');
-            output.push('.');
-
-            assert_eq!(
-                Some(output.clone()),
-                DomainName::from_dotted_string(&dotted_string_input).map(|d| d.to_dotted_string())
-            );
-
-            assert_eq!(
-                Some(output),
-                DomainName::from_labels(labels_input.clone()).map(|d| d.to_dotted_string())
-            );
-
-            assert_eq!(
-                DomainName::from_dotted_string(&dotted_string_input).map(|d| d.to_dotted_string()),
-                DomainName::from_labels(labels_input).map(|d| d.to_dotted_string())
-            );
-        }
-    }
 }
 
-#[cfg(any(feature = "test-util", test))]
 #[allow(clippy::missing_panics_doc)]
 pub mod test_util {
     use super::*;
-
-    use arbitrary::{Arbitrary, Unstructured};
-    use rand::Rng;
-
-    pub fn arbitrary_resourcerecord() -> ResourceRecord {
-        let mut rng = rand::rng();
-        for size in [128, 256, 512, 1024, 2048, 4096] {
-            let mut buf = BytesMut::with_capacity(size);
-            for _ in 0..size {
-                buf.put_u8(rng.random());
-            }
-
-            if let Ok(rr) = ResourceRecord::arbitrary(&mut Unstructured::new(&buf.freeze())) {
-                return rr;
-            }
-        }
-
-        panic!("could not generate arbitrary value!");
-    }
 
     pub fn domain(name: &str) -> DomainName {
         DomainName::from_dotted_string(name).unwrap()

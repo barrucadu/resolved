@@ -66,9 +66,34 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
 
-      - name: Run fuzz tests
-        run: |
-          set -ex
-          for target in $(cargo fuzz list); do
-            cargo fuzz run $target -- -max_total_time=30s
-          done
+      - parallel:
+        - name: Fuzz (cache_prune_expires_all)
+          run: cargo fuzz run cache_prune_expires_all -- -max_total_time=90s
+        - name: Fuzz (cache_put_can_get)
+          run: cargo fuzz run cache_put_can_get -- -max_total_time=90s
+        - name: Fuzz (cache_put_deduplicates_and_maintains_invariants)
+          run: cargo fuzz run cache_put_deduplicates_and_maintains_invariants -- -max_total_time=90s
+        - name: Fuzz (cache_put_maintains_invariants)
+          run: cargo fuzz run cache_put_maintains_invariants -- -max_total_time=90s
+        - name: Fuzz (cache_put_then_expire_maintains_invariants)
+          run: cargo fuzz run cache_put_then_expire_maintains_invariants -- -max_total_time=90s
+        - name: Fuzz (cache_put_then_get_maintains_invariants)
+          run: cargo fuzz run cache_put_then_get_maintains_invariants -- -max_total_time=90s
+        - name: Fuzz (domainname_conversions)
+          run: cargo fuzz run domainname_conversions -- -max_total_time=90s
+        - name: Fuzz (hosts_deserialise_round_trip)
+          run: cargo fuzz run hosts_deserialise_round_trip -- -max_total_time=90s
+        - name: Fuzz (hosts_merge_zone_merge_equiv_when_disjoint)
+          run: cargo fuzz run hosts_merge_zone_merge_equiv_when_disjoint -- -max_total_time=90s
+        - name: Fuzz (hosts_serialise_round_trip)
+          run: cargo fuzz run hosts_serialise_round_trip -- -max_total_time=90s
+        - name: Fuzz (hosts_zone_round_trip)
+          run: cargo fuzz run hosts_zone_round_trip -- -max_total_time=90s
+        - name: Fuzz (wire_deserialise_round_trip)
+          run: cargo fuzz run wire_deserialise_round_trip -- -max_total_time=90s
+        - name: Fuzz (wire_serialise_round_trip)
+          run: cargo fuzz run wire_serialise_round_trip -- -max_total_time=90s
+        - name: Fuzz (zone_deserialise_round_trip)
+          run: cargo fuzz run zone_deserialise_round_trip -- -max_total_time=90s
+        - name: Fuzz (zone_serialise_round_trip)
+          run: cargo fuzz run zone_serialise_round_trip -- -max_total_time=90s

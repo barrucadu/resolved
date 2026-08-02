@@ -384,7 +384,6 @@ dependencies = [
  "arbitrary",
  "bytes",
  "criterion",
- "rand",
 ]
 
 [[package]]

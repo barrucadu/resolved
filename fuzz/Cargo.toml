@@ -10,11 +10,15 @@ edition = "2018"
 cargo-fuzz = true
 
 [dependencies]
+bytes = "1"
 libfuzzer-sys = "0.4"
+
+[dependencies.dns-resolver]
+path = "../crates/dns-resolver"
 
 [dependencies.dns-types]
 path = "../crates/dns-types"
-features = ["test-util"]
+features = ["fuzz"]
 
 # Prevent this from interfering with workspaces
 [workspace]
@@ -55,3 +59,66 @@ name = "hosts_serialise_round_trip"
 path = "fuzz_targets/hosts_serialise_round_trip.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "hosts_zone_round_trip"
+path = "fuzz_targets/hosts_zone_round_trip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hosts_merge_zone_merge_equiv_when_disjoint"
+path = "fuzz_targets/hosts_merge_zone_merge_equiv_when_disjoint.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_put_can_get"
+path = "fuzz_targets/cache_put_can_get.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_put_deduplicates_and_maintains_invariants"
+path = "fuzz_targets/cache_put_deduplicates_and_maintains_invariants.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_put_maintains_invariants"
+path = "fuzz_targets/cache_put_maintains_invariants.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_put_then_get_maintains_invariants"
+path = "fuzz_targets/cache_put_then_get_maintains_invariants.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_put_then_expire_maintains_invariants"
+path = "fuzz_targets/cache_put_then_expire_maintains_invariants.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "cache_prune_expires_all"
+path = "fuzz_targets/cache_prune_expires_all.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "domainname_conversions"
+path = "fuzz_targets/domainname_conversions.rs"
+test = false
+doc = false
+bench = false
