@@ -376,7 +376,6 @@ pub struct AuthoritativeNameError {
 #[cfg(test)]
 mod tests {
     use dns_types::protocol::types::test_util::*;
-    use dns_types::zones::types::*;
     use std::net::Ipv4Addr;
 
     use super::*;
