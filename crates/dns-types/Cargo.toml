@@ -9,8 +9,5 @@ edition = "2021"
 arbitrary = { version = "1", features = ["derive"], optional = true }
 bytes = "1"
 
-[dev-dependencies]
-criterion = "0.8.2"
-
 [features]
 fuzz = ["dep:arbitrary"]
