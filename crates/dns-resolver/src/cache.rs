@@ -537,140 +537,43 @@ impl<K1: Clone + Eq + Hash, K2: Copy + Eq + Hash, V: PartialEq> PartitionedCache
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use dns_types::protocol::types::test_util::*;
-
-    use super::test_util::*;
+#[allow(clippy::missing_panics_doc)]
+pub mod test_util {
     use super::*;
 
-    #[test]
-    fn cache_put_can_get() {
-        for _ in 0..100 {
-            let mut cache = Cache::new();
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            cache.insert(&rr);
+    /// Assert that the cache response has exactly one element and
+    /// that it matches the original (all fields equal except TTL,
+    /// where the original is >=).
+    pub fn assert_cache_response(original: &ResourceRecord, response: &[ResourceRecord]) {
+        assert_eq!(1, response.len());
+        let cached = response[0].clone();
 
-            assert_cache_response(
-                &rr,
-                &cache.get_without_checking_expiration(
-                    &rr.name,
-                    QueryType::Record(rr.rtype_with_data.rtype()),
-                ),
-            );
-            assert_cache_response(
-                &rr,
-                &cache.get_without_checking_expiration(&rr.name, QueryType::Wildcard),
-            );
+        assert_eq!(original.name, cached.name);
+        assert_eq!(original.rtype_with_data, cached.rtype_with_data);
+        assert_eq!(RecordClass::IN, cached.rclass);
+        assert!(original.ttl >= cached.ttl);
+    }
+
+    /// Assert that the cache has a given number of records.
+    pub fn assert_current_size(expected: usize, cache: &Cache) {
+        if expected != cache.inner.current_size {
+            dbg!(&cache.inner.partitions);
+            assert_eq!(expected, cache.inner.current_size);
         }
     }
 
-    #[test]
-    fn cache_put_deduplicates_and_maintains_invariants() {
-        let mut cache = Cache::new();
-        let mut rr = arbitrary_resourcerecord();
-        rr.rclass = RecordClass::IN;
-
-        cache.insert(&rr);
-        cache.insert(&rr);
-
-        assert_eq!(1, cache.inner.current_size);
-        assert_invariants(&cache);
+    /// Expire stale records and assert the count expired.
+    pub fn assert_expires(expected: usize, cache: &mut Cache) {
+        assert_eq!(expected, cache.inner.remove_expired());
     }
 
-    #[test]
-    fn cache_put_maintains_invariants() {
-        let mut cache = Cache::new();
-
-        for _ in 0..100 {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            cache.insert(&rr);
-        }
-
-        assert_invariants(&cache);
-    }
-
-    #[test]
-    fn cache_put_then_get_maintains_invariants() {
-        let mut cache = Cache::new();
-        let mut queries = Vec::new();
-
-        for _ in 0..100 {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            cache.insert(&rr);
-            queries.push((
-                rr.name.clone(),
-                QueryType::Record(rr.rtype_with_data.rtype()),
-            ));
-        }
-        for (name, qtype) in queries {
-            cache.get_without_checking_expiration(&name, qtype);
-        }
-
-        assert_invariants(&cache);
-    }
-
-    #[test]
-    fn cache_put_then_prune_maintains_invariants() {
-        let mut cache = Cache::with_desired_size(25);
-
-        for _ in 0..100 {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.ttl = 300; // this case isn't testing expiration
-            cache.insert(&rr);
-        }
-
-        // might be more than 75 because the size is measured in
-        // records, but pruning is done on whole domains
-        let (overflow, current_size, expired, pruned) = cache.prune();
-        assert!(overflow);
-        assert_eq!(0, expired);
-        assert!(pruned >= 75);
-        assert!(cache.inner.current_size <= 25);
-        assert_eq!(cache.inner.current_size, current_size);
-        assert_invariants(&cache);
-    }
-
-    #[test]
-    fn cache_put_then_expire_maintains_invariants() {
-        let mut cache = Cache::new();
-
-        for i in 0..100 {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.ttl = if i > 0 && i % 2 == 0 { 0 } else { 300 };
-            cache.insert(&rr);
-        }
-
-        assert_eq!(49, cache.inner.remove_expired());
-        assert_eq!(51, cache.inner.current_size);
-        assert_invariants(&cache);
-    }
-
-    #[test]
-    fn cache_prune_expires_all() {
-        let mut cache = Cache::with_desired_size(99);
-
-        for i in 0..100 {
-            let mut rr = arbitrary_resourcerecord();
-            rr.rclass = RecordClass::IN;
-            rr.ttl = if i > 0 && i % 2 == 0 { 0 } else { 300 };
-            cache.insert(&rr);
-        }
-
-        let (overflow, current_size, expired, pruned) = cache.prune();
-        assert!(overflow);
-        assert_eq!(49, expired);
-        assert_eq!(0, pruned);
-        assert_eq!(cache.inner.current_size, current_size);
-        assert_invariants(&cache);
-    }
-
-    fn assert_invariants(cache: &Cache) {
+    /// Assert that the cache invariants are met:
+    ///
+    /// - `current_size` is the number of records
+    /// - `next_expiry` of each partition is the min of its expiry times
+    /// - `access_priority` has all the partitions in the correct order
+    /// - `expiry_priority` has all the partitions in the correct order
+    pub fn assert_invariants(cache: &Cache) {
         assert_eq!(
             cache.inner.current_size,
             cache
@@ -722,24 +625,5 @@ mod tests {
 
         assert_eq!(cache.inner.access_priority, access_priority);
         assert_eq!(cache.inner.expiry_priority, expiry_priority);
-    }
-}
-
-#[cfg(test)]
-#[allow(clippy::missing_panics_doc)]
-pub mod test_util {
-    use super::*;
-
-    /// Assert that the cache response has exactly one element and
-    /// that it matches the original (all fields equal except TTL,
-    /// where the original is >=).
-    pub fn assert_cache_response(original: &ResourceRecord, response: &[ResourceRecord]) {
-        assert_eq!(1, response.len());
-        let cached = response[0].clone();
-
-        assert_eq!(original.name, cached.name);
-        assert_eq!(original.rtype_with_data, cached.rtype_with_data);
-        assert_eq!(RecordClass::IN, cached.rclass);
-        assert!(original.ttl >= cached.ttl);
     }
 }
