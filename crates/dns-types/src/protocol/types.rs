@@ -884,13 +884,6 @@ impl DomainName {
         self.labels.ends_with(&other.labels)
     }
 
-    pub fn make_subdomain_of(&self, origin: &Self) -> Option<Self> {
-        let mut labels = self.labels.clone();
-        labels.pop();
-        labels.append(&mut origin.labels.clone());
-        DomainName::from_labels(labels)
-    }
-
     pub fn to_dotted_string(&self) -> String {
         if self.is_root() {
             return ".".to_string();
@@ -1719,6 +1712,15 @@ pub mod test_util {
             },
             rclass: RecordClass::IN,
             ttl: 300,
+        }
+    }
+
+    impl DomainName {
+        pub fn make_subdomain_of(self, origin: &Self) -> Option<Self> {
+            let mut labels = self.labels;
+            labels.pop();
+            labels.append(&mut origin.labels.clone());
+            Self::from_labels(labels)
         }
     }
 }
