@@ -9,7 +9,7 @@ fuzz_target!(|rr: ResourceRecord| {
     let mut cache = Cache::new();
     let mut rr = rr.clone();
     rr.rclass = RecordClass::IN;
-    cache.insert(&rr);
+    cache.insert(rr.clone());
 
     assert_cache_response(
         &rr,

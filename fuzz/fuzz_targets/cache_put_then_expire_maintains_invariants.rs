@@ -13,8 +13,7 @@ fuzz_target!(|rrs: Vec<(ResourceRecord, bool)>| {
     let mut expected_kept = 0;
     let mut i = 0;
     
-    for (rr, expire) in rrs {
-        let mut rr = rr.clone();
+    for (mut rr, expire) in rrs {
         // ensure each record has a unique name
         rr.name = rr.name.make_subdomain_of(&domain(&format!("{}.", i))).unwrap();
         rr.rclass = RecordClass::IN;
@@ -25,7 +24,7 @@ fuzz_target!(|rrs: Vec<(ResourceRecord, bool)>| {
             rr.ttl = 300;
             expected_kept += 1;
         }
-        cache.insert(&rr);
+        cache.insert(rr);
         i += 1;
     }
 

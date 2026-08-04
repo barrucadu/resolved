@@ -10,8 +10,8 @@ fuzz_target!(|rr: ResourceRecord| {
     let mut rr = rr.clone();
     rr.rclass = RecordClass::IN;
 
-    cache.insert(&rr);
-    cache.insert(&rr);
+    cache.insert(rr.clone());
+    cache.insert(rr);
 
     assert_current_size(1, &cache);
     assert_invariants(&cache);

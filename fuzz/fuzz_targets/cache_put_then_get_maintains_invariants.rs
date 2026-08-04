@@ -9,14 +9,13 @@ fuzz_target!(|rrs: Vec<ResourceRecord>| {
     let mut cache = Cache::new();
     let mut queries = Vec::new();
 
-    for rr in rrs {
-        let mut rr = rr.clone();
+    for mut rr in rrs {
         rr.rclass = RecordClass::IN;
-        cache.insert(&rr);
         queries.push((
             rr.name.clone(),
             QueryType::Record(rr.rtype_with_data.rtype()),
         ));
+        cache.insert(rr);
     }
     for (name, qtype) in queries {
         cache.get_without_checking_expiration(&name, qtype);

@@ -8,10 +8,9 @@ use dns_types::protocol::types::{ResourceRecord, RecordClass};
 fuzz_target!(|rrs: Vec<ResourceRecord>| {
     let mut cache = Cache::new();
 
-    for rr in rrs {
-        let mut rr = rr.clone();
+    for mut rr in rrs {
         rr.rclass = RecordClass::IN;
-        cache.insert(&rr);
+        cache.insert(rr);
     }
 
     assert_invariants(&cache);
