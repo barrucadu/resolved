@@ -81,7 +81,7 @@ impl SharedCache {
     /// # Panics
     ///
     /// If the mutex has been poisoned.
-    pub fn insert(&self, record: &ResourceRecord) {
+    pub fn insert(&self, record: ResourceRecord) {
         if record.ttl > 0 {
             let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
             cache.insert(record);
@@ -100,7 +100,7 @@ impl SharedCache {
     /// # Panics
     ///
     /// If the mutex has been poisoned.
-    pub fn insert_all(&self, records: &[ResourceRecord]) {
+    pub fn insert_all(&self, records: Vec<ResourceRecord>) {
         let mut cache = self.cache.lock().expect(MUTEX_POISON_MESSAGE);
         for record in records {
             if record.ttl > 0 {
@@ -202,11 +202,11 @@ impl Cache {
     }
 
     /// Insert an RR into the cache.
-    pub fn insert(&mut self, record: &ResourceRecord) {
+    pub fn insert(&mut self, record: ResourceRecord) {
         self.inner.upsert(
-            record.name.clone(),
+            record.name,
             record.rtype_with_data.rtype(),
-            record.rtype_with_data.clone(),
+            record.rtype_with_data,
             Duration::from_secs(record.ttl.into()),
         );
     }

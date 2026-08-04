@@ -113,7 +113,7 @@ async fn resolve_forwarding_notimeout<'a>(
         // Propagate SOA RR for NXDOMAIN / NODATA responses
         let soa_rr = get_nxdomain_nodata_soa(question, &response, 0).cloned();
         let rrs = response.answers;
-        context.cache.insert_all(&rrs);
+        context.cache.insert_all(rrs.clone());
         prioritising_merge(&mut combined_rrs, rrs);
         Ok(ResolvedRecord::NonAuthoritative {
             rrs: combined_rrs,

@@ -26,7 +26,7 @@ fuzz_target!(|rrs: Vec<(ResourceRecord, bool)>| {
         } else {
             rr.ttl = 300;
         }
-        cache.insert(&rr);
+        cache.insert(rr);
     }
 
     // if expiry isn't enough, records must be pruned to fit the desired size

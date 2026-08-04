@@ -413,7 +413,7 @@ mod tests {
         let rr = a_record("cached.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
-        cache.insert(&rr);
+        cache.insert(rr.clone());
 
         if let Ok(LocalResolutionResult::Partial { rrs }) =
             test_resolve_local_with_cache("cached.example.com.", &cache, QueryType::Wildcard)
@@ -462,7 +462,7 @@ mod tests {
     #[test]
     fn resolve_local_prefers_authoritative_zones() {
         let cache = SharedCache::new();
-        cache.insert(&a_record(
+        cache.insert(a_record(
             "www.authoritative.example.com.",
             Ipv4Addr::new(8, 8, 8, 8),
         ));
@@ -491,7 +491,7 @@ mod tests {
         let cache_rr = cname_record("a.example.com.", "b.example.com.");
 
         let cache = SharedCache::new();
-        cache.insert(&cache_rr);
+        cache.insert(cache_rr.clone());
 
         if let Ok(LocalResolutionResult::Partial { rrs }) =
             test_resolve_local_with_cache("a.example.com.", &cache, QueryType::Wildcard)
@@ -510,7 +510,7 @@ mod tests {
         let cache_rr = a_record("a.example.com.", Ipv4Addr::new(8, 8, 8, 8));
 
         let cache = SharedCache::new();
-        cache.insert(&cache_rr);
+        cache.insert(cache_rr);
 
         assert_eq!(
             test_resolve_local("a.example.com.", QueryType::Wildcard),
@@ -547,8 +547,8 @@ mod tests {
         let a_rr = a_record("a.example.com.", Ipv4Addr::new(1, 1, 1, 1));
 
         let cache = SharedCache::new();
-        cache.insert(&cname_rr1);
-        cache.insert(&cname_rr2);
+        cache.insert(cname_rr1.clone());
+        cache.insert(cname_rr2.clone());
 
         if let Ok(LocalResolutionResult::Done {
             resolved: ResolvedRecord::NonAuthoritative { rrs, soa_rr: None },

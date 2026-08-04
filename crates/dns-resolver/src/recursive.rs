@@ -186,7 +186,7 @@ async fn resolve_with_nameserver_response<'a>(
     match nameserver_response {
         NameserverResponse::Answer { rrs, soa_rr, .. } => {
             tracing::trace!("got recursive answer");
-            context.cache.insert_all(&rrs);
+            context.cache.insert_all(rrs.clone());
             prioritising_merge(&mut combined_rrs, rrs);
             Ok(Ok(ResolvedRecord::NonAuthoritative {
                 rrs: combined_rrs,
@@ -196,7 +196,7 @@ async fn resolve_with_nameserver_response<'a>(
         NameserverResponse::Delegation {
             rrs, delegation, ..
         } => {
-            context.cache.insert_all(&rrs);
+            context.cache.insert_all(rrs.clone());
             if question.qtype == QueryType::Record(RecordType::A) {
                 if let Some(rr) = get_record(&rrs, &question.name, RecordType::A) {
                     tracing::trace!("got recursive delegation - using glue A record");
@@ -221,7 +221,7 @@ async fn resolve_with_nameserver_response<'a>(
         }
         NameserverResponse::CNAME { rrs, cname, .. } => {
             tracing::trace!("got recursive CNAME");
-            context.cache.insert_all(&rrs);
+            context.cache.insert_all(rrs.clone());
             prioritising_merge(&mut combined_rrs, rrs);
             let cname_question = Question {
                 name: cname,
@@ -1215,8 +1215,8 @@ mod tests {
         let cache = SharedCache::new();
 
         for name in names {
-            cache.insert(&ns_record(name, "ns1.example.com."));
-            cache.insert(&ns_record(name, "ns2.example.com."));
+            cache.insert(ns_record(name, "ns1.example.com."));
+            cache.insert(ns_record(name, "ns2.example.com."));
         }
 
         cache
